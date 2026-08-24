@@ -513,3 +513,75 @@ def test_every_tap_target_in_the_review_is_wide_enough_for_a_thumb(  # type: ign
         print(f"  {line}")
 
     assert not failures, "\n  - " + "\n  - ".join(failures)
+
+
+@pytest.mark.parametrize("width", (1024, 1180))
+def test_the_hero_puts_the_judgement_beside_the_copy_on_a_tablet(  # type: ignore[no-untyped-def]
+    browser, workspace_url: str, width: int
+) -> None:
+    """The one thing the landing page exists to show, above the fold on a tablet.
+
+    The split was gated behind `xl`, so no tablet ever saw it: at 1024 the copy ran the full
+    width with the right half empty, the atlas stacked underneath it, and the judgement — the
+    specimen the hero is built around — sat a screen and a half down. The section went from
+    880px on a desk to 1712px on an iPad.
+
+    Two assertions, because fixing the first alone broke the second: the card has to sit
+    beside the copy, and the section has to be tall enough to hold it. The section is
+    `overflow-hidden`, so a figure that outgrows it is not pushed down, it is cut off — which
+    is what a floor chosen before the card was measured did to its last three lines.
+
+    A real context rather than a narrowed desktop, for the reason `phone_page` gives.
+    """
+
+    context = browser.new_context(
+        viewport={"width": width, "height": 900}, device_scale_factor=1
+    )
+    page = context.new_page()
+    try:
+        page.goto(f"{workspace_url}/", wait_until="networkidle")
+        page.wait_for_selector("h1")
+        geometry = page.evaluate(
+            """() => {
+                 const section = document.querySelector('section');
+                 const heading = document.querySelector('h1');
+                 const card = Array.from(document.querySelectorAll('div')).find(
+                   (node) =>
+                     /GUIDANCE/.test(node.innerText || '') &&
+                     node.getBoundingClientRect().width < 500,
+                 );
+                 if (!section || !heading || !card) return null;
+                 const box = (node) => {
+                   const rect = node.getBoundingClientRect();
+                   return { left: rect.left, right: rect.right, bottom: rect.bottom };
+                 };
+                 return {
+                   section: box(section),
+                   heading: box(heading),
+                   card: box(card),
+                   sectionHeight: section.getBoundingClientRect().height,
+                 };
+               }"""
+        )
+        assert geometry is not None, "the hero, its heading and its specimen must all render"
+
+        # Beside, not below: the card starts to the right of where the copy ends.
+        assert geometry["card"]["left"] >= geometry["heading"]["right"], (
+            f"at {width}px the judgement is not beside the copy — card starts at "
+            f"{geometry['card']['left']:.0f} and the headline ends at "
+            f"{geometry['heading']['right']:.0f}"
+        )
+        # And whole: the section is `overflow-hidden`, so this is the difference between
+        # the card being on screen and its last lines being cut off.
+        assert geometry["card"]["bottom"] <= geometry["section"]["bottom"], (
+            f"at {width}px the judgement is clipped by "
+            f"{geometry['card']['bottom'] - geometry['section']['bottom']:.0f}px — the hero "
+            "needs a floor that the specimen fits inside"
+        )
+        # A stacked hero is roughly twice a split one, which is the shape of the regression.
+        assert geometry["sectionHeight"] < 1200, (
+            f"at {width}px the hero is {geometry['sectionHeight']:.0f}px tall, which is the "
+            "stacked layout rather than the split one"
+        )
+    finally:
+        context.close()

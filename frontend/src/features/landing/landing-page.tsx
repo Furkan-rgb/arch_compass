@@ -129,7 +129,7 @@ function LandingNav() {
       >
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <Wordmark to="/" />
-          <nav aria-label="Sections" className="hidden items-center gap-1 md:flex">
+          <nav aria-label="Sections" className="hidden items-center gap-1 lg:flex">
             {SECTIONS.map((section) => (
               <a
                 key={section.id}
@@ -161,7 +161,7 @@ function LandingNav() {
             <Button
               variant="ghost"
               size="sm"
-              className="-my-1.5 min-h-11 min-w-11 px-2 md:hidden"
+              className="-my-1.5 min-h-11 min-w-11 px-2 lg:hidden"
               aria-label="Open menu"
               onClick={() => setOpen(true)}
             >
@@ -213,19 +213,30 @@ function Hero() {
 
   return (
     // The figure is taken out of the flow above `xl` so it can bleed off the right edge, so
-    // above `xl` the section has nothing tall left in it to be measured by. The minimum is
-    // what the figure needs; below `xl` the copy and the figure stack and it never applies.
-    <section className="relative overflow-hidden pb-10 pt-14 sm:pt-[76px] xl:min-h-[55rem] xl:pb-16">
+    // above `lg` the section has nothing tall left in it to be measured by. The minimum is
+    // what the figure needs; below `lg` the copy and the figure stack and it never applies.
+    //
+    // The split used to start at `xl`, which meant no tablet ever saw it: at 1024 the copy
+    // ran the full width with the right half empty, the atlas stacked underneath, and the
+    // judgement — the one thing the hero exists to show — sat a screen and a half down. The
+    // section went from 880px on a desk to 1712px on an iPad.
+    //
+    // `lg` rather than `md`, and that is measured rather than chosen. At 768 the same
+    // arrangement puts the map through the paragraph and the buttons, and runs the callout
+    // off the right edge with its sentences cut. Below `lg` the stack is the honest answer;
+    // at `lg` the copy narrows to 27rem and the headline with it, because 5.6vw is 57px at
+    // 1024 and that is three words to a line in a column that width.
+    <section className="relative overflow-hidden pb-10 pt-14 sm:pt-[76px] lg:min-h-[54rem] lg:pb-16 xl:min-h-[55rem]">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 grid-lines opacity-50 [mask-image:radial-gradient(74%_62%_at_34%_0%,black,transparent)]"
       />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
-        <Reveal className="xl:max-w-[35rem]">
+        <Reveal className="lg:max-w-[27rem] xl:max-w-[35rem]">
           <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">
             Weighed, not enforced
           </Mono>
-          <h1 className="mt-3.5 max-w-[15ch] font-display text-[clamp(37px,5.6vw,62px)] font-semibold leading-[1.04] tracking-[-0.036em] text-ink">
+          <h1 className="mt-3.5 max-w-[15ch] font-display text-[clamp(37px,5.6vw,62px)] font-semibold leading-[1.04] tracking-[-0.036em] text-ink lg:text-[40px] xl:text-[clamp(37px,5.6vw,62px)]">
             Write your guidance once. Every review weighs it.
           </h1>
           <p className="mt-5 max-w-[52ch] text-[17px] leading-[1.62] text-ink-2">
@@ -265,7 +276,7 @@ function Hero() {
 
         <Reveal
           delay={120}
-          className="mt-12 xl:absolute xl:left-[50%] xl:right-[-6%] xl:top-4 xl:mt-0 xl:max-w-[56rem]"
+          className="mt-12 lg:absolute lg:left-[47%] lg:right-[-4%] lg:top-4 lg:mt-0 lg:max-w-[56rem] xl:left-[50%] xl:right-[-6%]"
         >
           <Mono className="block text-[11px] uppercase tracking-[0.13em] text-ink-3">
             The atlas — parsed, never imported and never run
@@ -274,10 +285,10 @@ function Hero() {
               of this box and a fraction of the viewBox are the same place. That is what lets
               the callout — which is HTML, and outside the SVG — land exactly where the
               leader inside it ends. */}
-          <div className="relative mt-3 max-w-[46rem] xl:aspect-[900/700] xl:max-w-none">
+          <div className="relative mt-3 max-w-[46rem] lg:aspect-[900/700] lg:max-w-none">
             <AtlasMap
               active={bearing.node}
-              className="pointer-events-none aspect-[900/700] w-full xl:absolute xl:inset-0 xl:aspect-auto"
+              className="pointer-events-none aspect-[900/700] w-full lg:absolute lg:inset-0 lg:aspect-auto"
             />
             <SpecimenCallout
               index={index}
@@ -286,7 +297,7 @@ function Hero() {
                 left: `${(ANCHOR.x / ATLAS_VIEWBOX.width) * 100}%`,
                 top: `${(ANCHOR.y / ATLAS_VIEWBOX.height) * 100}%`,
               }}
-              className="mt-6 w-full max-w-[24rem] xl:absolute xl:mt-0 xl:w-[22rem] xl:max-w-none"
+              className="mt-6 w-full max-w-[24rem] lg:absolute lg:mt-0 lg:w-[19rem] lg:max-w-none xl:w-[22rem]"
             />
           </div>
         </Reveal>
