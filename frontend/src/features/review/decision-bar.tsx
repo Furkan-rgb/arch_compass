@@ -5,6 +5,7 @@ import { api, type Decision, type DecisionDisposition, type Finding, type Review
 import { cn } from "../../lib/cn";
 import { absoluteTime, dispositionOf, verdictOf } from "../../lib/format";
 import { hasOpenModal, isTyping } from "../../lib/keyboard";
+import { useHasKeyboard } from "../../lib/media";
 import { DispositionBadge } from "../../ui/badge";
 import { buttonClass } from "../../ui/button";
 import { controlClass } from "../../ui/field";
@@ -97,6 +98,7 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
   const branchId = review.repository.branch_id;
   const candidateId = finding.candidate.id;
 
+  const hasKeyboard = useHasKeyboard();
   const [waiving, setWaiving] = useState(false);
   const [reason, setReason] = useState("");
   const waiveRef = useRef<HTMLButtonElement>(null);
@@ -360,7 +362,7 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
                 )}
               >
                 <span>{choice.label}</span>
-                <KeyCap>{choice.key}</KeyCap>
+                {hasKeyboard ? <KeyCap>{choice.key}</KeyCap> : null}
               </button>
             );
           })}

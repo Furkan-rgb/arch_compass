@@ -8,6 +8,7 @@ import { act } from "react";
  */
 let viewportWidth = 1440;
 let reducedMotion = false;
+let hasKeyboard = true;
 
 type Registration = { query: string; listener: (event: MediaQueryListEvent) => void };
 
@@ -20,6 +21,9 @@ function matches(query: string): boolean {
   const max = /max-width:\s*(\d+)px/.exec(query);
   if (max) return viewportWidth <= Number(max[1]);
   if (query.includes("prefers-color-scheme: dark")) return false;
+  // The input, which is a separate question from the width: `setViewportWidth(390)` alone
+  // still describes a very narrow desk, and a test that means "a phone" has to say so.
+  if (query.includes("hover: hover")) return hasKeyboard;
   return false;
 }
 
@@ -49,6 +53,12 @@ Object.defineProperty(globalThis, "matchMedia", {
 /** Render at a desktop, tablet or phone width. Call before `render`. */
 export function setViewportWidth(width: number) {
   viewportWidth = width;
+  notify();
+}
+
+/** Render as a touch device — no hover, coarse pointer, no keyboard. Call before `render`. */
+export function setHasKeyboard(value: boolean) {
+  hasKeyboard = value;
   notify();
 }
 

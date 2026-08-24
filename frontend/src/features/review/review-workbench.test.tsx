@@ -11,7 +11,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type Decision } from "../../api";
-import { VIEWPORT, setViewportWidth } from "../../test-setup";
+import { VIEWPORT, setHasKeyboard, setViewportWidth } from "../../test-setup";
 import {
   investigationFixture,
   reviewFixture,
@@ -154,6 +154,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   setViewportWidth(VIEWPORT.desktop);
+  setHasKeyboard(true);
 });
 
 describe("the review workbench", () => {
@@ -1681,6 +1682,24 @@ describe("the review workbench", () => {
     // And Escape closes what is open, which is the only key on the docket that was missing.
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(rows()[1]).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("does not teach a keyboard to a screen that has none", async () => {
+    // The hints were gated on nothing at all, so a phone got eleven key caps and four verbs
+    // as the densest thing above the list, describing keys that are not there. Gated on the
+    // input rather than on the width: a laptop window dragged narrow still has a keyboard.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    setHasKeyboard(false);
+    render(wrap(<ReviewPage />));
+    await docket();
+
+    expect(screen.queryByText("walk")).not.toBeInTheDocument();
+    expect(screen.queryByText("all keys")).not.toBeInTheDocument();
+    // The decisions themselves stay — it is the caps on them that go.
+    expect(screen.getByRole("button", { name: "Accept and act" })).toBeInTheDocument();
   });
 
   it("settles a row before the request comes back, and says what happened", async () => {

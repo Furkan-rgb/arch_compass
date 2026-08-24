@@ -6,6 +6,7 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { cn } from "../lib/cn";
 import type { Tone } from "../lib/format";
+import { useHasKeyboard } from "../lib/media";
 import { runPollInterval } from "../lib/runs";
 import { useTheme } from "../lib/theme";
 import { StatusDot } from "../ui/badge";
@@ -335,6 +336,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const palette = useCommandPalette();
   const shortcuts = useShortcutSheet();
+  const hasKeyboard = useHasKeyboard();
   const workspace = isWorkspaceRoute(location.pathname);
 
   useEffect(() => {
@@ -431,7 +433,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               drawer to open and no chips, and nothing on any page said which repository root
               the workspace pointed at or which two models it ran. */}
           <ModelChips className="hidden lg:flex" />
-          <ShortcutsButton onOpen={shortcuts.open} />
+          {hasKeyboard ? <ShortcutsButton onOpen={shortcuts.open} /> : null}
           <ThemeToggle />
           <Link
             to="/start"

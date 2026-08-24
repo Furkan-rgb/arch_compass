@@ -6,6 +6,7 @@ import { api, type Decision, type Finding, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { dispositionOf, humanise, plural, splitQualified, verdictOf } from "../../lib/format";
 import { isPlainShortcut } from "../../lib/keyboard";
+import { useHasKeyboard } from "../../lib/media";
 import { Mark } from "../../ui/mark";
 import { TONE_EDGE, TONE_TEXT } from "../../ui/meta";
 import { Button, ButtonLink, CopyButton, ToggleButton } from "../../ui/button";
@@ -87,6 +88,7 @@ function Progress({
   /** How many rows the text filter leaves, of the ones the chips would have shown. */
   matched: { shown: number; of: number };
 }) {
+  const hasKeyboard = useHasKeyboard();
   const segments = Math.min(total, SEGMENTS);
   // By ratio, not by index. A segment index compared against a raw count is only the same
   // question while the two scales are the same, which they stop being at 25 candidates.
@@ -174,31 +176,37 @@ function Progress({
         {/* The keys, beside the control they act on. This sentence used to sit below every
             row — forty rows past the list the shortcuts exist to move through — and named
             four of the keys the handler supports. The full list is behind `?`, which the
-            shell binds everywhere. */}
-        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-ink-3">
-          <Key>j</Key>
-          <Key>
-            <ArrowDown aria-hidden="true" className="size-3" />
-          </Key>
-          <Key>k</Key>
-          <Key>
-            <ArrowUp aria-hidden="true" className="size-3" />
-          </Key>
-          <span>walk</span>
-          <Key>A</Key>
-          <Key>P</Key>
-          <Key>W</Key>
-          <span>decide</span>
-          <Key>x</Key>
-          <span>select</span>
-          <Key>Esc</Key>
-          <span>close</span>
-          <span aria-hidden="true" className="text-ink-3/50">
-            ·
-          </span>
-          <Key>?</Key>
-          <span>all keys</span>
-        </p>
+            shell binds everywhere.
+
+            Only where there is something to press them on. On a phone this was eleven key
+            caps and four verbs — the single densest thing above the list — describing a
+            keyboard that is not there, and it sat between the reader and the findings. */}
+        {hasKeyboard ? (
+          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-ink-3">
+            <Key>j</Key>
+            <Key>
+              <ArrowDown aria-hidden="true" className="size-3" />
+            </Key>
+            <Key>k</Key>
+            <Key>
+              <ArrowUp aria-hidden="true" className="size-3" />
+            </Key>
+            <span>walk</span>
+            <Key>A</Key>
+            <Key>P</Key>
+            <Key>W</Key>
+            <span>decide</span>
+            <Key>x</Key>
+            <span>select</span>
+            <Key>Esc</Key>
+            <span>close</span>
+            <span aria-hidden="true" className="text-ink-3/50">
+              ·
+            </span>
+            <Key>?</Key>
+            <span>all keys</span>
+          </p>
+        ) : null}
       </div>
     </div>
   );

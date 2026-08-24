@@ -35,3 +35,18 @@ export function useMediaQuery(query: string, fallback = false): boolean {
  * a class rather than a subscription and a re-render.
  */
 export const useIsTabletUp = () => useMediaQuery("(min-width: 1024px)");
+
+/**
+ * Whether there is a keyboard in front of this screen.
+ *
+ * Deliberately not a width. A laptop window dragged narrow still has every key on it, and a
+ * tablet held wide has none — so the hints were being shown and hidden by the one measurement
+ * that does not answer the question. `hover` and `pointer` describe the input rather than the
+ * viewport, which is what a key cap is really asking about: printing `j` and `k` beside a list
+ * a thumb scrolls teaches a keystroke nobody in front of that screen can make, and the sheet
+ * behind `?` is a page of them.
+ *
+ * The fallback is `true`, so anything without `matchMedia` keeps the keys rather than quietly
+ * losing a feature to a missing API.
+ */
+export const useHasKeyboard = () => useMediaQuery("(hover: hover) and (pointer: fine)", true);
