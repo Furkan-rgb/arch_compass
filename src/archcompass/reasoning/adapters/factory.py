@@ -21,6 +21,7 @@ from archcompass.reasoning.adapters.google_batch import (
 )
 from archcompass.reasoning.adapters.openai_compatible import (
     OPENAI_COMPATIBLE_PROVIDERS,
+    openai_compatible_http_client,
 )
 from archcompass.reasoning.adapters.providers import (
     EMBEDDINGGEMMA_DOCUMENT_PROMPT,
@@ -124,6 +125,10 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
         # silently, on its own schedule, without the log line or the `ProviderError` that
         # makes an exhausted quota legible — and `archcompass.retrying` is already wrapped
         # around every structured call.
+        #
+        # The client is ours because of one thing the SDK's own cannot do: a vendor of this
+        # API may answer 200 with an error in the body, and the SDK parses that into a
+        # `TypeError` carrying no status. See `_raise_inline_error`.
         return ChatOpenAI(
             model=config.model,
             base_url=config.base_url,
@@ -134,6 +139,7 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
             max_completion_tokens=config.max_output_tokens,
             timeout=config.timeout_seconds,
             max_retries=0,
+            http_client=openai_compatible_http_client(config.timeout_seconds),
         )
     if config.provider == "ollama":
         return ChatOllama(

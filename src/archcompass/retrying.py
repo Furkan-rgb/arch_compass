@@ -57,16 +57,49 @@ _RETRY_DELAY = re.compile(
 )
 
 
+#: How far down a chain to look. Three is the deepest any of the SDKs here nests: the
+#: OpenAI client re-raises its own `APIConnectionError` over whatever the transport threw,
+#: and LangChain occasionally puts one more layer over that.
+_CHAIN_DEPTH: Final = 4
+
+
+def _chain(error: BaseException) -> list[BaseException]:
+    """An exception and the ones it was raised over.
+
+    Needed because a status does not always survive the trip. An SDK that catches a
+    transport failure and re-raises its own type keeps the original on `__cause__` and
+    throws the status away from the surface — so an in-body 429, which arrives as an
+    exception raised inside the HTTP client, reaches this module as
+    `OpenAIConnectionError("Connection error.")`: no status, no phrase, and therefore read
+    as permanent. It is the same rate limit either way.
+
+    `__context__` as well as `__cause__`, because not every re-raise says `from`. That is
+    the looser of the two and it can reach an exception this call had nothing to do with;
+    the depth cap is what bounds how far a wrong guess can travel, and both checks below
+    are specific enough that an unrelated exception rarely answers yes to either.
+    """
+
+    found: list[BaseException] = []
+    current: BaseException | None = error
+    while current is not None and len(found) < _CHAIN_DEPTH:
+        found.append(current)
+        current = current.__cause__ or current.__context__
+    return found
+
+
 def _status_of(error: BaseException) -> int | None:
     """The HTTP status an exception carries, whatever its SDK calls the attribute."""
 
-    for attribute in ("code", "status_code"):
-        value = getattr(error, attribute, None)
-        if isinstance(value, int):
-            return value
-    response = getattr(error, "response", None)
-    status = getattr(response, "status_code", None)
-    return status if isinstance(status, int) else None
+    for link in _chain(error):
+        for attribute in ("code", "status_code"):
+            value = getattr(link, attribute, None)
+            if isinstance(value, int):
+                return value
+        response = getattr(link, "response", None)
+        status = getattr(response, "status_code", None)
+        if isinstance(status, int):
+            return status
+    return None
 
 
 def is_transient(error: BaseException) -> bool:
@@ -75,14 +108,14 @@ def is_transient(error: BaseException) -> bool:
     status = _status_of(error)
     if status is not None:
         return status in TRANSIENT_STATUSES
-    text = str(error).lower()
+    text = " ".join(str(link) for link in _chain(error)).lower()
     return any(phrase in text for phrase in _TRANSIENT_PHRASES)
 
 
 def suggested_delay(error: BaseException) -> float | None:
     """The wait the provider asked for, if it named one."""
 
-    found = _RETRY_DELAY.search(str(error))
+    found = _RETRY_DELAY.search(" ".join(str(link) for link in _chain(error)))
     return float(found.group(1)) if found else None
 
 

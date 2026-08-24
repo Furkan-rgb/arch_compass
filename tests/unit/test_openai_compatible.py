@@ -4,6 +4,9 @@ Nothing here talks to a vendor. What is worth testing is the part that is ours: 
 a listing is allowed to turn into choices, what happens when a vendor renames one, and that
 the transport is built pointing at the right host with the right credential — because
 getting that wrong produces a request that goes to OpenAI with a Groq key on it.
+
+And one thing that is not plumbing: a vendor may answer HTTP 200 with an error in the body,
+which the SDK underneath turns into an exception carrying no status at all.
 """
 
 from __future__ import annotations
@@ -15,16 +18,20 @@ import pytest
 
 from archcompass.bootstrap import enabled_providers
 from archcompass.configuration import ReasoningModelConfig
-from archcompass.domain.errors import ConfigurationError
+from archcompass.domain.errors import ConfigurationError, ProviderError
 from archcompass.reasoning.adapters import openai_compatible
 from archcompass.reasoning.adapters.factory import build_chat_model
 from archcompass.reasoning.adapters.openai_compatible import (
     CEREBRAS,
     GROQ,
     OPENAI_COMPATIBLE_PROVIDERS,
+    InlineProviderError,
+    _raise_inline_error,
     descriptors,
+    openai_compatible_http_client,
     probe_openai_compatible,
 )
+from archcompass.retrying import is_transient
 
 
 def _listing(*model_ids: str) -> httpx.Response:
@@ -217,3 +224,85 @@ def test_the_transport_refuses_without_the_credential_it_names(
                 timeout_seconds=30.0,
             )
         )
+
+
+def _response(
+    status: int, body: bytes, content_type: str = "application/json"
+) -> httpx.Response:
+    return httpx.Response(
+        status_code=status,
+        headers={"content-type": content_type},
+        content=body,
+        request=httpx.Request("POST", "https://example.test/v1/chat/completions"),
+    )
+
+
+def test_a_rate_limit_hidden_in_a_200_body_is_still_a_rate_limit() -> None:
+    """The failure this exists for, end to end.
+
+    OpenRouter reports anything that goes wrong mid-generation in the body, because the
+    request did reach a provider. The body then has an `error` and no `choices`, the SDK
+    iterates `choices` while parsing, and the review dies on
+    `TypeError: 'NoneType' object is not iterable` — no status, no phrase, so `is_transient`
+    reads it as permanent and a four-second wait becomes a lost review.
+    """
+
+    inline = _response(200, b'{"error": {"code": 429, "message": "Rate limit exceeded"}}')
+
+    with pytest.raises(InlineProviderError) as refused:
+        _raise_inline_error(inline)
+
+    assert "Rate limit exceeded" in str(refused.value)
+    assert is_transient(refused.value), "a 429 in the body must be waited on, not raised past"
+
+
+def test_a_permanent_error_in_a_200_body_is_not_waited_on() -> None:
+    """The same interception must not turn every refusal into a retry loop."""
+
+    inline = _response(200, b'{"error": {"code": 402, "message": "Insufficient credits"}}')
+
+    with pytest.raises(InlineProviderError) as refused:
+        _raise_inline_error(inline)
+
+    assert not is_transient(refused.value)
+    assert isinstance(refused.value, ProviderError), "the domain type every caller catches"
+
+
+def test_an_error_with_no_code_still_stops_the_parse() -> None:
+    """A body that is an error is not a completion, whether or not it says how."""
+
+    inline = _response(200, b'{"error": {"message": "something went wrong upstream"}}')
+
+    with pytest.raises(InlineProviderError, match="something went wrong upstream"):
+        _raise_inline_error(inline)
+
+
+def test_an_ordinary_completion_passes_through_untouched() -> None:
+    body = b'{"choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}]}'
+
+    _raise_inline_error(_response(200, body))
+
+
+def test_a_real_error_status_is_left_to_the_sdk() -> None:
+    """A 429 in the status line already works; intercepting it would only reword it."""
+
+    _raise_inline_error(_response(429, b'{"error": {"code": 429, "message": "slow down"}}'))
+
+
+def test_a_stream_is_never_read_here() -> None:
+    """Reading the body in the hook would consume the stream.
+
+    ArchCompass does not stream a structured call, and this guard is what keeps that from
+    becoming a rule somebody has to remember rather than one the code holds.
+    """
+
+    _raise_inline_error(
+        _response(200, b"data: {}\n\n", content_type="text/event-stream")
+    )
+
+
+def test_the_client_carries_the_hook_and_the_timeout() -> None:
+    client = openai_compatible_http_client(12.5)
+
+    assert _raise_inline_error in client.event_hooks["response"]
+    assert client.timeout.read == 12.5

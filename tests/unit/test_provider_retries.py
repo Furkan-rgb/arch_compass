@@ -223,3 +223,56 @@ def test_the_chosen_thinking_depth_reaches_the_google_request(
     thinking = getattr(request.get("config"), "thinking_config", None)
 
     assert (None if thinking is None else thinking.thinking_level.name) == expected
+
+
+class _Wrapped(Exception):
+    """What an SDK raises over whatever the transport threw. No status of its own."""
+
+
+def _chained(cause: BaseException) -> _Wrapped:
+    outer = _Wrapped("Connection error.")
+    outer.__cause__ = cause
+    return outer
+
+
+def test_a_status_survives_being_re_raised_by_an_sdk() -> None:
+    """The wrapper does not change what the provider said.
+
+    An in-body error is raised from inside the HTTP client, and the OpenAI SDK catches that
+    and re-raises `APIConnectionError("Connection error.")` over it — no status, no phrase.
+    Read only at the surface, a 429 that should cost four seconds ends the review instead.
+    """
+
+    rate_limited = ProviderError("The provider answered 200 with an error in the body: busy")
+    rate_limited.status_code = 429  # type: ignore[attr-defined]
+
+    assert is_transient(_chained(rate_limited))
+
+
+def test_a_permanent_status_survives_the_same_trip() -> None:
+    """Looking through the chain must not make everything look temporary."""
+
+    broke = ProviderError("Insufficient credits")
+    broke.status_code = 402  # type: ignore[attr-defined]
+
+    assert not is_transient(_chained(broke))
+
+
+def test_a_phrase_is_read_through_the_chain_too() -> None:
+    """A provider that names no status still says what happened, one layer down."""
+
+    assert is_transient(_chained(ProviderError("upstream is overloaded, try later")))
+
+
+def test_the_delay_a_provider_asks_for_survives_the_chain() -> None:
+    """The wait the quota is actually keeping is better than any schedule of ours."""
+
+    asked = ProviderError("429 RESOURCE_EXHAUSTED {'retryDelay': '36s'}")
+
+    assert suggested_delay(_chained(asked)) == 36.0
+
+
+def test_an_unrelated_exception_two_layers_down_is_not_read_as_a_rate_limit() -> None:
+    """The chain is walked because a status gets buried, not so that anything counts."""
+
+    assert not is_transient(_chained(ValueError("a candidate id was malformed")))

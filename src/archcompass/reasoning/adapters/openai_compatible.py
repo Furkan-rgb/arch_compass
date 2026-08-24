@@ -32,13 +32,84 @@ from typing import Final, cast
 import httpx
 
 from archcompass.configuration import resolve_api_key
-from archcompass.domain.errors import ConfigurationError
+from archcompass.domain.errors import ConfigurationError, ProviderError
 from archcompass.reasoning.ports import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.records import AvailableModel, ProbeResult
 
 #: How long a listing may take before the chooser gives up on it. The same two seconds the
 #: other probes allow: this answers a dropdown, not a review.
 _PROBE_TIMEOUT: Final = 2.0
+
+
+class InlineProviderError(ProviderError):
+    """A refusal the provider put inside a 200 body instead of in the status line.
+
+    Carries the status the body claimed, because that is the only place it is stated. The
+    retry layer reads `status_code` off whatever it is handed, so a 429 delivered this way
+    is waited on exactly like one delivered properly.
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _raise_inline_error(response: httpx.Response) -> None:
+    """Turn a 200 that is actually an error into an error, before the SDK sees it.
+
+    OpenRouter documents that anything going wrong *while the model is producing output* is
+    reported in the response body rather than in the status — the request reached a provider,
+    so by HTTP's reckoning it succeeded. The body then has an `error` object and no `choices`.
+
+    What that costs without this hook is not a worse message, it is the review. The OpenAI
+    SDK iterates `choices` while parsing, so the first thing to fail is
+    `TypeError: 'NoneType' object is not iterable` — an exception carrying no status and no
+    recognisable phrase, which `is_transient` therefore reads as permanent. A rate limit
+    arriving in the middle of a batch of judgements ends the whole review instead of costing
+    four seconds.
+
+    Deliberately narrow. Only a 2xx, only JSON, only a top-level `error` object: a body
+    shaped like that is never a completion anybody could use, on any vendor of this API.
+    Streaming is left alone — reading the body here would consume it — and ArchCompass does
+    not stream a structured call anyway.
+    """
+
+    if response.status_code // 100 != 2:
+        return
+    content_type = response.headers.get("content-type", "")
+    if "json" not in content_type or "event-stream" in content_type:
+        return
+    response.read()
+    try:
+        document = cast(object, response.json())
+    except ValueError:
+        return
+    if not isinstance(document, dict):
+        return
+    error = cast(Mapping[str, object], document).get("error")
+    if not isinstance(error, dict):
+        return
+    detail = cast(Mapping[str, object], error)
+    code = detail.get("code")
+    message = detail.get("message")
+    raise InlineProviderError(
+        f"The provider answered {response.status_code} with an error in the body: "
+        f"{message if isinstance(message, str) else error}",
+        status_code=code if isinstance(code, int) else None,
+    )
+
+
+def openai_compatible_http_client(timeout: float) -> httpx.Client:
+    """The transport every vendor of this API is reached through.
+
+    Its only job beyond the timeout is `_raise_inline_error`, which is why it exists at all
+    rather than the SDK's own client being good enough.
+    """
+
+    return httpx.Client(
+        timeout=timeout,
+        event_hooks={"response": [_raise_inline_error]},
+    )
 
 
 @dataclass(frozen=True, slots=True)
