@@ -208,6 +208,23 @@ ERROR: (gcloud.run.deploy) spec.template.spec.containers[0].env[11]
   for Revision service account NNNNNNNNNNNN-compute@developer.gserviceaccount.com.
 ```
 
+Read that message with suspicion. It says permission, and it is also what a secret that does
+not exist looks like — Secret Manager answers a caller who cannot see a secret the same way
+whether or not there is one, so the deploy cannot tell the two apart and neither can the
+error. Here there was no secret: the migration replaced
+
+    --set-secrets GOOGLE_API_KEY=archcompass-google-api-key:latest
+
+with `OPENROUTER_API_KEY=archcompass-openrouter-api-key:latest` and created nothing. Ask
+directly before reaching for a grant, where a 404 is a 404:
+
+```bash
+gcloud secrets describe archcompass-openrouter-api-key --project "$PROJECT"
+```
+
+`archcompass-google-api-key` is still there and nothing reads it. It can go once a deploy has
+gone green without it.
+
 Four repository variables carry the trust, and the workflow reads nothing else about the
 project: `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_WORKLOAD_IDENTITY_PROVIDER` and
 `GCP_SERVICE_ACCOUNT`. They are variables rather than file contents so that a fork deploys
