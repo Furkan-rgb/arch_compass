@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { api, type RepositorySummary, type ReviewRun, type ReviewSummary } from "../../api";
 import { cn } from "../../lib/cn";
-import { useRunsBecomeReviews } from "../../lib/runs";
+import { runPollInterval, useRunsBecomeReviews } from "../../lib/runs";
 import { plural, repositoryName } from "../../lib/format";
 import { Button, ButtonLink } from "../../ui/button";
 import { CheckIcon } from "../../ui/icons";
@@ -143,7 +143,7 @@ export function StartPage() {
   const runs = useQuery({
     queryKey: ["review-runs"],
     queryFn: api.reviewRuns,
-    refetchInterval: (query) => (query.state.data?.length ? 4000 : false),
+    refetchInterval: (query) => runPollInterval(query.state.data),
   });
   // A run leaving that list is a review arriving. Polling it and not acting on the change is
   // what left a finished background run invisible until a reload.

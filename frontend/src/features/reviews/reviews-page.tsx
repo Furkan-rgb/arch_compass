@@ -10,7 +10,7 @@ import { Link } from "react-router-dom";
 
 import { api, type Decision, type Finding, type Review, type ReviewRun } from "../../api";
 import { cn } from "../../lib/cn";
-import { useRunsBecomeReviews } from "../../lib/runs";
+import { runPollInterval, useRunsBecomeReviews } from "../../lib/runs";
 import {
   humanise,
   plural,
@@ -520,7 +520,7 @@ export function ReviewsPage() {
   const runs = useQuery({
     queryKey: ["review-runs"],
     queryFn: api.reviewRuns,
-    refetchInterval: (query) => (query.state.data?.length ? 4000 : false),
+    refetchInterval: (query) => runPollInterval(query.state.data),
   });
   useRunsBecomeReviews(runs.data);
   const remove = useMutation({

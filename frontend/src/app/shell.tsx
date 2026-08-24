@@ -6,6 +6,7 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { cn } from "../lib/cn";
 import type { Tone } from "../lib/format";
+import { runPollInterval } from "../lib/runs";
 import { useTheme } from "../lib/theme";
 import { StatusDot } from "../ui/badge";
 import { Drawer } from "../ui/drawer";
@@ -222,7 +223,7 @@ function RunIndicator({ className }: { className?: string }) {
   const runs = useQuery({
     queryKey: ["review-runs"],
     queryFn: api.reviewRuns,
-    refetchInterval: (query) => (query.state.data?.length ? 4000 : false),
+    refetchInterval: (query) => runPollInterval(query.state.data),
   });
 
   const running = runs.data ?? [];

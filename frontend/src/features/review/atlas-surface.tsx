@@ -394,6 +394,13 @@ export function AtlasSurface({
     queryKey: ["review-context", root, nodeIds, qualifiedNames, neighbours],
     queryFn: () => api.reviewContext(root, nodeIds, qualifiedNames, neighbours),
     enabled: nodeIds.length + qualifiedNames.length > 0,
+    // The same argument the explorations below make, and it applies here first: the atlas a
+    // stored review was judged against is pinned, and the anchors are the review's own, so
+    // this answer cannot change. On the global five seconds it could not be kept — the
+    // surface unmounts with its tab, so every return was a remount of a stale query and
+    // another 2.05 MB over the wire for a map that had not moved.
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 
   /**

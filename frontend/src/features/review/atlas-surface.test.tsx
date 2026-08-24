@@ -199,6 +199,35 @@ describe("the atlas surface", () => {
     expect(onOpen).toHaveBeenCalledWith("candidate-1");
   });
 
+  it("keeps the pinned atlas rather than fetching it again on the way back", async () => {
+    // The surface unmounts with its tab, so returning to Atlas is a remount — and on the
+    // global five-second staleness that meant another 2.05 MB over the wire for a map that
+    // cannot have moved: a stored review's anchors are its own, and the atlas it was judged
+    // against is pinned. The explorations built on this map already said so and kept theirs.
+    const reviewContext = vi.spyOn(api, "reviewContext").mockResolvedValue(atlasResult());
+    // `staleTime: 0` on the client is the shipped five seconds with the waiting removed: a
+    // remount refetches unless the query itself says the answer cannot go stale. Travelling
+    // the clock forward instead would prove nothing — React Query reads `Date.now()`, and
+    // putting it back is what `useRealTimers` does.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const shown = (
+      <QueryClientProvider client={client}>
+        <AtlasSurface review={reviewFixture()} />
+      </QueryClientProvider>
+    );
+
+    const first = render(shown);
+    await screen.findByRole("group", { name: /structure/i });
+    expect(reviewContext).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    render(shown);
+    await screen.findByRole("group", { name: /structure/i });
+    expect(reviewContext).toHaveBeenCalledTimes(1);
+  });
+
   /**
    * The map is one request, not one per finding. The neighbourhoods of a review's candidates
    * overlap almost entirely, so asking per finding fetched the same packages and the same

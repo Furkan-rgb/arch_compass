@@ -24,6 +24,23 @@ import type { ReviewRun } from "../api";
  * comparison is against the *previous* set, so it has to survive a render that changes
  * nothing.
  */
+/**
+ * How often to ask what is running, given what was running last time.
+ *
+ * It used to be `data?.length ? 4000 : false`, and `false` is a trap: once the list answers
+ * empty, nothing re-enables the poll while the reader stays on that route.
+ * `refetchOnWindowFocus` is off, and a run started anywhere else — a second tab, the CLI,
+ * CI — invalidates nothing here. So sitting on `/reviews` when a run began meant the run
+ * never appeared, and because it never appeared it never *left*, so `useRunsBecomeReviews`
+ * never fired either: the review it produced was not on the page until somebody reloaded.
+ * That is the failure this file's docstring describes, reached from the other direction.
+ *
+ * Idle is a slow cadence rather than a stopped one. Two 2-byte requests a minute for a
+ * workspace with nothing running, and none at all on a hidden tab — React Query's focus
+ * manager already stops the timer there, which is measured rather than assumed.
+ */
+export const runPollInterval = (runs: ReviewRun[] | undefined) => (runs?.length ? 4_000 : 30_000);
+
 export function useRunsBecomeReviews(runs: ReviewRun[] | undefined) {
   const client = useQueryClient();
   const seen = useRef<string[]>([]);
