@@ -18,6 +18,13 @@ import type { Finding, Investigation, RetrievalProvenance, Review } from "../../
  * workspace by design — but everything is shaped like what a real run records, and the three
  * candidates are the same three the hero shows. See `bearings.ts`, which makes the same
  * argument about the specimen in the hero.
+ *
+ * The identities are the half of that argument the compiler cannot make. They drifted: this
+ * page printed `google:gemini-3.6` above the fold long after the direct Google integration
+ * was deleted and `_ALL_PROVIDERS` became ollama, openrouter and fake — a provider prefix no
+ * build can produce, in a shape (`provider:model:thinking=…`) it does not have. Same for
+ * `judge:v1` against `judge:v3` and `1-k8` against the dual-query retriever's own version.
+ * `landing.test.tsx` pins them to the values the product exports now.
  */
 
 const REPOSITORY = {
@@ -127,8 +134,8 @@ const GATEWAY: Finding = {
   recommended_response:
     "Inline the adapter until a second provider is committed, or take the provider's error type out of the interface so the port is one a second provider could satisfy.",
   reused_from_review_id: null,
-  model_identity: "google:gemini-3.6",
-  prompt_identity: "judge:v1",
+  model_identity: "openrouter:google/gemini-3.6:thinking=None",
+  prompt_identity: "judge:v3",
   retrieval_identity: "9d41b7c0e5a2f38b6c1d4e7a9058f2b3c6d81e4a7b02c95f3e6a1d84b7c0e529",
   investigation_identity: "",
 };
@@ -191,8 +198,8 @@ const ORDERS: Finding = {
   hinge: "who owns the adapter — the platform team, or the domain.",
   recommended_response: null,
   reused_from_review_id: null,
-  model_identity: "google:gemini-3.6",
-  prompt_identity: "judge:v1",
+  model_identity: "openrouter:google/gemini-3.6:thinking=None",
+  prompt_identity: "judge:v3",
   retrieval_identity: "4c7e1a9b03d5f682e4a7c0b19d3f6528a1b4c7e0d3f69258a1c4b7e0d3f69258",
   investigation_identity: "b2f5c8e1a4d70396b5e8c1a4d70396b5e8c1a4d70396b5e8c1a4d70396b5e8c1",
 };
@@ -250,8 +257,8 @@ const INVOICE: Finding = {
   hinge: null,
   recommended_response: null,
   reused_from_review_id: null,
-  model_identity: "google:gemini-3.6",
-  prompt_identity: "judge:v1",
+  model_identity: "openrouter:google/gemini-3.6:thinking=None",
+  prompt_identity: "judge:v3",
   retrieval_identity: "7a0d3f69258c1b4e7a0d3f69258c1b4e7a0d3f69258c1b4e7a0d3f69258c1b4e",
   investigation_identity: "",
 };
@@ -261,7 +268,7 @@ const RETRIEVAL: RetrievalProvenance[] = [
   {
     candidate_id: "candidate-gateway",
     retriever: "dense-scoped",
-    version: "1-k8",
+    version: "2-rrf-equal-1-k16",
     corpus_fingerprint: "3f6a1d84b7c0e5299d41b7c0e5a2f38b6c1d4e7a9058f2b3c6d81e4a7b02c95f",
     selected_policy_ids: [
       "delay-premature-abstraction",
@@ -271,14 +278,14 @@ const RETRIEVAL: RetrievalProvenance[] = [
       "hide-implementation-details",
       "name-for-meaning",
     ],
-    model_identity: "ollama:nomic-embed-text",
+    model_identity: "ollama:nomic-embed-text:768",
     query_fingerprint: "c95f3e6a1d84b7c0",
     metadata: { top_k: "8" },
   },
   {
     candidate_id: "candidate-orders",
     retriever: "dense-scoped",
-    version: "1-k8",
+    version: "2-rrf-equal-1-k16",
     corpus_fingerprint: "3f6a1d84b7c0e5299d41b7c0e5a2f38b6c1d4e7a9058f2b3c6d81e4a7b02c95f",
     selected_policy_ids: [
       "give-state-one-writer",
@@ -287,14 +294,14 @@ const RETRIEVAL: RetrievalProvenance[] = [
       "prefer-deep-modules",
       "keep-effects-at-the-edges",
     ],
-    model_identity: "ollama:nomic-embed-text",
+    model_identity: "ollama:nomic-embed-text:768",
     query_fingerprint: "1d84b7c0e5293e6a",
     metadata: { top_k: "8" },
   },
   {
     candidate_id: "candidate-invoice",
     retriever: "dense-scoped",
-    version: "1-k8",
+    version: "2-rrf-equal-1-k16",
     corpus_fingerprint: "3f6a1d84b7c0e5299d41b7c0e5a2f38b6c1d4e7a9058f2b3c6d81e4a7b02c95f",
     selected_policy_ids: [
       "explicit-source-of-truth",
@@ -305,7 +312,7 @@ const RETRIEVAL: RetrievalProvenance[] = [
       "design-for-replaceability",
       "separate-commands-from-queries",
     ],
-    model_identity: "ollama:nomic-embed-text",
+    model_identity: "ollama:nomic-embed-text:768",
     query_fingerprint: "b7c0e5293e6a1d84",
     metadata: { top_k: "8" },
   },
@@ -342,8 +349,8 @@ ops.backfill           imports  adapters.db.Store`,
     withheld: "",
     termination: "natural_end",
     atlas_fingerprint: "8f31c2a91b4d0e5a2f38b6c1d4e7a9058f2b3c6d81e4a7b02c95f3e6a1d84b7c",
-    prompt_identity: "investigate:v1",
-    model_identity: "google:gemini-3.6",
+    prompt_identity: "investigate-hinge:v1",
+    model_identity: "openrouter:google/gemini-3.6:thinking=None",
   },
 ];
 
@@ -438,8 +445,8 @@ export const CASE_FILE: Review = {
   investigation_manifest: INVESTIGATION,
   synopsis: null,
   synopsis_identity: "",
-  model_identity: "google:gemini-3.6",
-  prompt_identity: "judge:v1",
+  model_identity: "openrouter:google/gemini-3.6:thinking=None",
+  prompt_identity: "judge:v3",
   started_at: "2026-08-21T08:30:00Z",
   finished_at: "2026-08-21T08:34:00Z",
   failure: null,

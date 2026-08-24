@@ -272,11 +272,20 @@ export function atlasFreshness(
   indexedAt: string | null | undefined,
   commitsBehind?: number | null,
   now = Date.now(),
+  headCommitSha?: string | null,
 ): { label: string; step: MarkShape } {
   if (typeof commitsBehind === "number") {
     if (commitsBehind <= 0) return { label: "Current", step: "solid" };
     return { label: `${plural(commitsBehind, "commit")} behind`, step: "dashed" };
   }
+  // A checkout that has a HEAD but could not be asked how far this atlas is from it — a
+  // rewritten history, or a repository re-cloned since. The relationship to the code on disk
+  // is unknown, which is not the same as young: an atlas built four minutes ago at a commit
+  // this checkout has never heard of read "Fresh", with a solid mark, and nothing on the card
+  // said the distance could not be measured. `docs/charter.md`: an explicit unknown outranks
+  // an implied one. Where there is no HEAD at all — a folder outside git — there is no
+  // distance to be missing, and the clock is honestly all there is.
+  if (headCommitSha) return { label: "Distance unknown", step: "dashed" };
   if (!indexedAt) return { label: "Never indexed", step: "dashed" };
   const age = now - Date.parse(indexedAt);
   if (Number.isNaN(age)) return { label: "Never indexed", step: "dashed" };

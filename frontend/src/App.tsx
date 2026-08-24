@@ -53,6 +53,13 @@ const SettingsPage = lazy(() =>
  * deleted, a bookmark from before a rename — landed somebody on a form with no explanation
  * and no way to tell whether they had mistyped or the thing was gone. Naming the address is
  * the whole of the fix: it is the one piece of information the reader does not have.
+ *
+ * And only that. It also said "It may have been a review that has since been deleted", which
+ * was a guess about every address it was ever shown for — `/modles`, a truncated paste, a
+ * link from a blog post — and could not be true of any of them: `/reviews/:reviewId` is a
+ * route, so a review id that no longer exists renders the review page and its own error,
+ * never this. A guess offered as a possibility is still a guess, and this one sent people
+ * looking for a deleted review when what they had was a typo.
  */
 function NotFound() {
   const { pathname } = useLocation();
@@ -69,7 +76,7 @@ function NotFound() {
       }
     >
       <span className="font-mono text-[12px] text-ink-2 wrap-anywhere">{pathname}</span> is not
-      part of the workbench. It may have been a review that has since been deleted.
+      part of the workbench.
     </EmptyState>
   );
 }

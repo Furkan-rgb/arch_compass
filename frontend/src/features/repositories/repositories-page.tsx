@@ -65,7 +65,12 @@ function RepositoryCard({
   // where it cannot. Nothing here holds a second answer of its own any more: re-indexing and
   // fetching both invalidate the listing, and the listing is where the distance comes from.
   const behind = repository.commits_behind ?? 0;
-  const freshness = atlasFreshness(repository.created_at, repository.commits_behind);
+  const freshness = atlasFreshness(
+    repository.created_at,
+    repository.commits_behind,
+    undefined,
+    repository.head_commit_sha,
+  );
   const cost = reviewCost(latest);
 
   const reindex = useMutation({

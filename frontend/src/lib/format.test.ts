@@ -86,6 +86,18 @@ describe("time", () => {
     expect(atlasFreshness(null, null, now).label).toBe("Never indexed");
   });
 
+  it("does not call an atlas current when the distance cannot be measured", () => {
+    // `commits_behind: null` with a HEAD means the commit this atlas was built at is not one
+    // the checkout knows — rewritten history, or a re-clone. The clock then says nothing
+    // about the relationship to the code on disk, and an atlas built four minutes ago read
+    // "Fresh" with a solid mark. Without a HEAD there is no distance to be missing.
+    expect(atlasFreshness("2026-01-01T11:56:00Z", null, now, "abc1234")).toEqual({
+      label: "Distance unknown",
+      step: "dashed",
+    });
+    expect(atlasFreshness("2026-01-01T11:56:00Z", null, now, null).label).toBe("Fresh");
+  });
+
   /**
    * The clock was answering a question it cannot answer, and getting it wrong both ways.
    *

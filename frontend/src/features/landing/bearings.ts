@@ -58,7 +58,7 @@ export const BEARINGS: Bearing[] = [
     reasoning:
       "The protocol has had one implementation since it was introduced, and it names stripe_retry_after — so the variation this abstraction was guessing at never arrived, and the interface now encodes the provider it was meant to keep replaceable.",
     also: "design-for-replaceability",
-    source: "payments/gateway.py:12–26 · google:gemini-3.6",
+    source: "payments/gateway.py:12–26 · openrouter:google/gemini-3.6",
   },
   {
     node: "orders",
