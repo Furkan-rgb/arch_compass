@@ -117,13 +117,10 @@ because unlike that one they are plausible REST surface somebody may have meant 
 - `GET /api/branches`, `GET /api/policies/{policy_id}`
 - `GET /api/review-conversations/{id}` (and `reasoning/conversation.py:show` behind it)
 
-`safe_workspace_output_path` (`repositories/safety.py`) is called from nowhere. It is a
-symlink and path-traversal defence, so **confirm it was deliberately unwired rather than
-accidentally orphaned** before removing it; everything else the audit found dead has gone.
-
-`safe_workspace_output_path` is the last of the dead code; the duplicated helpers, the
-duplicated ignored-directory list and the two protocols sharing the name `RepositoryAnalyzer`
-have all been reduced to one definition each.
+The duplicated helpers, the duplicated ignored-directory list and the two protocols sharing
+the name `RepositoryAnalyzer` have all been reduced to one definition each, and
+`safe_workspace_output_path` has gone — see the symlink entry below for the one check that
+left with it.
 
 ## OPEN — an empty-file repository costs memory the storage ceiling scores at zero
 
