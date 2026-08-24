@@ -79,10 +79,10 @@ class SubmittedAnswer:
     actor: str = "user"
 
 
-#: The nodes that produce a verdict. `judge_candidate` is one candidate's turn through the
-#: per-candidate subgraph; `review_candidates` is the whole selection judged in one batch.
-#: Both answer the same question a watcher is asking — how many are done — so both count.
-_JUDGING_STAGES = frozenset({"judge_candidate", "review_candidates"})
+#: The node that produces a verdict: one candidate's turn through the per-candidate
+#: subgraph. A set of one because it answers a question a watcher asks — how many are done —
+#: and a second node that answered it would have to be counted the same way.
+_JUDGING_STAGES = frozenset({"judge_candidate"})
 
 #: The nodes that file a snapshot, and therefore the only updates whose review is on disk.
 #:
@@ -203,7 +203,7 @@ class ReviewWorkflowService:
 
         Returns the moment the run has an id, which is before it has a review — that is
         the whole point. The caller is handed something to come back to, so a reload lands
-        on the run rather than on nothing, and a judgement that takes an hour in a batch
+        on the run rather than on nothing, and a judgement that takes minutes
         costs nobody a connection.
         """
 
@@ -257,9 +257,9 @@ class ReviewWorkflowService:
         """The work of one run: drive the graph, report on it, and stop when asked to.
 
         Shared by starting a review and by rejudging one after a clarification round,
-        because a watcher of either is asking the same questions — which stage, how many
-        candidates, what the provider did with the batch — and two copies of this loop would
-        answer them differently the first time one of them changed.
+        because a watcher of either is asking the same questions — which stage, and how
+        many candidates now have a verdict — and two copies of this loop would answer them
+        differently the first time one of them changed.
         """
 
         def work(report: Callable[[str], None]) -> None:
@@ -269,19 +269,15 @@ class ReviewWorkflowService:
                 for raw in self._graph.stream(
                     source,
                     self._config(thread_id),
-                    # `custom` alongside `updates` because one thing a watcher needs to know
-                    # arrives while a node is still running rather than when it returns:
-                    # whether the provider took the batch. A node's return value cannot say
-                    # so — it arrives an hour later, when the answer no longer matters.
-                    stream_mode=["updates", "custom"],
+                    # A list of one rather than the bare string, because a list is what
+                    # makes every item arrive as `(mode, payload)` — the shape `_streamed`
+                    # unwraps. It carried a second mode while a node could report progress
+                    # from inside itself; nothing emits a custom event now, and the list
+                    # stays so that adding one back is a word rather than a reshaping.
+                    stream_mode=["updates"],
                     subgraphs=True,
                 ):
-                    mode, payload = self._streamed(raw)
-                    if mode == "custom":
-                        outcome = self._batch_outcome(payload)
-                        if outcome:
-                            self._runner.report_batch(thread_id, outcome)
-                        continue
+                    _, payload = self._streamed(raw)
                     stage, update = self._progress_update(payload)
                     report(stage)
                     if judging.observe(stage, update):
@@ -490,7 +486,7 @@ class ReviewWorkflowService:
         rewrites what had.
 
         Answered before the thread has noticed, because the flag is read between stages and
-        the stage in flight may be a batch. The status is what was decided; the stages a
+        the stage in flight may be a long one. The status is what was decided; the stages a
         watcher keeps polling are what has happened.
         """
 
@@ -798,15 +794,6 @@ class ReviewWorkflowService:
         self._executions.bind(thread_id, recorded)
         self._release(thread_id)
         return recorded
-
-    @staticmethod
-    def _batch_outcome(payload: object) -> str:
-        """What a `custom` event says about the batch, or nothing if it says something else."""
-
-        if not isinstance(payload, Mapping):
-            return ""
-        emitted = cast("Mapping[object, object]", payload).get("batch")
-        return emitted if isinstance(emitted, str) else ""
 
     @staticmethod
     def _streamed(raw: object) -> tuple[str, object]:

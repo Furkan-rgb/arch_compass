@@ -7,7 +7,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import cast
 
-from langgraph.config import get_stream_writer
 from langgraph.types import interrupt
 
 from archcompass.domain import (
@@ -21,15 +20,12 @@ from archcompass.domain import (
 from archcompass.domain.errors import NothingToReviewError
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
-    BatchArchitectureJudge,
-    BatchOutcome,
     CandidateDetector,
     CandidateSelection,
     CaseReviser,
     ContextLoader,
     HingeInvestigator,
     InitialCandidateSelector,
-    JudgementRequest,
     PolicyCorpus,
     PolicyRetriever,
     QuestionGenerator,
@@ -46,7 +42,7 @@ _log = logging.getLogger(__name__)
 
 #: How many hinged findings one round will investigate. A sequencing decision, and
 #: therefore the graph's rather than an adapter's: investigating is interactive by
-#: construction, so a review where everything hinged is a run of unbatched calls in
+#: construction, so a review where everything hinged is a run of tool loops in
 #: front of a waiting reader. The ones past the ceiling keep their hinges and reach a
 #: person exactly as they did before this existed.
 MAX_INVESTIGATED_FINDINGS = 8
@@ -188,60 +184,6 @@ def judge_candidate_node(judge: ArchitectureJudge) -> Node:
         }
 
     return judge_candidate
-
-
-def review_candidates_node(retriever: PolicyRetriever, judge: ArchitectureJudge) -> Node:
-    """Retrieve for every selected candidate, then judge them in one submission.
-
-    The same two steps the per-candidate subgraph performs, done for the whole selection at
-    once. It exists because a batch has to be one request: a fan-out cannot submit a batch
-    without every branch first waiting for every other, which is a deadlock wearing a
-    barrier's clothes. Retrieval stays a loop because it is local — a SQLite index and an
-    embedding call, not a metered judgement.
-    """
-
-    def review_candidates(state: ReviewState) -> dict[str, object]:
-        selected = state["selected_candidates"]
-        if not selected:
-            return {"retrievals": {}, "findings": {}}
-        if not isinstance(judge, BatchArchitectureJudge):
-            raise TypeError("this node was routed to without a judge that can batch")
-
-        requests = tuple(
-            JudgementRequest(
-                candidate=candidate,
-                case=state["case"],
-                policies=retriever.retrieve(candidate, state["case"], state["corpus"]),
-            )
-            for candidate in selected
-        )
-        # What the provider actually did, told to whoever is watching the run the moment it
-        # does it. A custom stream event rather than part of this node's return value,
-        # because the return value arrives when judging is over and the whole reason anybody
-        # wants to know is that a batch takes an hour. The node is the right place for it:
-        # the graph's streaming belongs to the workflow layer, and a reasoning adapter that
-        # imported it would be a judge that knows what a run is.
-        writer = get_stream_writer()
-
-        def observed(outcome: BatchOutcome) -> None:
-            writer({"batch": outcome})
-
-        findings = judge.judge_all(requests, observe=observed)
-        if len(findings) != len(requests):
-            raise ValueError(
-                f"the judge answered {len(findings)} of {len(requests)} candidates"
-            )
-        return {
-            "retrievals": {
-                str(item.candidate.id): item.policies for item in requests
-            },
-            "findings": {
-                str(item.candidate.id): finding
-                for item, finding in zip(requests, findings, strict=True)
-            },
-        }
-
-    return review_candidates
 
 
 def investigate_hinges_node(investigator: HingeInvestigator) -> Node:

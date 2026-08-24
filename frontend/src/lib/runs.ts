@@ -9,7 +9,7 @@ import type { ReviewRun } from "../api";
  * That is what polling the run list was always for, and it did not do it. The list refetched
  * every four seconds and `["reviews"]` was never invalidated when it changed — and with
  * `refetchOnWindowFocus` off, a page left open on a second monitor never refetched anything
- * at all. So a batch judged for twenty minutes, the progress row silently vanished, and the
+ * at all. So a review judged for twenty minutes, the progress row silently vanished, and the
  * review it had produced was not on the page until somebody pressed reload.
  *
  * The signal is the run *leaving* the list. A run is listed until it is genuinely done, so an

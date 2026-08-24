@@ -2,7 +2,7 @@
 
 A hosted model is a shared resource, and the free tiers say so: `gemini-3.5-flash-lite`
 answers 429 several times during one review of a modest repository, and the policy corpus
-is embedded in batches that reach the same limit. Every one of those refusals is a
+is embedded in groups that reach the same limit. Every one of those refusals is a
 statement about the next few seconds rather than about the request, so failing the whole
 review on the first of them throws away minutes of work that a short wait would have saved.
 

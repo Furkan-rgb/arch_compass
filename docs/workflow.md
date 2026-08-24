@@ -15,13 +15,12 @@ START
   |
   `- dispatch ------------------------------------------------.
        |  nothing selected            -> generate_questions    |
-       |  batch judge available       -> review_candidates     |
        |  otherwise, one Send each    -> review_candidate      |
        |                                                       |
        |   review_candidate (subgraph, once per candidate)      |
        |     START -> retrieve_policy_set -> judge_candidate -> END
        |                                                       |
-       `- review_candidate / review_candidates ----------------'
+       `- review_candidate ------------------------------------'
                                 |
   -> investigate_hinges         (look up what the repository says about anything held)
   -> rejudge_investigated       (put what was found back to the same judge)
@@ -39,7 +38,7 @@ START
             -> revise_case
             |    `- stop requested -> seal_case -> ... -> END
             -> select_candidates_for_rejudgement
-            `- dispatch (the same closure) -> review_candidate / review_candidates
+            `- dispatch (the same closure) -> review_candidate
                  -> investigate_hinges -> rejudge_investigated -> generate_questions
 ```
 

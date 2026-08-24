@@ -16,13 +16,11 @@ from langchain_core.embeddings import Embeddings
 from archcompass.domain import Policy
 from archcompass.domain.errors import PolicyEmbeddingsMissingError
 from archcompass.policies.ports import (
-    BatchDocumentEmbeddings,
     DensePolicyMatch,
 )
-from archcompass.reasoning.adapters.google_batch import BatchUnavailableError
 from archcompass.retrying import call_with_retry
 
-_log = logging.getLogger("archcompass.batch")
+_log = logging.getLogger("archcompass.policies")
 
 #: How many chunks are embedded per call. Not a throughput knob — one call for the whole
 #: corpus is faster where it works. It is a ceiling on how much a single request asks a
@@ -31,7 +29,7 @@ _log = logging.getLogger("archcompass.batch")
 #: local runner was killed outright by the request under memory pressure. Bounding it also
 #: means a failure half way through keeps the chunks already written, so the next attempt
 #: resumes rather than restarts.
-_EMBEDDING_BATCH = 64
+_EMBEDDING_GROUP = 64
 
 #: The schema name a shipped index is attached under. Its rows are read and never written:
 #: the file lives in the installed package, where nothing at run time has any business
@@ -270,36 +268,18 @@ class SQLitePolicyIndex:
     ) -> None:
         """Embed every chunk the index does not already hold.
 
-        Building an index is bulk work with nobody waiting on it, which is exactly the shape
-        a batch endpoint is for — and it is where a hosted free tier says no, since the
-        corpus is hundreds of chunks against a limit counted per minute. Where the provider
-        offers a batch the whole corpus goes in one submission; where it does not, the
-        chunked loop it always used stays, because a self-hosted Ollama has no limit to
-        escape and no batch to escape into.
+        Building an index is bulk work with nobody waiting on it, and it is where a hosted
+        free tier says no: the corpus is hundreds of chunks against a limit counted per
+        minute. So it goes in fixed groups with `call_with_retry` around each one, which
+        turns a rate limit into a wait rather than into a half-built index.
         """
 
         if not missing:
             return
-        embeddings = self._embeddings
-        if (
-            isinstance(embeddings, BatchDocumentEmbeddings)
-            and embeddings.supports_batch()
-        ):
-            texts = [entry[3] for entry in missing]
-            try:
-                self._store(
-                    connection, missing, embeddings.embed_documents_batched(texts)
-                )
-                return
-            except BatchUnavailableError as refusal:
-                # The batch facility is not available to this key. Indexing the slow way is
-                # a worse afternoon than indexing the fast way, and a better one than not
-                # having an index.
-                _log.warning("%s", refusal)
-        for start in range(0, len(missing), _EMBEDDING_BATCH):
-            batch = missing[start : start + _EMBEDDING_BATCH]
+        for start in range(0, len(missing), _EMBEDDING_GROUP):
+            group = missing[start : start + _EMBEDDING_GROUP]
             self._store(
-                connection, batch, self._embed_chunk([entry[3] for entry in batch])
+                connection, group, self._embed_chunk([entry[3] for entry in group])
             )
 
     def _embed_chunk(self, texts: list[str]) -> list[list[float]]:
@@ -311,7 +291,7 @@ class SQLitePolicyIndex:
     def _store(
         self,
         connection: sqlite3.Connection,
-        batch: list[tuple[str, str, str, str, str, str, str | None]],
+        group: list[tuple[str, str, str, str, str, str, str | None]],
         vectors: list[list[float]],
     ) -> None:
         for (
@@ -322,7 +302,7 @@ class SQLitePolicyIndex:
             scope,
             strength,
             applies_to,
-        ), vector in zip(batch, vectors, strict=True):
+        ), vector in zip(group, vectors, strict=True):
             if len(vector) != self._dimensions:
                 raise ValueError(
                     f"{self._embedding_identity} returned {len(vector)} dimensions; "

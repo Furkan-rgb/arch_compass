@@ -116,8 +116,8 @@ class SQLiteReviewExecutionRepository:
 
         The one query the reviews listing needs and could not ask before. A run is only
         addressable while somebody is holding its id, so a reader who navigated away from
-        the page that started it had no way back to it — and the run it names may take an
-        hour, because that is what a batch takes.
+        the page that started it had no way back to it — and the run it names may take
+        many minutes, because that is what judging a repository takes.
 
         `status = 'running'` and nothing else. It used to also require `current_review_id
         IS NULL`, which read as "one row per thing" and behaved as a disappearance: a review

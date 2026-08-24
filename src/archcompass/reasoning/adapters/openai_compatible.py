@@ -65,7 +65,7 @@ def _raise_inline_error(response: httpx.Response) -> None:
     SDK iterates `choices` while parsing, so the first thing to fail is
     `TypeError: 'NoneType' object is not iterable` — an exception carrying no status and no
     recognisable phrase, which `is_transient` therefore reads as permanent. A rate limit
-    arriving in the middle of a batch of judgements ends the whole review instead of costing
+    arriving partway through a review's judgements ends the whole review instead of costing
     four seconds.
 
     Deliberately narrow. Only a 2xx, only JSON, only a top-level `error` object: a body
@@ -144,10 +144,6 @@ class OpenAICompatibleProvider:
     #: already pays for. Still intersected with the live listing, so a typo shows up as an
     #: absent row rather than as a request that fails mid-review.
     models_env: str
-    #: What the free tier tolerates in flight. Hosted fleets answer several at once, but
-    #: these are metered per minute rather than per fleet, so the number is chosen against
-    #: the quota rather than against the hardware.
-    concurrent_requests: int = 4
     #: Deliberately at or below the smallest window in `models` — under-stating refuses an
     #: oversize request by name, over-stating lets one through to be truncated.
     context_window_tokens: int = 131_072
@@ -302,7 +298,6 @@ def descriptors() -> tuple[ProviderDescriptor, ...]:
                 # provider's name stop describing where the request went.
                 api_key_env=provider.api_key_env,
                 context_window_tokens=provider.context_window_tokens,
-                concurrent_requests=provider.concurrent_requests,
             ),
         )
         for provider in PROVIDERS

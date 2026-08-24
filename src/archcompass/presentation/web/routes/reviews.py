@@ -67,12 +67,6 @@ class ReviewRunResponse(APIModel):
     #: a round has selected anything, which is what a client reads as "no count to show yet".
     candidates_to_judge: int = 0
     candidates_judged: int = 0
-    #: What the provider did with the batch this run asked for: `queued` once a submission
-    #: was accepted, `unavailable` once one was refused and the candidates were judged one
-    #: at a time instead. Empty until the provider has answered, and empty for every run
-    #: that never asked — a client telling somebody about a batch has to wait for this, and
-    #: must not read the stage, which only says which node the graph is in.
-    batch: str = ""
     #: The lineage this run belongs to. Names for a reader, ids so a client can tell that a
     #: run and a review it is looking at are the same line of work.
     repository_name: str = ""
@@ -118,7 +112,6 @@ class ReviewRunResponse(APIModel):
             failure=state.failure,
             candidates_to_judge=state.candidates_to_judge,
             candidates_judged=state.candidates_judged,
-            batch=state.batch,
             started_at=(None if state.started_at is None else state.started_at.isoformat()),
             **cast("dict[str, Any]", lineage),
         )
@@ -841,7 +834,7 @@ def routes() -> APIRouter:
 
         This exists because a run was only ever addressable by an id somebody was already
         holding: start a review, navigate away, and there was no way back to it short of the
-        browser's history. A batch judgement takes as long as a batch takes, which makes
+        browser's history. Judging a repository takes as long as it takes, which makes
         "navigate away" the ordinary case rather than the careless one.
 
         A run stays here until it is genuinely done, `review_id` and all. It used to leave

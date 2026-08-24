@@ -99,8 +99,8 @@ describe("the repositories page", () => {
 
 describe("the reviews page", () => {
   it("lists a review that is still being made, so navigating away does not lose it", async () => {
-    // A run used to be reachable only by an id somebody was already holding. Batch judging
-    // takes as long as a batch takes, which makes "look at something else meanwhile" the
+    // A run used to be reachable only by an id somebody was already holding. Judging a
+    // repository takes as long as it takes, which makes "look at something else meanwhile" the
     // ordinary way to use this, not the careless one.
     vi.spyOn(api, "reviews").mockResolvedValue([]);
     vi.spyOn(api, "reviewRuns").mockResolvedValue([runFixture()]);

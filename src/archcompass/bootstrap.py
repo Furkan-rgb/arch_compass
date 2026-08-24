@@ -42,7 +42,6 @@ from archcompass.persistence.executions import SQLiteReviewExecutionRepository
 from archcompass.persistence.findings import SQLiteCoreFindingCache
 from archcompass.persistence.lineage import SQLiteLineageRepository
 from archcompass.persistence.model_selection import (
-    SQLiteBatchRefusalRepository,
     SQLiteCoreModelSelectionRepository,
     SQLiteEmbeddingModelSelectionRepository,
 )
@@ -440,10 +439,6 @@ def build_runtime(
     executions = SQLiteReviewExecutionRepository(core_database.transaction)
     core_decisions = SQLiteCoreStandingDecisionRepository(core_database.transaction)
     core_finding_cache = SQLiteCoreFindingCache(core_database.transaction)
-    # A project that the Batch API refuses is refused again after a restart, so the answer
-    # is written down. Without this every session paid one rejected submission, and showed
-    # that review's reader a run claiming a queued batch that had never been accepted.
-    batch_refusals = SQLiteBatchRefusalRepository(core_database.transaction)
     core_conversations = SQLiteCoreConversationRepository(core_database.transaction)
     selected_chat = SelectedLangChainChatModel(model_catalog_service)
     review_conversation_service = CoreReviewConversationService(
@@ -517,7 +512,7 @@ def build_runtime(
                 deterministic_mode=deterministic_retrieval_mode,
             ),
             judge=CachingArchitectureJudge(
-                SelectedLangChainJudge(selected_chat, batch_refusals),
+                SelectedLangChainJudge(selected_chat),
                 core_finding_cache,
                 model_identity=selected_model_identity,
                 prompt_identity=selected_prompt_identity,

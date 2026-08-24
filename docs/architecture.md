@@ -27,10 +27,10 @@ model as a refusal naming the recovery step, while a policy the judge cites but 
 shown is logged and dropped, because a citation is a record of why and losing one weakens
 that record where raising would destroy a review already paid for.
 
-One join in the system is *not* made by matching a name, and it is worth knowing about
-because it is the same failure one layer down: the Google batch path pairs
-`responses[index]` with `requests[index]` positionally. It submits a correlation key with
-each request and never reads it back. See [known-defects.md](known-defects.md).
+There was one join that was *not* made by matching a name — the Google batch path paired
+`responses[index]` with `requests[index]` positionally, submitting a correlation key it never
+read back. It went when the batch subsystem did, which is the cheapest way a defect ever
+gets fixed.
 
 ## The concepts
 
@@ -251,9 +251,10 @@ moments and only the graph knows which one it is in. One review keeps one revisi
 many rounds it asks. Collapsing them made a review that asked twice occupy three revisions,
 and made the number beside a review change while somebody was reading it.
 
-**`supports_batch()` and `supports_tools()` are asked per dispatch, not at startup.** The
-model is chosen while the process is running: the same graph judges through a batch this
-afternoon and through Ollama this evening.
+**`supports_tools()` is asked per dispatch, not at startup.** The model is chosen while the
+process is running: the same graph judges through Google this afternoon and through Ollama
+this evening, and whether a hinge can be investigated is a fact about the model selected at
+the moment the node runs.
 
 **The finding cache keys on identities that must agree.** Model identity, prompt identity,
 retrieval identity and — since the second judgement exists — the investigation's identity.
@@ -265,6 +266,7 @@ They are each computed in exactly one place for that reason.
 **`InvestigationLookup` is deliberately not the port's `RecordedLookup`.** One is a domain
 record on an immutable review; the other is the live transcript a loop is writing.
 
-**Two judgement transports, one prompt.** A batched judgement and an interactive one must be
-the same judgement — a review submitted as a batch is not allowed to have been asked a
-different question — so the prompt is built in one place and both transports send it.
+**Every transport sends one prompt.** A judgement must not depend on which transport carried
+it — a review judged through Google is not allowed to have been asked a different question
+from one judged through Ollama — so `judgement_prompt` is built in one place and every
+adapter sends what it returns.

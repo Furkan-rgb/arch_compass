@@ -560,7 +560,6 @@ export interface components {
     "failure": string;
     "candidates_to_judge"?: number;
     "candidates_judged"?: number;
-    "batch"?: string;
     "repository_name"?: string;
     "repository_root"?: string;
     "excluded_paths"?: Array<string>;

@@ -7,7 +7,7 @@ import { Button, CopyButton } from "../../ui/button";
 import { CheckIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { Label } from "../../ui/panel";
-import { ErrorNotice, LiveRegion, Notice, Spinner } from "../../ui/states";
+import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
 
 /** The workspace's node names, said the way a person would say them. */
 export const STAGE_LABELS: Record<string, string> = {
@@ -20,7 +20,6 @@ export const STAGE_LABELS: Record<string, string> = {
   retrieve_policy_set: "Retrieving the policies that bear on each candidate",
   judge_candidate: "Judging candidates",
   review_candidate: "Judging candidates",
-  review_candidates: "Judging every candidate in one batch",
   investigate_hinges: "Checking what the repository can answer",
   generate_questions: "Asking what the repository cannot answer",
   write_waiting_synopsis: "Summarising what the review found",
@@ -51,7 +50,6 @@ export const stageLabel = (stage: string) => STAGE_LABELS[stage] ?? humanise(sta
 const JUDGING_STAGES = new Set([
   "retrieve_policy_set",
   "review_candidate",
-  "review_candidates",
   "judge_candidate",
 ]);
 
@@ -121,7 +119,7 @@ function useTicking(live: boolean): number {
  * first policies are retrieved inside the same stretch, so a single candidate's elapsed time
  * is mostly setup and extrapolating from it overstates the wait by minutes. And it says "at
  * this rate" rather than naming a finishing time, because it is an extrapolation from a
- * handful of samples and a batch can change the rate underneath it.
+ * handful of samples and a slow candidate can change the rate underneath it.
  */
 function estimateLeft(state: ReviewRun, now: number): string | null {
   const total = state.candidates_to_judge ?? 0;
@@ -195,34 +193,6 @@ export function RunProgress({
           );
         })}
       </ol>
-
-      {/* Batch judging is answered in minutes or hours, so the wait is stated rather than
-          implied by a spinner that never stops.
-
-          Read off `batch` and never off `stage`. The stage says which node the graph is in,
-          and the graph enters that node on a *prediction* — `supports_batch` is true for any
-          Google key with batching switched on, and the provider is the only thing that knows
-          whether it will actually take one. A key on a project that is not eligible for the
-          Batch API is refused with `400 FAILED_PRECONDITION` and the review falls back to
-          judging every candidate interactively, which is the right thing to do and was
-          invisible: this panel went on telling the reader their review was queued as a batch,
-          at half price, guaranteed within a day, for the whole of the fallback. None of those
-          three was true, and the run now says which one it is. */}
-      {state.batch === "queued" ? (
-        <Notice tone="working" title="Queued with the model">
-          Every candidate went to the provider in one batch, which is metered separately from
-          interactive requests and costs half. Batches usually return within the hour and are
-          guaranteed within a day. Nothing is waiting on this window.
-        </Notice>
-      ) : null}
-      {state.batch === "unavailable" ? (
-        <Notice title="Judging one candidate at a time">
-          This model would not take the whole review as one batch, so it is being judged
-          interactively instead. Nothing is lost — the verdicts are the same — but it is
-          slower and it is metered as ordinary requests. On Google, batching needs billing
-          enabled on the project behind the key.
-        </Notice>
-      ) : null}
 
       {/* No retry on this one, deliberately. Every other `ErrorNotice` in this flow reports a
           request that a second attempt might answer; this reports a run that already ended.

@@ -7,8 +7,6 @@ import pytest
 from archcompass.domain.errors import ConfigurationError
 from archcompass.reasoning.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.reasoning.ports import (
-    CONCURRENT_REQUESTS_VARIABLE,
-    MAX_CONCURRENT_REQUESTS,
     ProviderDefaults,
     ProviderDescriptor,
     ReasoningModelProbe,
@@ -31,7 +29,6 @@ _OLLAMA_DEFAULTS = ProviderDefaults(
 )
 #: A hosted provider as its descriptor states it: several judgements at once, because there
 #: is a fleet behind the endpoint rather than one GPU.
-_PARALLEL_DEFAULTS = ProviderDefaults(api_key_env="GOOGLE_API_KEY", concurrent_requests=4)
 
 
 class _Selections:
@@ -179,74 +176,6 @@ def test_the_environment_may_move_a_self_hosted_provider(
 
     resolved = service.current()
     assert resolved is not None and resolved.base_url == "http://models.internal:11434"
-
-
-def test_a_providers_own_concurrency_reaches_the_resolved_configuration() -> None:
-    """How many judgements may overlap is the provider's answer, not the review's.
-
-    A hosted API answers several at once; a self-hosted one serves a single model on a
-    single GPU and would only queue. So the number travels with the configuration, and a
-    descriptor that says nothing means one — the sequential behaviour every run had.
-    """
-
-    hosted = _service(_descriptor("google", _answering(), _PARALLEL_DEFAULTS))
-    hosted.select("google", "gemini-3.6-flash")
-    local = _service(_descriptor("ollama", _answering(), _OLLAMA_DEFAULTS))
-    local.select("ollama", "gemma4:26b")
-
-    assert (config := hosted.current()) is not None and config.concurrent_requests == 4
-    assert (config := local.current()) is not None and config.concurrent_requests == 1
-
-
-def test_the_environment_overrides_a_providers_concurrency_in_both_directions(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The knob an operator reaches for when a provider starts refusing parallel requests.
-
-    Both directions, because the two things it is for are opposite: `1` puts a hosted
-    provider back on the sequential path without a redeploy, and a larger number lets a
-    self-hosted endpoint that is really a load balancer say so.
-    """
-
-    monkeypatch.setenv(CONCURRENT_REQUESTS_VARIABLE, "1")
-    hosted = _service(_descriptor("google", _answering(), _PARALLEL_DEFAULTS))
-    hosted.select("google", "gemini-3.6-flash")
-    assert (config := hosted.current()) is not None and config.concurrent_requests == 1
-
-    monkeypatch.setenv(CONCURRENT_REQUESTS_VARIABLE, "3")
-    local = _service(_descriptor("ollama", _answering(), _OLLAMA_DEFAULTS))
-    local.select("ollama", "gemma4:26b")
-    assert (config := local.current()) is not None and config.concurrent_requests == 3
-
-
-def test_an_oversized_concurrency_is_clamped_rather_than_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The ceiling is a judgement about what is worth having in flight, not a rule about
-    what the operator was allowed to type, so it lands on the ceiling and runs."""
-
-    monkeypatch.setenv(CONCURRENT_REQUESTS_VARIABLE, "500")
-    service = _service(_descriptor("google", _answering(), _PARALLEL_DEFAULTS))
-
-    service.select("google", "gemini-3.6-flash")
-
-    assert (config := service.current()) is not None
-    assert config.concurrent_requests == MAX_CONCURRENT_REQUESTS
-
-
-@pytest.mark.parametrize("value", ["0", "-2", "two", "1.5"])
-def test_a_concurrency_that_is_not_a_count_is_refused_by_name(
-    monkeypatch: pytest.MonkeyPatch, value: str
-) -> None:
-    """Refused where it is read, naming the variable: a run that silently ignored it would
-    judge sequentially while the deployment believed it had asked for four."""
-
-    monkeypatch.setenv(CONCURRENT_REQUESTS_VARIABLE, value)
-    service = _service(_descriptor("google", _answering(), _PARALLEL_DEFAULTS))
-    service.select("google", "gemini-3.6-flash")
-
-    with pytest.raises(ConfigurationError, match=CONCURRENT_REQUESTS_VARIABLE):
-        service.current()
 
 
 def test_a_pinned_run_reports_its_model_and_refuses_to_be_changed() -> None:

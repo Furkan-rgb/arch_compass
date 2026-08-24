@@ -1,7 +1,9 @@
 > **Half superseded.** Sections 1–12 describe a two-pane sidebar interface that was
 > replaced; they are kept for the reasoning, not as a plan. Sections 13 onward describe
-> current backend behaviour and are still read. Where this file and the code disagree, the
-> code is right — the retry schedule quoted here is one place they do.
+> backend behaviour and are mostly still read. Where this file and the code disagree, the
+> code is right — the retry schedule is one place they do, and **§14 and §17 describe the
+> Google Batch path, which was deleted**: there is no batch judging, no batch refusal and
+> no `review_candidates` node any more.
 
 # Frontend rebuild plan
 

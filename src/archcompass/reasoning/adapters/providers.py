@@ -241,7 +241,6 @@ GOOGLE_DESCRIPTOR = ProviderDescriptor(
         api_key_env="GOOGLE_API_KEY",
         context_window_tokens=1_048_576,
         max_output_tokens_thinking=65_536,
-        concurrent_requests=1,
     ),
 )
 OLLAMA_DESCRIPTOR = ProviderDescriptor(

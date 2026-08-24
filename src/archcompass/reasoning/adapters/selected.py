@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 
 from langchain_core.language_models import BaseChatModel
 
-from archcompass.configuration import ReasoningModelConfig, resolve_api_key
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain import (
     ArchitectureCase,
     Candidate,
@@ -24,8 +22,6 @@ from archcompass.domain import (
 )
 from archcompass.domain.errors import NoReasoningModelSelectedError, ProviderError
 from archcompass.ports.capabilities import (
-    BatchOutcome,
-    JudgementRequest,
     ReviewSynopsis,
 )
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
@@ -37,10 +33,6 @@ from archcompass.reasoning.adapters.deterministic import (
     DeterministicSynopsist,
 )
 from archcompass.reasoning.adapters.factory import build_chat_model
-from archcompass.reasoning.adapters.google_batch import (
-    BatchUnavailableError,
-    GoogleBatchJudge,
-)
 from archcompass.reasoning.adapters.investigation import (
     LangChainHingeInvestigator,
 )
@@ -58,10 +50,6 @@ from archcompass.reasoning.ports import (
 )
 from archcompass.reasoning.records import (
     model_identity,
-)
-from archcompass.reasoning.refusals import (
-    BatchRefusalStore,
-    InMemoryBatchRefusals,
 )
 
 
@@ -95,13 +83,13 @@ class SelectedLangChainChatModel:
             return self._cached[1], identity
 
 
-_log = logging.getLogger("archcompass.batch")
+_log = logging.getLogger("archcompass.reasoning")
 
 
 def _is_deterministic(selected: SelectedLangChainChatModel) -> bool:
     """Whether the model chosen *right now* is the stand-in rather than a real one.
 
-    Asked per call, not once at build, for the same reason `supports_batch` is: a workspace
+    Asked per call, not once at build, for the same reason `supports_tools` is: a workspace
     changes its model through `PUT /api/models/selection` while the process runs, and a
     chain chosen when the graph was built would keep answering deterministically for a
     reviewer who had just picked Gemini.
@@ -113,17 +101,6 @@ def _is_deterministic(selected: SelectedLangChainChatModel) -> bool:
 
     config = selected.configuration()
     return config is not None and config.provider == "fake"
-
-
-def _batching_enabled() -> bool:
-    """Batching is on by default and can be turned off without changing the model."""
-
-    return os.environ.get("ARCHCOMPASS_GOOGLE_BATCH", "1").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
 
 
 def _investigation_enabled() -> bool:
@@ -151,14 +128,8 @@ def _investigation_enabled() -> bool:
 
 
 class SelectedLangChainJudge:
-    def __init__(
-        self,
-        selected: SelectedLangChainChatModel,
-        refusals: BatchRefusalStore | None = None,
-    ) -> None:
+    def __init__(self, selected: SelectedLangChainChatModel) -> None:
         self._selected = selected
-        self._refusals = refusals or InMemoryBatchRefusals()
-        self._batch_refused = False
 
     def judge(
         self,
@@ -173,97 +144,6 @@ class SelectedLangChainJudge:
         return LangChainArchitectureJudge(model, model_identity=identity).judge(
             candidate, case, policies, investigation
         )
-
-    def supports_batch(self) -> bool:
-        """Only where the selected provider actually meters a batch separately.
-
-        Asked per call rather than answered once, because the model is chosen while the
-        workspace is running: the same graph judges through a batch this afternoon and
-        through Ollama this evening.
-        """
-
-        config = self._selected.configuration()
-        if config is None or config.provider != "google":
-            return False
-        if not _batching_enabled():
-            return False
-        # A key the API has already turned away is not asked again. The refusal is about
-        # the project behind the key and not about this batch, so it does not expire when
-        # the process does — remembering it only in memory meant every restart paid another
-        # rejected submission, and showed another reader a review that said it had queued a
-        # batch and had not. A different key gets a fresh answer, because a different key
-        # may be on a project that is eligible.
-        if self._batch_refused:
-            return False
-        try:
-            api_key = resolve_api_key(config.api_key_env, provider="google")
-        except Exception:
-            # Not this method's refusal to make. A missing key fails loudly further in,
-            # with a message that names the variable to set.
-            return True
-        return not self._refusals.refused(api_key)
-
-    def judge_all(
-        self,
-        requests: Sequence[JudgementRequest],
-        *,
-        observe: Callable[[BatchOutcome], None] | None = None,
-    ) -> tuple[Finding, ...]:
-        """Every candidate at once, batched where that means something.
-
-        The fallback is not a lesser path: for Ollama and the deterministic provider a
-        loop is exactly what a batch would be, and running it here keeps the graph's
-        dispatch decision in one place instead of two.
-
-        `observe` is told what the provider did, and only ever after it has done it. A
-        review can be routed here and still be judged one candidate at a time, so anything
-        that reports a batch to a person has to hear it from the submission rather than
-        from the routing.
-        """
-
-        if not requests:
-            return ()
-        config = self._selected.configuration()
-        if config is None or config.provider != "google":
-            if observe is not None:
-                observe("unavailable")
-            return self._judge_each(requests, config)
-
-        _, identity = self._selected.current()
-        api_key = resolve_api_key(config.api_key_env, provider="google")
-        judge = GoogleBatchJudge(
-            api_key=api_key,
-            model=config.model,
-            thinking=config.thinking,
-        )
-        try:
-            return judge.judge_all(requests, model_identity=identity, observe=observe)
-        except BatchUnavailableError as refusal:
-            # A batch is an optimisation, not a requirement. Losing a review that the
-            # interactive path could have produced is a worse outcome than judging it the
-            # slow way, so this degrades and says so rather than failing.
-            _log.warning("%s", refusal)
-            self._refusals.record(api_key)
-            self._batch_refused = True
-            if observe is not None:
-                observe("unavailable")
-            return self._judge_each(requests, config)
-
-    def _judge_each(
-        self, requests: Sequence[JudgementRequest], config: ReasoningModelConfig | None
-    ) -> tuple[Finding, ...]:
-        workers = max(1, config.concurrent_requests if config is not None else 1)
-        if workers == 1:
-            return tuple(
-                self.judge(item.candidate, item.case, item.policies)
-                for item in requests
-            )
-
-        def judge_one(item: JudgementRequest) -> Finding:
-            return self.judge(item.candidate, item.case, item.policies)
-
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            return tuple(pool.map(judge_one, requests))
 
 
 class SelectedLangChainQuestionGenerator:

@@ -7,7 +7,7 @@ to find them again. Each one names the evidence it rests on and carries a status
 - **PARTLY FIXED** — the sharp edge is gone, something named below is not.
 
 A fault that is fully fixed leaves this file, and so does one that turns out not to exist.
-Everything here was re-verified against the code on 2026-08-24, claim by claim.
+Everything here was re-verified against the code on 2026-08-24, claim by claim. Two entries left on 2026-08-25 when the Google Batch subsystem was deleted: the positional response join went with it, and the concurrency knob it was the only reader of went with that.
 
 ## OPEN — the one-review-one-sequence rule has no schema behind it
 
@@ -124,44 +124,6 @@ accidentally orphaned** before removing it; everything else the audit found dead
 `safe_workspace_output_path` is the last of the dead code; the duplicated helpers, the
 duplicated ignored-directory list and the two protocols sharing the name `RepositoryAnalyzer`
 have all been reduced to one definition each.
-
-## OPEN — the concurrency setting reaches one path, and two providers' copies of it reach none
-
-`ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS` and `ProviderDefaults.concurrent_requests` read as
-"how parallel this provider's judging is". They are not that.
-
-`concurrent_requests` has exactly one reader — `SelectedLangChainJudge._judge_each`
-(`reasoning/adapters/selected.py:255`) — reachable only from `judge_all` (`:206`), whose only
-caller is the `review_candidates` node (`workflow/nodes.py:229`), which the graph enters only
-when `judge.supports_batch()` (`workflow/graph.py:173`). `supports_batch` is false for every
-provider but Google (`selected.py:185`). So for Ollama, Groq and Cerebras the graph takes the
-per-candidate `Send` fan-out instead and this number is never consulted.
-
-`OpenAICompatibleProvider.concurrent_requests = 4` (`reasoning/adapters/openai_compatible.py:79`)
-is therefore dead for both vendors that use it. The variable itself is live, but only in the
-Google-batch-refused fallback, where the descriptor's value is 1
-(`reasoning/adapters/providers.py:244`) — so raising it is the only thing it can do.
-
-Nothing is broken by this; a reader is. Either the name should say what it bounds, or the
-concurrent path should be the one those providers actually take.
-
-## OPEN — the batch path joins verdicts to candidates by list position
-
-`GoogleBatchJudge` submits one inlined request per candidate carrying
-`metadata={"key": "candidate-{index}"}` (`reasoning/adapters/google_batch.py:234`), and the
-comment at `:48-51` calls it "the key a response is correlated back to its candidate by".
-
-Nothing reads it back. `_responses` (`:252-268`) length-checks the array and returns it;
-`judge_all` (`:193-196`) then pairs `responses[index]` with `requests[index]`; and
-`workflow/nodes.py:240` carries that pairing forward with `zip(requests, findings,
-strict=True)`. The correlation key is written and never fastened.
-
-This rests entirely on the Gemini Batch API returning inline responses in submission order.
-It may well do — the comment says "the position is what the inline API preserves anyway" — and
-no misordering has been observed. But it is the exact failure the product's own rule exists to
-prevent, one layer below the model: an in-range but wrong position resolves to the wrong
-candidate and is recorded, immutably, as a correct verdict. There is a submitted key that
-would settle it and no code that looks at it.
 
 ## OPEN — evicting a session runtime can fail a review that is still running
 

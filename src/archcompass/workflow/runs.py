@@ -3,8 +3,7 @@
 A review used to be produced inside the HTTP response that streamed it, which made the
 browser tab the thing keeping it alive: reloading the page closed the connection, the
 generator was collected mid-iteration, and the run stopped somewhere between two stages
-with nothing to return to. It also made batch judging impossible to contemplate, because a
-batch is answered in minutes or hours rather than in a response body.
+with nothing to return to.
 
 So a run is started, given an id, and watched. The id is the graph's own thread id, which
 already exists from the first line of a review and is already what the execution store is
@@ -65,15 +64,6 @@ class RunState:
     #: second round counts its own work rather than continuing the first's.
     candidates_to_judge: int = 0
     candidates_judged: int = 0
-    #: What the provider did with the batch this run asked for, once it has done it.
-    #:
-    #: Empty until then, and empty for every run that was never routed to a batch at all.
-    #: Deliberately not set from the routing decision: `supports_batch` is a prediction, and
-    #: a run that reported a queued batch on the strength of it went on saying so through
-    #: the entire interactive fallback that followed the provider's refusal. `queued` means
-    #: a submission was accepted; `unavailable` means it was refused and the candidates were
-    #: judged one at a time instead.
-    batch: str = ""
     failure: str = ""
     #: When this process started the run. `None` for a run it did not start — after a
     #: restart the durable half of the state survives and this does not, and a clock that
@@ -85,7 +75,7 @@ class ReviewRunner:
     """Starts review runs on their own threads and reports on them by id.
 
     Threads rather than an async task group because the graph, its SQLite stores and the
-    batch poller are all synchronous, and wrapping them would buy nothing but a second way
+    the graph stream are all synchronous, and wrapping them would buy nothing but a second way
     to be wrong about cancellation.
     """
 
@@ -212,11 +202,6 @@ class ReviewRunner:
 
         self._update(run_id, candidates_judged=judged, candidates_to_judge=to_judge)
 
-    def report_batch(self, run_id: str, outcome: str) -> None:
-        """What the provider did with the batch, as soon as it has done it."""
-
-        self._update(run_id, batch=outcome)
-
     def cancel(self, run_id: str) -> None:
         """Ask a run to stop at its next stage boundary.
 
@@ -226,7 +211,7 @@ class ReviewRunner:
         the flag is set and the loop reads it between stages: the node in flight finishes,
         and no further one starts.
 
-        Which means the run keeps running for as long as the current stage takes — a batch
+        Which means the run keeps running for as long as the current stage takes — a slow
         judgement, at worst, is minutes. The intention is recorded immediately anyway, so a
         reader is told the run is stopping rather than left pressing the button again.
         """

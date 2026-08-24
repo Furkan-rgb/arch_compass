@@ -58,10 +58,10 @@ The CLI runs the graph in-process. It makes no HTTP calls and does not need the 
 
 | provider | credential | judges | embeds |
 |---|---|---|---|
-| google | `GOOGLE_API_KEY` | yes, in one batch by default | yes — `gemini-embedding-2`, 3,072 dims |
+| google | `GOOGLE_API_KEY` | yes | yes — `gemini-embedding-2`, 3,072 dims |
 | ollama | none, a reachable server | yes | yes — whatever installed model advertises the capability |
-| groq | `GROQ_API_KEY` | yes, concurrently | no |
-| cerebras | `CEREBRAS_API_KEY` | yes, concurrently | no |
+| groq | `GROQ_API_KEY` | yes | no |
+| cerebras | `CEREBRAS_API_KEY` | yes | no |
 | fake | none | deterministically, without a model | deterministically |
 
 `fake` is the offline provider the test suite and the Docker smoke check run on
@@ -76,9 +76,9 @@ Groq and Cerebras are reached the same way as each other, over OpenAI's chat API
 neither serves embeddings: a run judging through one retrieves through Google or a local
 Ollama.
 
-Only Google is asked for every candidate at once. Every other provider — Ollama, Groq,
-Cerebras — takes the graph's per-candidate `Send` fan-out, and how many of those run
-together is LangGraph's business, not a setting here.
+Every provider is judged the same way: one candidate per `Send`, fanned out by LangGraph.
+How many run together is LangGraph's business, not a setting here — there is no knob for it
+and the one that used to exist reached only a path that no longer does.
 
 Embedding selection is independent of reasoning selection: two choices, both required, and
 the Models screen offers them separately. Changing the embedding model creates a different
@@ -112,8 +112,6 @@ Each is named by its provider descriptor's `api_key_env`, never hardcoded at the
 | `ARCHCOMPASS_OLLAMA_URL` | `http://127.0.0.1:11434` | moves the local Ollama server |
 | `ARCHCOMPASS_GROQ_MODELS` | the descriptor's | comma-separated model ids to offer |
 | `ARCHCOMPASS_CEREBRAS_MODELS` | the descriptor's | comma-separated model ids to offer |
-| `ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS` | the descriptor's (1 for Google) | see below — narrower than it looks |
-| `ARCHCOMPASS_GOOGLE_BATCH` | `1` | `0` judges Google one candidate at a time |
 | `ARCHCOMPASS_HINGE_INVESTIGATION` | `1` | `0` skips the lookups a hinge gets before a person is asked |
 | `ARCHCOMPASS_EMBEDDING_PROVIDER` | selected model's | pins the embedding provider |
 | `ARCHCOMPASS_EMBEDDING_MODEL` | selected model's | pins the embedding model |
@@ -125,18 +123,6 @@ The five `ARCHCOMPASS_EMBEDDING_*` variables are a pin, not five independent kno
 one and the workspace stops choosing an embedding model for itself.
 
 Booleans accept `0`, `false`, `no` and `off` for the off state; anything else is on.
-
-`ARCHCOMPASS_GOOGLE_BATCH=0` stops the workspace trying a batch on Google at all. A batch is
-metered against its own quota rather than per candidate, at the cost of taking as long as its
-slowest verdict, so it is the right default. Turn it off for a key that will never be
-eligible: a refusal is remembered for seven days and then costs another rejected submission
-when it ages out.
-
-`ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS` reaches exactly one path: the loop
-`SelectedLangChainJudge` falls back to when a Google batch is refused. Nothing else reads it.
-The graph routes to the batch node only when the selected provider is Google, so every other
-provider is already fanned out by LangGraph and never touches this number. Groq's and
-Cerebras's own `concurrent_requests = 4` is unreachable for the same reason.
 
 `ARCHCOMPASS_HINGE_INVESTIGATION=0` turns off the read-only lookups a hinged finding gets
 before its question is put to a person. Each held finding otherwise costs up to twelve

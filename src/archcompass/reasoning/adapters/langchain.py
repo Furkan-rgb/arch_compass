@@ -515,9 +515,9 @@ def judgement_prompt(
 ) -> str:
     """The one prompt every transport sends.
 
-    Shared rather than duplicated because a batched judgement and an interactive one have
-    to be the same judgement — a review that was submitted as a batch is not allowed to
-    have been asked a different question.
+    One function rather than one per transport, because a judgement must not depend on
+    which transport carried it — a review judged through Google is not allowed to have been
+    asked a different question from one judged through Ollama.
 
     The three inputs are kept in three named blocks because they are three kinds of thing:
     CASE is what a person said, CANDIDATE carries evidence the detector chose, and

@@ -65,27 +65,6 @@ def test_reasoning_model_config_rejects_output_larger_than_context_window() -> N
         )
 
 
-def test_concurrent_requests_defaults_to_one_and_is_bounded() -> None:
-    """One is what a provider gets by saying nothing, and it is the sequential run.
-
-    Bounded at both ends because both mistakes are quiet ones: zero would leave a review
-    with nothing to judge with, and a number in the hundreds would meet a rate limit rather
-    than an answer.
-    """
-
-    silent = ReasoningModelConfig(provider="ollama", model="m", timeout_seconds=30)
-
-    assert silent.concurrent_requests == 1
-    for refused in (0, -1, 17):
-        with pytest.raises(ValidationError):
-            ReasoningModelConfig(
-                provider="google",
-                model="m",
-                timeout_seconds=30,
-                concurrent_requests=refused,
-            )
-
-
 def test_environment_file_fills_only_unset_variables(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

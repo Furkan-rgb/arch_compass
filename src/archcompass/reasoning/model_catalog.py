@@ -60,7 +60,6 @@ def reasoning_config(
         # because this is the one place both a pinned run and a stored selection pass
         # through, so the operator's knob reaches a local workspace and a hosted session
         # without either entry point knowing it exists.
-        concurrent_requests=defaults.resolved_concurrent_requests(),
     )
 
 

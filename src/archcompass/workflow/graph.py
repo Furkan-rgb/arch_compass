@@ -32,7 +32,6 @@ from archcompass.domain import (
 )
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
-    BatchArchitectureJudge,
     CandidateDetector,
     CaseReviser,
     ContextLoader,
@@ -62,7 +61,6 @@ from archcompass.workflow.nodes import (
     record_review_node,
     rejudge_investigated_node,
     retrieve_policy_set_node,
-    review_candidates_node,
     revise_case_node,
     seal_case_node,
     select_initial_candidates_node,
@@ -159,19 +157,16 @@ def _candidate_graph(
 def _dispatch_candidates(
     capabilities: ReviewWorkflowCapabilities,
 ) -> Callable[[ReviewState], list[Send] | str]:
-    """One candidate per branch, or all of them in one node when a batch is available.
+    """One candidate per branch, or nothing to judge at all.
 
-    The choice is made here, at dispatch, rather than when the graph was built: which model
-    is selected can change while the workspace is running, and only the batch-capable
-    providers can be asked for every verdict at once.
+    Still a conditional edge rather than a plain one because "nothing was selected" has to
+    be decided from the state, and a `Send` list of length zero is not the same thing as a
+    route past the judging.
     """
 
     def dispatch(state: ReviewState) -> list[Send] | str:
         if not state["selected_candidates"]:
             return "generate_questions"
-        judge = capabilities.judge
-        if isinstance(judge, BatchArchitectureJudge) and judge.supports_batch():
-            return "review_candidates"
         # Three keys, not the whole state, and the narrower payload is a correctness fix
         # before it is anything else.
         #
@@ -249,10 +244,6 @@ def build_review_graph(
     graph.add_node("load_policy_corpus", load_policy_corpus_node(capabilities.corpus))
     graph.add_node("review_candidate", _candidate_graph(capabilities))
     graph.add_node(
-        "review_candidates",
-        review_candidates_node(capabilities.retriever, capabilities.judge),
-    )
-    graph.add_node(
         "investigate_hinges", investigate_hinges_node(capabilities.investigator)
     )
     graph.add_node(
@@ -301,7 +292,7 @@ def build_review_graph(
     graph.add_conditional_edges(
         "load_policy_corpus",
         dispatch,
-        ["review_candidate", "review_candidates", "generate_questions"],
+        ["review_candidate", "generate_questions"],
     )
     # Unconditional on purpose, and the node guards itself. `review_candidate` is fanned
     # out with `Send`, and a conditional edge leaving it evaluates its predicate once
@@ -309,7 +300,6 @@ def build_review_graph(
     # set of findings does not belong on this edge. Both destinations reached
     # `generate_questions` anyway, so the two-way routing bought nothing.
     graph.add_edge("review_candidate", "investigate_hinges")
-    graph.add_edge("review_candidates", "investigate_hinges")
     # The second judgement, and the reason it is here rather than through
     # `select_candidates_for_rejudgement`: that path re-enters `review_candidate`, whose own
     # edge leads back to `investigate_hinges`, so a review would investigate what it had just
@@ -330,7 +320,7 @@ def build_review_graph(
     graph.add_conditional_edges(
         "select_candidates_for_rejudgement",
         dispatch,
-        ["review_candidate", "review_candidates", "generate_questions"],
+        ["review_candidate", "generate_questions"],
     )
     graph.add_edge("compose_final_review", "record_review")
     graph.add_edge("record_review", END)

@@ -169,9 +169,8 @@ export const api = {
    * Start a review that is not held open by this tab.
    *
    * The workspace answers with a run id before there is a review, which is what makes the
-   * page reloadable: the run is somewhere to come back to. It is also the only way a
-   * batched judgement can work, since a batch is answered in minutes or hours rather than
-   * in a response body.
+   * page reloadable: the run is somewhere to come back to, however many minutes the
+   * judging takes.
    */
   startReviewRun: (caseId: string, root: string) =>
     request<ReviewRun>("/api/reviews/runs", {

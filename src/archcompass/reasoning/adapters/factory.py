@@ -15,10 +15,6 @@ from archcompass.configuration import (
     resolve_api_key,
 )
 from archcompass.domain.errors import ConfigurationError
-from archcompass.reasoning.adapters.google_batch import (
-    GoogleBatchEmbeddings,
-    GoogleEmbeddings,
-)
 from archcompass.reasoning.adapters.openai_compatible import (
     OPENAI_COMPATIBLE_PROVIDERS,
     openai_compatible_http_client,
@@ -156,20 +152,10 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
 
 def build_embeddings(config: EmbeddingModelConfig) -> Embeddings:
     if config.provider == "google":
-        key = resolve_api_key(config.api_key_env, provider="google")
-        # Interactive for a search, batched for building the index — one object, because
-        # the index needs both and only knows it wants embeddings.
-        return GoogleEmbeddings(
-            GoogleGenerativeAIEmbeddings(
-                model=config.model,
-                api_key=SecretStr(key),
-                output_dimensionality=config.dimensions,
-            ),
-            GoogleBatchEmbeddings(
-                api_key=key,
-                model=config.model,
-                dimensions=config.dimensions,
-            ),
+        return GoogleGenerativeAIEmbeddings(
+            model=config.model,
+            api_key=SecretStr(resolve_api_key(config.api_key_env, provider="google")),
+            output_dimensionality=config.dimensions,
         )
     if config.provider == "ollama":
         embeddings = OllamaEmbeddings(

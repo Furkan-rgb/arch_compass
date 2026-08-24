@@ -6,9 +6,9 @@ adapters decide whether an implementation uses LangChain, SQLite, or determinist
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol, runtime_checkable
+from typing import Protocol
 
 from archcompass.domain import (
     Answer,
@@ -73,51 +73,6 @@ class ArchitectureJudge(Protocol):
     ) -> Finding: ...
 
 
-@dataclass(frozen=True, slots=True)
-class JudgementRequest:
-    """One candidate, and everything the model needs to judge it."""
-
-    candidate: Candidate
-    case: ArchitectureCase
-    policies: RetrievedPolicySet
-
-
-#: What a judge says about the batch it was asked for, while it is asking.
-#:
-#: `supports_batch` is a prediction — the provider is the only thing that knows whether it
-#: will take a batch from this key, and it says so by accepting or refusing the submission.
-#: So the prediction is not something to report to a person: a review that told its reader
-#: it had queued a batch, on the strength of a routing decision, went on saying so through
-#: the whole interactive fallback that followed a refusal. This is the observed half.
-BatchOutcome = Literal["queued", "unavailable"]
-
-
-@runtime_checkable
-class BatchArchitectureJudge(Protocol):
-    """A judge that can put a whole review to the model in one submission.
-
-    A hosted provider meters interactive calls per minute and a batch of them per day,
-    which is the difference between a review of forty candidates failing halfway through
-    and finishing. Whether that is available depends on the model selected right now, not
-    on how the graph was built, so `supports_batch` is asked at dispatch time rather than
-    answered once at startup.
-
-    `supports_batch` answering true is a prediction and never a promise. The Gemini Batch
-    API refuses a project that is not eligible with `400 FAILED_PRECONDITION`, which cannot
-    be known without submitting — so `judge_all` reports what actually happened through
-    `observe`, and every caller that tells somebody about a batch has to wait for it.
-    """
-
-    def supports_batch(self) -> bool: ...
-
-    def judge_all(
-        self,
-        requests: Sequence[JudgementRequest],
-        *,
-        observe: Callable[[BatchOutcome], None] | None = None,
-    ) -> tuple[Finding, ...]: ...
-
-
 class HingeInvestigator(Protocol):
     """A second, bounded pass over the findings that stopped to ask a person.
 
@@ -140,7 +95,7 @@ class HingeInvestigator(Protocol):
     own reasoning argued against.
 
     Whether the selected model can call tools is asked per dispatch rather than answered at
-    startup, for the same reason `BatchArchitectureJudge.supports_batch` is: the model is
+    startup, for the same reason `_is_deterministic` is asked per call: the model is
     chosen while the workspace is running.
     """
 

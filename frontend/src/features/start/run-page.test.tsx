@@ -25,52 +25,6 @@ function wrap(children: ReactNode) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("a review being made", () => {
-  /**
-   * The notice is a claim about somebody's bill, so it waits for the provider.
-   *
-   * The graph routes to the batch node on `supports_batch`, which is a prediction: it is
-   * true for any Google key with batching switched on, and only the provider knows whether
-   * the project behind that key is eligible. A key that is not is refused with `400
-   * FAILED_PRECONDITION` and the review is judged interactively instead — and this panel,
-   * which read the stage, went on telling the reader for the whole fallback that their
-   * review had gone to the provider in one batch, at half price, guaranteed within a day.
-   */
-  describe("the batch notice", () => {
-    async function runWith(state: Parameters<typeof runFixture>[0]) {
-      vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
-      vi.spyOn(api, "reviewRun").mockResolvedValue(runFixture(state));
-      render(wrap(<RunPage />));
-      await screen.findByText("thread-9");
-    }
-
-    it("says nothing about a batch while the provider has not answered", async () => {
-      await runWith({ stage: "review_candidates", stages: ["review_candidates"] });
-
-      expect(screen.queryByText("Queued with the model")).not.toBeInTheDocument();
-      expect(screen.queryByText("Judging one candidate at a time")).not.toBeInTheDocument();
-    });
-
-    it("claims a batch only once one has been accepted", async () => {
-      await runWith({
-        stage: "review_candidates",
-        stages: ["review_candidates"],
-        batch: "queued",
-      });
-
-      expect(screen.getByText("Queued with the model")).toBeInTheDocument();
-    });
-
-    it("says so plainly when the provider would not take one", async () => {
-      await runWith({
-        stage: "review_candidates",
-        stages: ["review_candidates"],
-        batch: "unavailable",
-      });
-
-      expect(screen.queryByText("Queued with the model")).not.toBeInTheDocument();
-      expect(screen.getByText("Judging one candidate at a time")).toBeInTheDocument();
-    });
-  });
 
   it("reads as the next revision of its lineage, not as a job with a thread id", async () => {
     // Everything a review is filed under exists before the review does: the repository, the
@@ -182,7 +136,7 @@ describe("a review being made", () => {
     vi.spyOn(api, "reviewRun").mockResolvedValue(
       runFixture({
         status: "failed",
-        failure: "The provider refused the batch",
+        failure: "The provider refused the request",
         review_id: null,
       }),
     );
@@ -190,7 +144,7 @@ describe("a review being made", () => {
     render(wrap(<RunPage />));
 
     expect(await screen.findByText(/Review 2 · did not finish/)).toBeInTheDocument();
-    expect(screen.getByText(/The provider refused the batch/)).toBeInTheDocument();
+    expect(screen.getByText(/The provider refused the request/)).toBeInTheDocument();
     // The repository the run failed on, carried into the form rather than thrown away. It
     // went to a blank `/start`, where the reader found the repository again and re-ticked
     // every folder they had left out — while the path was printed twenty lines above.
@@ -213,7 +167,7 @@ describe("a review being made", () => {
     vi.spyOn(api, "reviewRun").mockResolvedValue(
       runFixture({
         status: "failed",
-        failure: "The provider refused the batch",
+        failure: "The provider refused the request",
         review_id: null,
         excluded_paths: ["docs", "tests"],
       }),

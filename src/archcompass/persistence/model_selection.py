@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-
 from archcompass.persistence.sqlite.database import Transaction
 from archcompass.reasoning.records import (
     EmbeddingModelSelection,
     ReasoningModelSelection,
 )
-from archcompass.reasoning.refusals import fingerprint_key
 from archcompass.records import THINKING_LEVELS, ThinkingMode, utc_now
 
 
@@ -182,91 +179,3 @@ class SQLiteEmbeddingModelSelectionRepository:
     def clear(self) -> None:
         with self._transaction() as connection:
             connection.execute("DELETE FROM embedding_model_choice WHERE id = 1")
-
-
-#: How long a refusal is taken at its word before the provider is asked again.
-#:
-#: An operational policy rather than anything the architecture implies, and the interval is
-#: the least interesting part of it: what matters is that a refusal is no longer permanent.
-#: A week is chosen because enabling billing is rare and deliberate, and the cost of being
-#: wrong is one submission refused again — the same single wasted call a refusal already
-#: costs — against a workspace that silently judges everything the expensive way for ever.
-_REFUSAL_HOLDS_FOR = timedelta(days=7)
-
-
-class SQLiteBatchRefusalRepository:
-    """Keys the provider's batch facility has turned away, remembered for a while.
-
-    `400 FAILED_PRECONDITION` from the Gemini Batch API is a fact about the project behind
-    the key: it is not eligible, and it will not be eligible tomorrow because the process
-    restarted. Holding that only in memory cost a rejected submission on the first review of
-    every session, and — worse — a review that told its reader it had queued a batch while
-    it judged every candidate interactively.
-
-    Remembered for a while rather than for ever. Eligibility is a property of the project
-    and a project can gain it — somebody enables billing — and nothing about that reaches
-    this process. So the row carries when it was observed and stops matching once it is old,
-    which is the only way a workspace recovers without hand-written SQL.
-
-    What is stored is a fingerprint, never the key. This has to answer "was this one
-    refused", and nothing here has any business being able to reproduce a credential.
-    """
-
-    def __init__(self, transaction: Transaction) -> None:
-        self._transaction = transaction
-        with self._transaction() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS batch_refusal (
-                    key_fingerprint TEXT PRIMARY KEY,
-                    refused_at TEXT NOT NULL
-                )
-                """
-            )
-
-    def refused(self, api_key: str) -> bool:
-        """Whether this key was refused recently enough for the answer to still hold.
-
-        A stored refusal is an observation, not a verdict: on a day in the past, the batch
-        API would not take a submission from this project. It was read as permanent, and
-        `refused_at` was written and never looked at — so a project that enabled billing
-        judged every review interactively for ever, paying per-candidate metering the batch
-        tier would have halved, with nothing on screen to say why. The only recovery was
-        SQL against this table by hand.
-
-        Reading the timestamp is what makes a stale row stop matching on its own. The cost
-        of being wrong is one submission occasionally refused again, which is what a refusal
-        already costs once; the cost of never revisiting it is permanent silent degradation.
-        """
-
-        with self._transaction() as connection:
-            row = connection.execute(
-                "SELECT refused_at FROM batch_refusal WHERE key_fingerprint = ?",
-                (fingerprint_key(api_key),),
-            ).fetchone()
-        if row is None:
-            return False
-        try:
-            refused_at = datetime.fromisoformat(str(row[0]))
-        except ValueError:
-            # A row this build cannot read is not a reason to keep refusing. Asking again
-            # costs one submission; refusing on an unparseable timestamp costs every review.
-            return False
-        return utc_now() - refused_at < _REFUSAL_HOLDS_FOR
-
-    def record(self, api_key: str) -> None:
-        """Note that this key was refused now, replacing whatever was noted before.
-
-        `INSERT OR REPLACE` is what refreshes the observation: a key refused again today is
-        refused as of today, not as of the first time. The row is per credential
-        fingerprint, so the table is bounded by the number of credentials this workspace has
-        seen — expired rows are left alone rather than swept, because the next refusal
-        updates the one that is already there.
-        """
-
-        with self._transaction() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO batch_refusal(key_fingerprint, refused_at) "
-                "VALUES (?, ?)",
-                (fingerprint_key(api_key), utc_now().isoformat()),
-            )
