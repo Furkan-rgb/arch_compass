@@ -220,6 +220,13 @@ The second is the counter itself, which used to say "Judging candidate 1 of 50" 
 of retrieval. Both halves of a candidate's turn are counted now, so a number that is not
 moving means work that is not moving.
 
+One thing `--no-cpu-throttling` does not buy, so that nobody reads more into it than it says:
+it keeps the thread running between requests, not the instance running between visitors.
+Nothing pins a minimum instance, so an idle service still scales to zero and a review in
+flight when that happens is lost. `--min-instances 1` would close that gap and bills an
+instance around the clock to do it, which is the wrong trade for a demo idle most of the week.
+So closing the tab is safe for a review of ordinary length and a gamble for a long one.
+
 ## The deployment's one-time setup
 
 `.github/workflows/deploy.yml` points here for these and they were never written down, which

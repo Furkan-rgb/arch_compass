@@ -72,14 +72,22 @@ jobs:
       # moving looks like from the outside. `--timeout 600` never applied to any of it: that
       # bounds one request, and the request was over in a moment.
       #
-      # It is also what makes the start page's own promise true. "Keeps running in the
-      # workspace if you close this tab" is a claim about background work, and closing the
-      # tab is exactly when the polls stop — so the instance went idle, was scaled to zero,
-      # and took the run with it.
+      # It gets most of the way to the start page's own promise without completing it, and
+      # the difference is worth being exact about. "Keeps running in the workspace if you
+      # close this tab" is a claim about background work; closing the tab is when the polls
+      # stop, and this flag is what stops that meaning the thread stops. What it does not do
+      # is keep the instance alive — nothing pins a minimum, so an idle service still scales
+      # to zero, and a review still in flight when that happens goes with it. A run that
+      # outlives the idle window with nobody watching is not guaranteed to land.
       #
-      # The cost is real and worth stating: CPU is billed for as long as an instance is
-      # alive rather than only while it serves. `--max-instances 1` bounds it to one, and
-      # nothing pins a minimum, so an idle demo still scales to zero and bills nothing.
+      # `--min-instances 1` is what would finish the promise, and it is deliberately not set:
+      # it bills an instance around the clock, which is the wrong trade for a demo that is
+      # idle most of the week. The honest reading is that closing the tab is safe for a
+      # review of ordinary length and a gamble for a long one.
+      #
+      # The cost of the flag that IS set: CPU is billed for as long as an instance is alive
+      # rather than only while it serves. `--max-instances 1` bounds that to one, and with no
+      # minimum an idle demo still scales to zero and bills nothing.
       - name: Deploy
         run: |
           gcloud run deploy "$SERVICE" \
