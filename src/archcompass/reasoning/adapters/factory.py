@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_ollama import ChatOllama, OllamaEmbeddings
@@ -107,6 +109,14 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
     raise ConfigurationError(f"Unsupported LangChain reasoning provider: {config.provider}")
 
 
+#: How long one embedding request may take.
+#:
+#: Well under the 360 seconds a reasoning call gets, because an embedding is not a model
+#: thinking — it is a forward pass over a few hundred tokens, and one that has not answered
+#: in two minutes is not going to. The same number OpenRouter's own embedding path uses.
+_EMBEDDING_TIMEOUT_SECONDS: Final = 120.0
+
+
 def build_embeddings(config: EmbeddingModelConfig) -> Embeddings:
     if config.provider == openrouter.DESCRIPTOR.name:
         return openrouter.OpenRouterEmbeddings(
@@ -119,6 +129,14 @@ def build_embeddings(config: EmbeddingModelConfig) -> Embeddings:
             model=config.model,
             base_url=config.base_url,
             dimensions=config.dimensions,
+            # The one client on the review path that had no deadline at all.
+            # `sync_client_kwargs` defaults to `{}`, the ollama client's own default is
+            # `timeout=None`, and httpx reads `None` as "wait forever" — so a local embedder
+            # that stopped answering hung the review rather than failing it. Retrieval runs
+            # once per candidate and before any judging, which is what made it the worst
+            # place for it: the run sat with nothing judged, no error, and no timeout to end
+            # it. Every sibling here already carries one.
+            sync_client_kwargs={"timeout": _EMBEDDING_TIMEOUT_SECONDS},
         )
         if not _sends_task_prompts(config):
             return embeddings

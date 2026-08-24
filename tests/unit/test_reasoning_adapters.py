@@ -9,7 +9,7 @@ from typing import Any, Final
 import pytest
 from pydantic import ValidationError
 
-from archcompass.configuration import ReasoningModelConfig
+from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
 from archcompass.domain import (
     Answer,
     AnswerStatus,
@@ -36,6 +36,7 @@ from archcompass.domain._support import utc_now
 from archcompass.domain.case import Question
 from archcompass.domain.errors import ModelOutputValidationError, ProviderError
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
+from archcompass.reasoning.adapters.factory import build_embeddings
 from archcompass.reasoning.adapters.langchain import (
     CONVERSATION_CONTRACT,
     LangChainArchitectureJudge,
@@ -795,3 +796,37 @@ def test_a_verdict_outside_the_three_is_refused_rather_than_guessed_at() -> None
 
     with pytest.raises(ModelOutputValidationError, match="did not match the required"):
         judge.judge(candidate, case, policies)
+
+
+def test_every_client_on_the_review_path_has_a_deadline() -> None:
+    """A client with no timeout does not fail a review, it hangs one.
+
+    `OllamaEmbeddings` was built with none: `sync_client_kwargs` defaults to `{}`, the ollama
+    client's own default is `timeout=None`, and httpx reads `None` as wait forever. Retrieval
+    runs once per candidate and before any judging, so a local embedder that stopped
+    answering left the run with nothing judged, no error, and nothing to end it — which is
+    indistinguishable from a run that is simply slow.
+
+    Asked of the built object rather than of the call site, because what matters is the
+    deadline the transport actually carries.
+    """
+
+    embeddings = build_embeddings(
+        EmbeddingModelConfig(
+            provider="ollama",
+            model="embeddinggemma",
+            dimensions=768,
+            base_url="http://localhost:11434",
+        )
+    )
+    # `TaskPromptedEmbeddings` wraps the real one for models that take a task prefix.
+    inner = getattr(embeddings, "_inner", embeddings)
+    configured = inner.sync_client_kwargs or {}
+    assert configured.get("timeout"), (
+        "the ollama embedding client carries no timeout, so a retrieval that stops "
+        "answering hangs the review instead of failing it"
+    )
+    assert configured["timeout"] <= 360.0, (
+        "an embedding is a forward pass, not a model thinking; it should not be allowed "
+        "the budget a judgement gets"
+    )
