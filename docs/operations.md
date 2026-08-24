@@ -193,6 +193,59 @@ for the Cloud Run deployment — the two run caps, the two fetch caps, `SOURCE_H
 `PROVIDERS=openrouter` and the four embedding pins — and leaves the six size limits on their
 code defaults. Its one secret is `OPENROUTER_API_KEY`.
 
+## The deployment's one-time setup
+
+`.github/workflows/deploy.yml` points here for these and they were never written down, which
+is how the deploy came to fail on a commit that passed CI: the OpenRouter migration added a
+secret reference to the workflow, nothing granted the runtime service account access to it,
+and every push to `main` since has built the container and then been refused at
+`Creating Revision`.
+
+```
+ERROR: (gcloud.run.deploy) spec.template.spec.containers[0].env[11]
+  .value_from.secret_key_ref.name: Permission denied on secret:
+  projects/NNNNNNNNNNNN/secrets/archcompass-openrouter-api-key/versions/latest
+  for Revision service account NNNNNNNNNNNN-compute@developer.gserviceaccount.com.
+```
+
+Four repository variables carry the trust, and the workflow reads nothing else about the
+project: `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_WORKLOAD_IDENTITY_PROVIDER` and
+`GCP_SERVICE_ACCOUNT`. They are variables rather than file contents so that a fork deploys
+nowhere and rotating the trust touches no commit.
+
+The secret, and the grant the deploy actually needs:
+
+```bash
+PROJECT=arch-compass
+NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
+
+# The secret the workflow mounts as OPENROUTER_API_KEY.
+printf %s "$OPENROUTER_API_KEY" \
+  | gcloud secrets create archcompass-openrouter-api-key \
+      --project "$PROJECT" --data-file=- --replication-policy=automatic
+
+# The account the *revision* runs as, which is not the account the deploy authenticates as.
+# Cloud Run reads the secret at revision-creation time, so this grant is what the deploy is
+# refused for — and the error names an account nothing in this repository mentions.
+gcloud secrets add-iam-policy-binding archcompass-openrouter-api-key \
+  --project "$PROJECT" \
+  --member "serviceAccount:${NUMBER}-compute@developer.gserviceaccount.com" \
+  --role roles/secretmanager.secretAccessor
+```
+
+Rotating the key is a new version of the same secret — `:latest` in the workflow means the
+next revision picks it up, and running revisions keep the version they started with:
+
+```bash
+printf %s "$NEW_KEY" | gcloud secrets versions add archcompass-openrouter-api-key \
+  --project "$PROJECT" --data-file=-
+```
+
+A deploy that fails this way leaves the previous revision serving, which is the safe outcome
+and also the quiet one: the site keeps working, on the old build, and nothing says so except
+a red mark in Actions. Whoever changes the secrets the workflow mounts owns checking that
+the deploy after it went green.
+
 ## Verification
 
 ```bash
