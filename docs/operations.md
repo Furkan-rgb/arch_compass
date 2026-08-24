@@ -61,8 +61,6 @@ The CLI runs the graph in-process. It makes no HTTP calls and does not need the 
 | **openrouter** | `OPENROUTER_API_KEY` | yes — 222 models, discovered live | yes — 5 models, `google/gemini-embedding-2` by default |
 | google | `GOOGLE_API_KEY` | yes | yes — `gemini-embedding-2`, 3,072 dims |
 | ollama | none, a reachable server | yes | yes — whatever installed model advertises the capability |
-| groq | `GROQ_API_KEY` | yes | no |
-| cerebras | `CEREBRAS_API_KEY` | yes | no |
 | fake | none | deterministically, without a model | deterministically |
 
 `fake` is the offline provider the test suite and the Docker smoke check run on
@@ -85,10 +83,6 @@ catalogue is the source of truth, filtered to what a review needs — a model th
 both `structured_outputs` and `tools` — which was 222 of 422 when this was written. Routers
 (`openrouter/…`), moving pointers (`~…-latest`) and batch-only ids (`…:batch`) are refused,
 because each would break the promise that one model identity means one model.
-
-Groq and Cerebras are reached the same way as each other, over OpenAI's chat API, and
-neither serves embeddings: a run judging through one retrieves through OpenRouter, Google or
-a local Ollama.
 
 Every provider is judged the same way: one candidate per `Send`, fanned out by LangGraph.
 How many run together is LangGraph's business, not a setting here — there is no knob for it
@@ -125,8 +119,6 @@ does nothing.
 |---|---|
 | `OPENROUTER_API_KEY` | OpenRouter, for judging and for embedding — **the default for both** |
 | `GOOGLE_API_KEY` | Google, for judging and for `gemini-embedding-2` |
-| `GROQ_API_KEY` | Groq |
-| `CEREBRAS_API_KEY` | Cerebras |
 
 Each is named by its provider descriptor's `api_key_env`, never hardcoded at the call site.
 
@@ -136,8 +128,6 @@ Each is named by its provider descriptor's `api_key_env`, never hardcoded at the
 |---|---|---|
 | `ARCHCOMPASS_PROVIDERS` | all | comma-separated allow-list; narrows what is offered at all |
 | `ARCHCOMPASS_OLLAMA_URL` | `http://127.0.0.1:11434` | moves the local Ollama server |
-| `ARCHCOMPASS_GROQ_MODELS` | the descriptor's | comma-separated model ids to offer |
-| `ARCHCOMPASS_CEREBRAS_MODELS` | the descriptor's | comma-separated model ids to offer |
 | `ARCHCOMPASS_HINGE_INVESTIGATION` | `1` | `0` skips the lookups a hinge gets before a person is asked |
 | `ARCHCOMPASS_EMBEDDING_PROVIDER` | selected model's | pins the embedding provider |
 | `ARCHCOMPASS_EMBEDDING_MODEL` | selected model's | pins the embedding model |

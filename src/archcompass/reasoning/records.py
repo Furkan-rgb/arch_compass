@@ -93,10 +93,10 @@ class ProviderAvailability(BoundaryDTO):
     provider: str
     available: bool
     detail: str = ""
-    #: The provider's name written for a reader — `Google`, `Groq`. Empty where the key
+    #: The provider's name written for a reader — `Google`, `OpenRouter`. Empty where the key
     #: already reads as one, so a caller can tell "no better name exists" from "the name is
     #: the key". Carried here because the chooser groups by provider and a group needs a
-    #: heading; deriving one by capitalising the key gives `Openai` and `Cerebras` equal
+    #: heading; deriving one by capitalising the key gives `Openai` and `Openrouter` equal
     #: confidence, and only one of them is right.
     label: str = ""
     probed_at: datetime = Field(default_factory=utc_now)

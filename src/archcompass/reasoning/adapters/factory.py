@@ -16,10 +16,6 @@ from archcompass.configuration import (
 )
 from archcompass.domain.errors import ConfigurationError
 from archcompass.reasoning.adapters import openrouter
-from archcompass.reasoning.adapters.openai_compatible import (
-    OPENAI_COMPATIBLE_PROVIDERS,
-    openai_compatible_http_client,
-)
 from archcompass.reasoning.adapters.providers import (
     EMBEDDINGGEMMA_DOCUMENT_PROMPT,
     EMBEDDINGGEMMA_QUERY_PROMPT,
@@ -126,33 +122,7 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
             timeout=config.timeout_seconds,
             max_retries=0,
             extra_body=openrouter.request_body(config.max_output_tokens),
-            http_client=openai_compatible_http_client(config.timeout_seconds),
-        )
-    if config.provider in OPENAI_COMPATIBLE_PROVIDERS:
-        # One branch for every vendor of this API, because the only thing that varies
-        # between them is already on the configuration: where to send it and which variable
-        # holds the key. A branch per vendor would be the same four lines with a different
-        # string in them, waiting to drift apart.
-        #
-        # `max_retries=0` for the reason Google gets `retries=0`: the SDK would retry
-        # silently, on its own schedule, without the log line or the `ProviderError` that
-        # makes an exhausted quota legible — and `archcompass.retrying` is already wrapped
-        # around every structured call.
-        #
-        # The client is ours because of one thing the SDK's own cannot do: a vendor of this
-        # API may answer 200 with an error in the body, and the SDK parses that into a
-        # `TypeError` carrying no status. See `_raise_inline_error`.
-        return ChatOpenAI(
-            model=config.model,
-            base_url=config.base_url,
-            api_key=SecretStr(
-                resolve_api_key(config.api_key_env, provider=config.provider)
-            ),
-            temperature=0.0,
-            max_completion_tokens=config.max_output_tokens,
-            timeout=config.timeout_seconds,
-            max_retries=0,
-            http_client=openai_compatible_http_client(config.timeout_seconds),
+            http_client=openrouter.http_client(config.timeout_seconds),
         )
     if config.provider == "ollama":
         return ChatOllama(

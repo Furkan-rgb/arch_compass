@@ -71,9 +71,6 @@ from archcompass.policies.retrieval import corpus_fingerprint
 from archcompass.policies.service import PolicyService
 from archcompass.reasoning.adapters.deterministic import DETERMINISTIC_MODEL_IDENTITY
 from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
-from archcompass.reasoning.adapters.openai_compatible import (
-    descriptors as openai_compatible_descriptors,
-)
 from archcompass.reasoning.adapters.openrouter import DESCRIPTOR as OPENROUTER_DESCRIPTOR
 from archcompass.reasoning.adapters.providers import (
     DETERMINISTIC_DESCRIPTOR,
@@ -629,10 +626,6 @@ _ALL_PROVIDERS: Final[dict[str, ProviderDescriptor]] = {
     for descriptor in (
         OLLAMA_DESCRIPTOR,
         GOOGLE_DESCRIPTOR,
-        # Groq, Cerebras and anything else that answers OpenAI's chat API. Spread rather
-        # than listed one by one, so the vendor list lives in the module that knows what a
-        # vendor of that API needs and this table keeps saying only which providers exist.
-        *openai_compatible_descriptors(),
         OPENROUTER_DESCRIPTOR,
         DETERMINISTIC_DESCRIPTOR,
     )

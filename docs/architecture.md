@@ -207,8 +207,8 @@ confined to `workflow/`.
 any other here; which company serves a request is its routing decision, expressed as a
 `provider` block on the request. There is deliberately no Google, Anthropic or OpenAI
 abstraction beneath it, and no local list of its models — the catalogue is the source of
-truth, filtered to what a review needs. Google, Ollama, Groq and Cerebras remain reachable
-directly, beside it rather than under it.
+truth, filtered to what a review needs. Ollama is the local boundary beside it, and Google
+remains reachable directly as a fallback.
 
 Two guarantees ride on every OpenRouter request and both are load-bearing.
 `provider.require_parameters` makes schema support a hard routing filter rather than a

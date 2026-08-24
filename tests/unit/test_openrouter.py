@@ -1,20 +1,23 @@
-"""The one hosted boundary: what it offers, and what it puts on the wire.
+"""The one hosted boundary: what it offers, what it puts on the wire, and how it fails.
 
 Nothing here talks to OpenRouter. What is worth testing is the part that is ours — which
-catalogue rows become choices, and the request contract, which is the whole reason this
-provider is not a row in `openai_compatible.py`.
+catalogue rows become choices, the request contract, the embedding join, and the one thing
+the transport does that the SDK's own client will not: notice an error delivered inside a
+200.
 """
 
 from __future__ import annotations
 
 from typing import Any, cast
 
+import httpx
 import pytest
 
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ProviderError
 from archcompass.reasoning.adapters import openrouter
 from archcompass.reasoning.adapters.factory import build_chat_model
+from archcompass.retrying import is_transient
 
 
 def _entry(identifier: str, *, parameters: list[str] | None = None, **rest: Any) -> dict[str, Any]:
@@ -277,3 +280,87 @@ def test_a_refused_request_is_a_provider_error(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(ProviderError, match="429"):
         embedder.embed_query("one question")
+
+
+def _http_response(
+    status: int, body: bytes, content_type: str = "application/json"
+) -> httpx.Response:
+    return httpx.Response(
+        status_code=status,
+        headers={"content-type": content_type},
+        content=body,
+        request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"),
+    )
+
+
+def test_a_rate_limit_hidden_in_a_200_body_is_still_a_rate_limit() -> None:
+    """The failure this transport exists for, end to end.
+
+    OpenRouter reports anything that goes wrong mid-generation in the body, because the
+    request did reach a provider. The body then has an `error` and no `choices`, the SDK
+    iterates `choices` while parsing, and the review dies on
+    `TypeError: 'NoneType' object is not iterable` — no status, no phrase, so `is_transient`
+    reads it as permanent and a four-second wait becomes a lost review.
+    """
+
+    inline = _http_response(200, b'{"error": {"code": 429, "message": "Rate limit exceeded"}}')
+
+    with pytest.raises(openrouter.InlineProviderError) as refused:
+        openrouter._raise_inline_error(inline)
+
+    assert "Rate limit exceeded" in str(refused.value)
+    assert is_transient(refused.value), "a 429 in the body must be waited on"
+
+
+def test_a_permanent_error_in_a_200_body_is_not_waited_on() -> None:
+    """The same interception must not turn every refusal into a retry loop."""
+
+    inline = _http_response(200, b'{"error": {"code": 402, "message": "Insufficient credits"}}')
+
+    with pytest.raises(openrouter.InlineProviderError) as refused:
+        openrouter._raise_inline_error(inline)
+
+    assert not is_transient(refused.value)
+    assert isinstance(refused.value, ProviderError), "the domain type every caller catches"
+
+
+def test_an_error_with_no_code_still_stops_the_parse() -> None:
+    """A body that is an error is not a completion, whether or not it says how."""
+
+    inline = _http_response(200, b'{"error": {"message": "something went wrong upstream"}}')
+
+    with pytest.raises(openrouter.InlineProviderError, match="something went wrong upstream"):
+        openrouter._raise_inline_error(inline)
+
+
+def test_an_ordinary_completion_passes_through_untouched() -> None:
+    body = b'{"choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}]}'
+
+    openrouter._raise_inline_error(_http_response(200, body))
+
+
+def test_a_real_error_status_is_left_to_the_sdk() -> None:
+    """A 429 in the status line already works; intercepting it would only reword it."""
+
+    openrouter._raise_inline_error(
+        _http_response(429, b'{"error": {"code": 429, "message": "slow down"}}')
+    )
+
+
+def test_a_stream_is_never_read_here() -> None:
+    """Reading the body in the hook would consume the stream.
+
+    ArchCompass does not stream a structured call, and this guard is what keeps that from
+    becoming a rule somebody has to remember rather than one the code holds.
+    """
+
+    openrouter._raise_inline_error(
+        _http_response(200, b"data: {}\n\n", content_type="text/event-stream")
+    )
+
+
+def test_the_client_carries_the_hook_and_the_timeout() -> None:
+    client = openrouter.http_client(12.5)
+
+    assert openrouter._raise_inline_error in client.event_hooks["response"]
+    assert client.timeout.read == 12.5

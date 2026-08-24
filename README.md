@@ -79,8 +79,8 @@ uv run archcompass --provider ollama --model qwen3.8:27b web
 ```
 
 **OpenRouter is the hosted boundary** — one credential, and its catalogue is the list of
-models, filtered to those that declare structured output and tool calling. Google, Ollama,
-Groq and Cerebras remain reachable directly. Ollama is the local boundary and needs no key. Everything about running it — the CLI,
+models, filtered to those that declare structured output and tool calling. **Ollama is the
+local boundary** and needs no key. Google remains reachable directly as a fallback. Everything about running it — the CLI,
 the frontend loop, every environment variable, every limit — is in
 **[docs/operations.md](docs/operations.md)**.
 

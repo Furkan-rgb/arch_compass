@@ -48,7 +48,7 @@ class ProviderAvailabilityResponse(APIModel):
     available: bool
     #: Why not, naming the cure where there is one. Empty when available.
     detail: str = ""
-    #: The provider's name written for a reader — `Google`, `Groq`, `Ollama`. Empty where
+    #: The provider's name written for a reader — `Google`, `OpenRouter`, `Ollama`. Empty where
     #: the key already reads as one. The chooser groups by provider and a group needs a
     #: heading; a page that titled its own would need a table of every provider this build
     #: can reach, which is this table again in another language.
