@@ -193,6 +193,33 @@ for the Cloud Run deployment — the two run caps, the two fetch caps, `SOURCE_H
 `PROVIDERS=openrouter` and the four embedding pins — and leaves the six size limits on their
 code defaults. Its one secret is `OPENROUTER_API_KEY`.
 
+### What bounds a review, and what does not
+
+Worth knowing before reading a run that looks stuck, because the answer is mostly "nothing".
+
+| bound | value | scope |
+|---|---|---|
+| `ReasoningModelConfig.timeout_seconds` | 360s | one model or embedding call |
+| `retrying` defaults | 6 attempts over ~2 minutes | one call, across its retries |
+| Cloud Run `--timeout` | 600s | one HTTP request |
+| a whole run | **none** | — |
+
+There is no wall clock on a review. A run that has stopped moving has stopped for a reason
+that is not a timeout, and the two that have actually happened are worth naming.
+
+The first is CPU. A review runs on a background thread — the POST that starts one returns 202
+and the work continues after it — and Cloud Run's default is to allocate CPU only while a
+request is being handled. Without `--no-cpu-throttling` that thread gets whatever the polls
+buy it, a few milliseconds every second and a half, and a two-minute review does not finish
+in any time worth waiting. Nothing errors; the counter simply does not move. `deploy.yml`
+sets the flag, and the cost of setting it is that CPU is billed for an instance's whole
+lifetime rather than only while it serves — bounded by `--max-instances 1`, and still zero
+when the demo is idle, because nothing pins a minimum instance.
+
+The second is the counter itself, which used to say "Judging candidate 1 of 50" for the whole
+of retrieval. Both halves of a candidate's turn are counted now, so a number that is not
+moving means work that is not moving.
+
 ## The deployment's one-time setup
 
 `.github/workflows/deploy.yml` points here for these and they were never written down, which

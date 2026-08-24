@@ -62,6 +62,24 @@ jobs:
       # multi-stage Dockerfile — the image the Makefile smoke-tests locally is the image
       # that serves. Flags restate the full configuration on every deploy rather than
       # inheriting it, so this file is the record of how the demo runs.
+      #
+      # `--no-cpu-throttling` is what makes a review possible here at all, and its absence
+      # was invisible because nothing errors. A review runs on a background thread: the POST
+      # that starts one returns 202 and the work continues after it. Cloud Run's default is
+      # CPU allocated only while a request is being handled, so between polls that thread had
+      # almost no CPU — a run that takes two minutes on a laptop progressed in the few
+      # milliseconds each poll bought it, which is what "0 of 50 candidates judged" not
+      # moving looks like from the outside. `--timeout 600` never applied to any of it: that
+      # bounds one request, and the request was over in a moment.
+      #
+      # It is also what makes the start page's own promise true. "Keeps running in the
+      # workspace if you close this tab" is a claim about background work, and closing the
+      # tab is exactly when the polls stop — so the instance went idle, was scaled to zero,
+      # and took the run with it.
+      #
+      # The cost is real and worth stating: CPU is billed for as long as an instance is
+      # alive rather than only while it serves. `--max-instances 1` bounds it to one, and
+      # nothing pins a minimum, so an idle demo still scales to zero and bills nothing.
       - name: Deploy
         run: |
           gcloud run deploy "$SERVICE" \
@@ -73,6 +91,7 @@ jobs:
             --memory 1Gi \
             --concurrency 12 \
             --timeout 600 \
+            --no-cpu-throttling \
             --set-env-vars ARCHCOMPASS_HOSTED=1,ARCHCOMPASS_PROVIDERS=openrouter,ARCHCOMPASS_SOURCE_HOSTS=github.com,ARCHCOMPASS_GLOBAL_DAILY_RUNS=10,ARCHCOMPASS_SESSION_DAILY_RUNS=3,ARCHCOMPASS_GLOBAL_DAILY_FETCHES=20,ARCHCOMPASS_SESSION_DAILY_FETCHES=3,ARCHCOMPASS_EMBEDDING_PROVIDER=openrouter,ARCHCOMPASS_EMBEDDING_MODEL=google/gemini-embedding-2,ARCHCOMPASS_EMBEDDING_DIMENSIONS=3072,ARCHCOMPASS_EMBEDDING_API_KEY_ENV=OPENROUTER_API_KEY \
             --set-secrets OPENROUTER_API_KEY=archcompass-openrouter-api-key:latest
 
