@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from pydantic import ValidationError
@@ -33,7 +34,7 @@ from archcompass.domain import (
 )
 from archcompass.domain._support import utc_now
 from archcompass.domain.case import Question
-from archcompass.domain.errors import ModelOutputValidationError
+from archcompass.domain.errors import ModelOutputValidationError, ProviderError
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
 from archcompass.reasoning.adapters.langchain import (
     CONVERSATION_CONTRACT,
@@ -69,6 +70,52 @@ class StructuredReply:
         except ValidationError as error:
             return {"raw": raw, "parsed": None, "parsing_error": error}
         return {"raw": raw, "parsed": parsed, "parsing_error": None}
+
+
+class RaisingStructuredReply:
+    """The other shape a transport answers a refused schema in: a raise, not a mapping.
+
+    `include_raw=True` promises the mapping above, and `langchain-openai` does not deliver
+    it — it binds the Pydantic class to `response_format`, so the OpenAI SDK validates
+    inside the HTTP call and a violation escapes before any mapping is built. Measured: the
+    same deliberate cross-field violation came back as `parsing_error` on Google and as a
+    raised `ValidationError` through `ChatOpenAI`, where it skipped the repair entirely and
+    failed the whole review over one candidate.
+
+    Scripted rather than fixed, so a test can say what the second answer is and count how
+    many were asked for.
+    """
+
+    def __init__(self, schema: type[Any], documents: Sequence[dict[str, object]]) -> None:
+        self._schema = schema
+        self._documents = list(documents)
+        self.calls = 0
+
+    def invoke(self, prompt: str) -> dict[str, object]:
+        assert prompt
+        self.calls += 1
+        document = self._documents[min(self.calls, len(self._documents)) - 1]
+        # No try/except: escaping is the whole point of this double.
+        parsed = self._schema.model_validate(document)
+        return {
+            "raw": SimpleNamespace(content=json.dumps(document)),
+            "parsed": parsed,
+            "parsing_error": None,
+        }
+
+
+class RaisingStructuredModel:
+    def __init__(self, documents: Sequence[dict[str, object]]) -> None:
+        self._documents = documents
+        self.reply: RaisingStructuredReply | None = None
+
+    def with_structured_output(
+        self, schema: type[Any], method: str = "json_schema", *, include_raw: bool = False
+    ) -> RaisingStructuredReply:
+        assert method == "json_schema"
+        assert include_raw, "the adapter needs the raw response to explain a refusal"
+        self.reply = RaisingStructuredReply(schema, self._documents)
+        return self.reply
 
 
 class StructuredModel:
@@ -177,6 +224,87 @@ def test_a_policy_is_offered_to_the_judge_under_its_identifier() -> None:
 
     assert "[policy-a] Delay abstraction" in prompt
     assert "cite one by copying that identifier exactly" in prompt
+
+
+_VIOLATION: Final = {
+    "verdict": "material",
+    "reasoning": "Ownership could change the verdict.",
+    "hinge": "the owning team",
+    "recommended_response": "Move the module.",
+}
+_HONOURED: Final = {
+    "verdict": "cleared",
+    "reasoning": "The boundary hides a real variation.",
+}
+
+
+def test_a_transport_that_raises_is_repaired_like_one_that_reports() -> None:
+    """Both shapes of refusal buy the same one repair.
+
+    `with_structured_output(include_raw=True)` says a violation arrives as `parsing_error`.
+    One transport of three raises instead, and the repair used to be skipped on that one —
+    so a cross-field violation that Google recovered from killed the review on `ChatOpenAI`.
+    The two are the same event, and the point of this test is that they are now one path.
+    """
+
+    candidate, case, policies = _input()
+    model = RaisingStructuredModel([_VIOLATION, _HONOURED])
+    judge = LangChainArchitectureJudge(model, model_identity="test:model")  # type: ignore[arg-type]
+
+    finding = judge.judge(candidate, case, policies)
+
+    assert finding.verdict is Verdict.CLEARED
+    assert model.reply is not None
+    assert model.reply.calls == 2, "the violation should have bought exactly one repair"
+
+
+def test_a_transport_that_keeps_raising_fails_as_our_error_and_asks_once() -> None:
+    """Visible, named, and asked for once — not a Pydantic traceback, and not a loop.
+
+    A model that cannot honour a contract having just been shown the contract and its own
+    violation of it will not honour it on the fourth attempt either, so the ceiling is one
+    repair whichever way the transport reports the first refusal.
+    """
+
+    candidate, case, policies = _input()
+    model = RaisingStructuredModel([_VIOLATION])
+    judge = LangChainArchitectureJudge(model, model_identity="test:model")  # type: ignore[arg-type]
+
+    with pytest.raises(ModelOutputValidationError, match="test:model") as refused:
+        judge.judge(candidate, case, policies)
+
+    assert "a finding that reached a verdict has nothing left to ask" in str(refused.value)
+    assert model.reply is not None
+    assert model.reply.calls == 2, "one attempt and one repair, never a retry loop"
+
+
+def test_a_transport_failure_is_not_read_as_a_bad_answer() -> None:
+    """The net around the parse must not swallow the transport underneath it.
+
+    `call_with_retry` sits inside `_attempt`, so a provider refusal still reaches the caller
+    as a `ProviderError` to be waited on or reported — never as "the model wrote something
+    unusable", which would spend a repair call on a rate limit.
+    """
+
+    candidate, case, policies = _input()
+
+    class Refusing:
+        def with_structured_output(
+            self, schema: type[Any], method: str = "json_schema", *, include_raw: bool = False
+        ) -> Any:
+            assert schema and method and include_raw
+
+            class Reply:
+                def invoke(self, prompt: str) -> dict[str, object]:
+                    assert prompt
+                    raise ProviderError("the provider is unreachable")
+
+            return Reply()
+
+    judge = LangChainArchitectureJudge(Refusing(), model_identity="test:model")  # type: ignore[arg-type]
+
+    with pytest.raises(ProviderError, match="unreachable"):
+        judge.judge(candidate, case, policies)
 
 
 def test_hinge_and_recommendation_are_rejected_at_structured_boundary() -> None:

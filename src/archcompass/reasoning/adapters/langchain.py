@@ -7,8 +7,11 @@ import logging
 from collections.abc import Sequence
 from typing import Final, Literal, cast
 
+from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
-from pydantic import BaseModel, Field, model_validator
+from langchain_core.runnables import Runnable
+from openai import ContentFilterFinishReasonError, LengthFinishReasonError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from archcompass.domain import (
     ArchitectureCase,
@@ -264,6 +267,55 @@ def _repair_prompt(
     )
 
 
+#: What "the model's answer was unusable" looks like, whichever transport produced it.
+#:
+#: `include_raw=True` promises a mapping carrying `parsing_error` rather than a raised
+#: exception, and it keeps that promise on one transport of the three. Its fallback wraps the
+#: *parser* only, so a transport that validates inside the model call raises before the
+#: mapping is ever built — `langchain-openai` binds the Pydantic class to `response_format`,
+#: and the OpenAI SDK then parses within the HTTP call itself.
+#:
+#: Measured on one prompt carrying a deliberate cross-field violation: Google answered with
+#: `parsing_error=OutputParserException` and the repair below fixed it, while the same prompt
+#: through `ChatOpenAI` raised `ValidationError`, so the repair never ran and one candidate
+#: failed the whole review. They are the same event and are now the same code path.
+#:
+#: Exactly the failures that mean "what came back cannot be used", and nothing else. A
+#: transport failure is not one of them: it belongs to `call_with_retry`, which sits *inside*
+#: this net rather than outside it, so a rate limit still waits and asks again rather than
+#: being mistaken for a bad answer.
+_UNUSABLE_OUTPUT: Final = (
+    ValidationError,
+    OutputParserException,
+    json.JSONDecodeError,
+    LengthFinishReasonError,
+    ContentFilterFinishReasonError,
+)
+
+
+def _attempt(
+    structured: Runnable[str, object], prompt: str, *, subject: str
+) -> tuple[object, object, object]:
+    """One structured call as `(parsed, parsing_error, raw)`, however the transport says it.
+
+    The point is that the caller never learns which of the two shapes it got. A raised
+    refusal carries no raw message to quote, which `_repair_prompt` already copes with — and
+    a Pydantic complaint names the offending value inside its own text, so the repair still
+    says what was wrong with what.
+    """
+
+    try:
+        result = cast(
+            dict[str, object],
+            call_with_retry(
+                lambda: structured.invoke(prompt), subject=f"Producing {subject}"
+            ),
+        )
+    except _UNUSABLE_OUTPUT as unusable:
+        return None, unusable, None
+    return result.get("parsed"), result.get("parsing_error"), result.get("raw")
+
+
 def structured_output[Output: BaseModel](
     model: BaseChatModel,
     schema: type[Output],
@@ -280,19 +332,20 @@ def structured_output[Output: BaseModel](
     is a mapping and never the schema, and forgetting that is exactly the bug this function
     exists to make impossible — two of the three callers used to cast the mapping straight to
     their schema and would have failed on the first attribute they read.
+
+    Where a transport declines to keep that promise, `_attempt` keeps it on the transport's
+    behalf, so everything below reads one shape.
     """
 
     # Every model call in the application arrives here, which is why the retry sits here
     # too: one place to be sure a rate limit costs a wait rather than the whole review.
     # It wraps the call and nothing else — a rate limit is a reason to wait and ask again,
     # and a response that arrives is not.
-    structured = model.with_structured_output(schema, method="json_schema", include_raw=True)
-    result = cast(
-        dict[str, object],
-        call_with_retry(lambda: structured.invoke(prompt), subject=f"Producing {subject}"),
+    structured = cast(
+        "Runnable[str, object]",
+        model.with_structured_output(schema, method="json_schema", include_raw=True),
     )
-    parsing_error = result.get("parsing_error")
-    output = result.get("parsed")
+    output, parsing_error, raw = _attempt(structured, prompt, subject=subject)
     if parsing_error is None and isinstance(output, schema):
         return output
 
@@ -323,25 +376,18 @@ def structured_output[Output: BaseModel](
     # And a *systematic* violation doubles the call count for every candidate rather than
     # for one, which on a metered tier is a review costing twice what it should. Neither is
     # worth refusing the attempt over; both are worth knowing before raising the ceiling.
-    repair = _repair_prompt(prompt, parsing_error, result.get("raw"))
+    repair = _repair_prompt(prompt, parsing_error, raw)
     if repair is not None:
         _log.warning(
             "%s did not match the schema for %s; asking once more with the violation named",
             model_identity or "The reasoning model",
             subject,
         )
-        result = cast(
-            dict[str, object],
-            call_with_retry(
-                lambda: structured.invoke(repair), subject=f"Producing {subject}"
-            ),
-        )
-        parsing_error = result.get("parsing_error")
-        output = result.get("parsed")
+        output, parsing_error, raw = _attempt(structured, repair, subject=subject)
         if parsing_error is None and isinstance(output, schema):
             return output
 
-    raw_content = getattr(result.get("raw"), "content", "")
+    raw_content = getattr(raw, "content", "")
     preview = " ".join(str(raw_content).split())
     if len(preview) > 240:
         preview = preview[:237] + "..."
