@@ -193,7 +193,6 @@ function FolderRow({
 }) {
   const depth = folder.path.split("/").length - 1;
   const cut = folder.path.lastIndexOf("/");
-  const parent = cut > 0 ? folder.path.slice(0, cut) : "";
   const leaf = cut > 0 ? folder.path.slice(cut + 1) : folder.path;
   const dimmed = checked || covered;
 
@@ -203,15 +202,32 @@ function FolderRow({
         // The whole path, always, wherever the row had to shorten it. There was none, so a
         // truncated row had nothing behind it to recover the difference from.
         title={folder.path}
-        style={{ "--depth": `${depth * 1.1}rem` } as CSSProperties}
+        // 1.625rem, so a child's checkbox sits under its parent's folder icon: 10px of
+        // padding, a 16px box and a 10px gap is 36px, and 36 less the 10 this row already
+        // has is 26. An arbitrary step would only push the row along; this one lines up
+        // with something, which is what makes it read as containment rather than as a gap.
+        style={{ "--depth": `${depth * 1.625}rem` } as CSSProperties}
         className={cn(
           "flex cursor-pointer items-center gap-2.5 rounded-sm border py-2 pr-2.5 transition",
-          // The indent is what makes this a tree, and below `sm` it is what the tree costs:
-          // at 390px a depth-2 row left about 120px for a mono path, so `src/infrastructure`
-          // and `src/interfaces` truncated to the same string. The narrow layout drops the
-          // indent and says the parent once, small, above the leaf — which is the docket's
-          // own treatment for rows that share a namespace.
-          "pl-2.5 sm:pl-[calc(0.625rem_+_var(--depth))]",
+          // The indent is the only thing on a row that says this folder is inside the one
+          // above it, so it is not a thing to spend at any width. It used to be `sm:` only:
+          // below 640px the tree gave up the indent and re-stated the parent as a second
+          // line above the leaf, which is what a phone actually showed — seven rows all
+          // flush left, `src/` printed above `archcompass`, and nothing saying which was
+          // inside which.
+          //
+          // The trade was sized against a depth-2 row, and `_MAX_DEPTH = 2` in
+          // `analysis/tree.py` means the listing only ever returns one- and two-part paths.
+          // So what was being given away is a single step, out of roughly 219px of name at
+          // 390px — against a longest real leaf of eleven characters. Two anatomies keyed to
+          // a breakpoint is also the second interface `docs/experience.md` says a phone does
+          // not get.
+          //
+          // The fallback on `var()` is load-bearing now that the base padding is gone: an
+          // unregistered custom property that resolves to nothing makes the declaration
+          // invalid at computed-value time, and `padding-left` would fall back to 0 rather
+          // than to the gutter every row needs.
+          "pl-[calc(0.625rem_+_var(--depth,0rem))]",
           dimmed
             ? "border-rule bg-sunken text-ink-3"
             : "border-transparent hover:border-rule hover:bg-sunken/60",
@@ -228,23 +244,20 @@ function FolderRow({
         />
         <FolderIcon className="size-4 shrink-0 text-ink-3" />
         <span className="min-w-0 flex-1">
-          {parent ? (
-            <Mono className="block truncate text-[10px] text-ink-3 sm:hidden">{parent}/</Mono>
-          ) : null}
+          {/* The leaf alone. The listing sorts lexicographically and a two-part path's own
+              parent is always a row in it — `folder_tree` counts a file into both — so the
+              row above is the parent and the indent already says so. Printing `src/` here
+              as well is the prefix repeating what the position states, and on a phone it
+              cost a second line on every nested row to do it. The whole path stays on the
+              hover and in the checkbox's accessible name, which is also how
+              `start-page.test.tsx` addresses these rows. */}
           <Mono
             className={cn(
               "block truncate text-[12px]",
               dimmed ? "text-ink-3 line-through" : "text-ink",
             )}
           >
-            {parent ? (
-              <>
-                <span className="sm:hidden">{leaf}</span>
-                <span className="hidden sm:inline">{folder.path}</span>
-              </>
-            ) : (
-              folder.path
-            )}
+            {leaf}
           </Mono>
         </span>
         {folder.suggested ? <Tag>usually skipped</Tag> : null}

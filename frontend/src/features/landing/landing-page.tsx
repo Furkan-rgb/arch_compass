@@ -118,55 +118,75 @@ function LandingNav() {
   }, []);
 
   return (
-    <header
-      className={cn(
-        "sticky top-0 z-40 border-b transition",
-        scrolled ? "border-rule bg-chrome backdrop-blur-chrome" : "border-transparent bg-transparent",
-      )}
-    >
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <Wordmark to="/" />
-        <nav aria-label="Sections" className="hidden items-center gap-1 md:flex">
-          {SECTIONS.map((section) => (
-            <a
-              key={section.id}
-              href={`#${section.id}`}
-              className="rounded-sm px-2.5 py-1.5 text-sm font-medium text-ink-2 transition hover:bg-sunken hover:text-ink"
+    <>
+      <header
+        className={cn(
+          "sticky top-0 z-40 border-b transition",
+          scrolled
+            ? "border-rule bg-chrome backdrop-blur-chrome"
+            : "border-transparent bg-transparent",
+        )}
+      >
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <Wordmark to="/" />
+          <nav aria-label="Sections" className="hidden items-center gap-1 md:flex">
+            {SECTIONS.map((section) => (
+              <a
+                key={section.id}
+                href={`#${section.id}`}
+                className="rounded-sm px-2.5 py-1.5 text-sm font-medium text-ink-2 transition hover:bg-sunken hover:text-ink"
+              >
+                {section.label}
+              </a>
+            ))}
+          </nav>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-my-1.5 min-h-11 min-w-11 px-2"
+              onClick={cycle}
+              aria-label={`Theme: ${preference}. Change it.`}
             >
-              {section.label}
-            </a>
-          ))}
-        </nav>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="-my-1.5 min-h-11 min-w-11 px-2"
-            onClick={cycle}
-            aria-label={`Theme: ${preference}. Change it.`}
-          >
-            <Glyph className="size-4" />
-          </Button>
-          {/* Not on a phone, where it wrapped onto two lines and squeezed the wordmark
-              against the menu button. It is the third copy of the same call to action at
-              that width — the hero states it a screen-length below, and the drawer this
-              menu opens ends with it — so the one that costs the header its shape is the
-              one to drop. */}
-          <ButtonLink to="/start" size="sm" className="hidden sm:inline-flex">
-            Review a repository
-          </ButtonLink>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="-my-1.5 min-h-11 min-w-11 px-2 md:hidden"
-            aria-label="Open menu"
-            onClick={() => setOpen(true)}
-          >
-            <MenuIcon className="size-5" />
-          </Button>
+              <Glyph className="size-4" />
+            </Button>
+            {/* Not on a phone, where it wrapped onto two lines and squeezed the wordmark
+                against the menu button. It is the third copy of the same call to action at
+                that width — the hero states it a screen-length below, and the drawer this
+                menu opens ends with it — so the one that costs the header its shape is the
+                one to drop. */}
+            <ButtonLink to="/start" size="sm" className="hidden sm:inline-flex">
+              Review a repository
+            </ButtonLink>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-my-1.5 min-h-11 min-w-11 px-2 md:hidden"
+              aria-label="Open menu"
+              onClick={() => setOpen(true)}
+            >
+              <MenuIcon className="size-5" />
+            </Button>
+          </div>
         </div>
-      </div>
+      </header>
 
+      {/* A sibling of the header rather than a child of it, and that is load-bearing rather
+          than tidiness.
+
+          The header earns `backdrop-blur-chrome` — a real `backdrop-filter` — the moment the
+          page scrolls past 8px, and a `backdrop-filter` other than `none` makes an element
+          the containing block for every `position: fixed` descendant, the same rule
+          `transform`, `filter` and `perspective` follow. Nested, the drawer's `fixed inset-0`
+          therefore stopped meaning the viewport and started meaning the 56px header: the
+          scrim dimmed only the header band, the panel became a sliver showing its own title
+          row, and the section links were clipped to nothing by a scroller with no height. The
+          body was already locked, so the page stopped scrolling while nothing had visibly
+          opened.
+
+          Which is why it read as a menu that sometimes does nothing: unscrolled, the header
+          carries no filter at all and the drawer worked. `AppShell` never had this — its
+          drawer has always sat outside the rail. */}
       <Drawer open={open} onClose={() => setOpen(false)} side="right" title="ArchCompass">
         <nav aria-label="Sections" className="grid gap-1 p-3">
           {SECTIONS.map((section) => (
@@ -184,7 +204,7 @@ function LandingNav() {
           </ButtonLink>
         </nav>
       </Drawer>
-    </header>
+    </>
   );
 }
 
@@ -355,11 +375,31 @@ function HowItWorks() {
           />
         </Reveal>
 
-        <Reveal className="relative mt-11">
-          <div aria-hidden="true" className="absolute inset-x-0 top-[11px] h-px bg-rule" />
+        <Reveal className="mt-11">
           <ol className="grid grid-cols-2 gap-y-9 sm:grid-cols-3 lg:grid-cols-6 lg:gap-y-0">
             {STEPS.map(([title, body, who], index) => (
-              <li key={title} className="relative pr-5">
+              // The wire is drawn per step rather than once across the section.
+              //
+              // It used to be one absolutely-positioned hairline on the wrapper —
+              // `inset-x-0 top-[11px]` — which is exact at the one width where all six steps
+              // share a row. Below `lg` the grid wraps, and `top` on the wrapper is measured
+              // from the wrapper, so the rule could only ever cross the first row: at 390px
+              // steps 03 to 06 were left with a bead and a tick and nothing joining them,
+              // and at 640–1023px steps 04 to 06 were. It read as broken rules rather than
+              // as a sequence, which is what it is.
+              //
+              // Each step now carries its own segment at the same 11px — the y of the bead's
+              // centre, not the tick's half-height. The grid has no column gap (the gutter
+              // is each item's own `pr-5`), so the segments abut inside a row and compose
+              // exactly the line the wrapper drew: identical at `lg`, and now true of every
+              // row the grid makes. Adding `gap-x-*` here would break it into six dashes.
+              //
+              // The bead comes later in the tree than the pseudo-element, so it still paints
+              // over the segment and reads as a bead on a wire rather than a dot beside one.
+              <li
+                key={title}
+                className="relative pr-5 before:absolute before:inset-x-0 before:top-[11px] before:h-px before:bg-rule"
+              >
                 <div className="relative h-[23px] w-px bg-rule-strong">
                   <span className="absolute -left-[3.5px] top-[7px] size-2 rounded-full border-[1.5px] border-ink bg-canvas" />
                 </div>
