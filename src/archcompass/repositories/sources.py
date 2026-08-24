@@ -19,7 +19,6 @@ import shutil
 from contextlib import suppress
 from pathlib import Path
 
-from archcompass.domain.errors import PathValidationError
 from archcompass.persistence.ports import SourceOriginRepository
 from archcompass.repositories.checkout import directory_name
 from archcompass.repositories.ports import SourceArchiveFetcher
@@ -63,8 +62,16 @@ class SourceArchiveService:
         The old tree is moved aside before the new one is fetched, so a fetch that fails
         leaves the previous tree where it was rather than deleting a working directory on
         the way to not replacing it.
+
+        The address is checked before any of that. Everything between here and the fetcher
+        is destructive — the visitor's other tree is dropped, and `make_room` evicts other
+        visitors' trees — and it used to run for an address the fetcher was never going to
+        accept: posting `file:///etc/passwd` returned a refusal *and* deleted a working
+        directory, and somebody else's. There is no second pattern here; `accepts` is the
+        fetcher's own check, asked earlier.
         """
 
+        self._fetcher.accepts(url, branch=branch)
         destination = self._sources_root / directory_name(url)
         self._sources_root.mkdir(parents=True, exist_ok=True)
         # One repository at a time per visitor. Reviewing a second does not mean wanting the
@@ -155,10 +162,3 @@ class SourceArchiveService:
             os.utime(candidate)
         return True
 
-    def validated_address(self, url: str) -> str:
-        """The address, or a refusal — asked before anything is written to disk."""
-
-        asked = url.strip()
-        if not asked:
-            raise PathValidationError("A repository address is required.")
-        return asked

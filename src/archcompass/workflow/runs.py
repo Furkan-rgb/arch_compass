@@ -233,3 +233,20 @@ class ReviewRunner:
         with self._lock:
             thread = self._threads.get(run_id)
         return thread is not None and thread.is_alive()
+
+    def has_active_runs(self) -> bool:
+        """Whether any run this object started is still on a thread.
+
+        Asked by whoever owns this runner's lifetime, so that dropping it can be told apart
+        from dropping an idle one. A run outlives the reference to its service — the thread
+        holds what it needs — so "nothing points at it any more" and "it has finished" are
+        different facts, and only this one answers the second.
+
+        The snapshot is taken under the lock and `is_alive` asked outside it, the way
+        `is_running` already does: a thread that ends between the two answers yes here and
+        no a moment later, which is the safe direction for every caller.
+        """
+
+        with self._lock:
+            threads = list(self._threads.values())
+        return any(thread.is_alive() for thread in threads)

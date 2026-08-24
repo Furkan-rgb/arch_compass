@@ -533,6 +533,16 @@ class ReviewWorkflowService:
     def latest_for_branch(self, branch_id: str) -> Review | None:
         return self._reviews.latest_for_branch(branch_id)
 
+    def has_running_work(self) -> bool:
+        """Whether this service still has a review executing on a thread of its own.
+
+        Its own method rather than the caller reaching for `_runner`, because what a caller
+        needs to know is about the service — "is it safe to let go of this" — and the runner
+        is how that is answered rather than what is being asked.
+        """
+
+        return self._runner.has_active_runs()
+
     def in_flight(self, *, limit: int = 50) -> tuple[ExecutionRecord, ...]:
         """Runs that have begun and are not finished.
 

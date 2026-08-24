@@ -115,14 +115,40 @@ class SessionRuntimeProvider:
                 return cached
             runtime = self._open(token)
             self._runtimes[token] = runtime
-            while len(self._runtimes) > self._limit:
-                # Least recently used, and losing nothing: the workspace stays on disk and
-                # the next request from that session rebuilds a runtime over it. What is
-                # dropped is a handle. SQLite is not held open between operations here —
-                # `SQLiteDatabase.connect` opens and closes a connection per call — so
-                # there is no connection to close on the way out either.
-                self._runtimes.popitem(last=False)
+            self._evict()
             return runtime
+
+    def _evict(self) -> None:
+        """Drop idle runtimes until the cache is back inside its limit. Idle ones only.
+
+        Dropping a handle used to lose nothing: the workspace stays on disk and the next
+        request from that session rebuilds a runtime over it. That is true of a session
+        sitting still, and it was not true of one in the middle of a review. A background
+        run lives on a thread inside the runtime's `ReviewWorkflowService`, and dropping the
+        dictionary entry does not stop the thread — so when that session came back,
+        `_open` called `_abandon_interrupted_reviews`, which marks every row still
+        `running` as failed and releases its checkpoints. Against a review that was at that
+        moment still executing. Reproduced: the durable row read `failed` while
+        `is_running` on the same thread id read `True`.
+
+        So the eviction skips them. A runtime with live work is not a handle anybody can
+        drop, and the cache says so rather than something outside it remembering.
+
+        When every entry is active, nothing is evicted and the map goes over its limit.
+        That is the answer, not a gap: the alternatives are refusing the request or
+        corrupting a run. `limit` is therefore how many *idle* workspaces stay open, and the
+        real ceiling is that plus however many reviews are running at once — which the
+        hosted run budgets already bound.
+
+        The entry just inserted is never a candidate. It is the one being returned.
+        """
+
+        for token in list(self._runtimes)[:-1]:
+            if len(self._runtimes) <= self._limit:
+                return
+            if self._runtimes[token].review_workflow_service.has_running_work():
+                continue
+            del self._runtimes[token]
 
     def _open(self, token: str) -> Runtime:
         runtime = build_runtime(

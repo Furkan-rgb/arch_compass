@@ -121,6 +121,17 @@ class FetchedSource:
 class SourceArchiveFetcher(Protocol):
     """Fetching a repository's files, for a deployment that will not run git."""
 
+    def accepts(self, url: str, *, branch: str | None = None) -> None:
+        """Refuse an address this fetcher will not go to, before anybody acts on it.
+
+        Separate from `fetch` because the caller does destructive work — dropping the
+        visitor's previous tree, evicting other visitors' trees to make room — on the way
+        to calling it, and doing that for an address that was never going to be fetched is
+        the shape of bug this exists to remove. `fetch` still validates: this is the same
+        check offered earlier, not a promise that `fetch` has stopped making it.
+        """
+        ...
+
     def fetch(self, url: str, *, branch: str | None, destination: Path) -> FetchedSource:
         """Put the repository's files at `destination`, or leave nothing behind.
 

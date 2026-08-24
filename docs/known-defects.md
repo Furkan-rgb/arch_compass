@@ -125,29 +125,42 @@ accidentally orphaned** before removing it; everything else the audit found dead
 duplicated ignored-directory list and the two protocols sharing the name `RepositoryAnalyzer`
 have all been reduced to one definition each.
 
-## OPEN — evicting a session runtime can fail a review that is still running
+## OPEN — an empty-file repository costs memory the storage ceiling scores at zero
 
-In hosted mode `SessionRuntimeProvider.acquire` evicts the least recently used runtime with
-`popitem(last=False)` once `ARCHCOMPASS_SESSION_CACHE` is exceeded
-(`presentation/web/runtimes.py:118-124`). The comment says it loses nothing, because the
-workspace stays on disk and only a handle is dropped.
+`SourceStorage._size` (`repositories/storage.py:81-88`) sums `st_size`, so a tree of two
+hundred thousand empty files reports 0 bytes and `make_room` never evicts it. The kernel
+cost is real: measured on this machine, 200,000 empty files on tmpfs moved `Slab` by about
+206 MB, returned on `rm`. The hosted container budgets roughly 370 MB of headroom
+(`presentation/web/hosted.py:90-95`), so one such fetch consumes it while the 250 MB
+accounting sees nothing.
 
-A handle is not all that can be in flight. A background review runs on a thread inside that
-runtime's `ReviewWorkflowService`; dropping the dictionary entry does not stop the thread.
-When that session's next request rebuilds the runtime, `_open` calls
-`_abandon_interrupted_reviews` (`:136, :228-237`), which marks every row still `running` as
-failed and releases its checkpoints — against a review that is at that moment still
-executing.
+`MAX_ENTRIES = 200_000` (`repositories/adapters/https_tarball.py:64`) bounds the count but
+not the cost, and `AnalysisLimits.max_files` stops the *analysis* rather than the extraction
+— the tree is already on disk. Reaching it needs such a repository published on an allowed
+host, which is easy; the tarball is mostly repetitive headers and gzips far under the
+download cap.
 
-Reaching it needs more than 32 concurrent sessions with one of the evicted ones mid-review,
-so it is unlikely on the current deployment. The eviction comment asserting that nothing is
-lost is what makes it worth writing down.
+## OPEN — the archive filter refuses escaping links, not links
 
-## OPEN — `SourceArchiveService.validated_address` has no callers
+`_extract`'s docstring (`repositories/adapters/https_tarball.py:196-197`) says the `data`
+filter refuses "symlinks, hard links, device nodes and setuid bits". It refuses *escaping*
+ones. An in-destination symlink is extracted, and because the repository directory is
+renamed up one level afterwards, `repo/x -> ../y` lands as `sources_root/<name>/x ->
+sources_root/y`.
 
-`repositories/sources.py:158`. Its docstring says it is "asked before anything is written to
-disk". Nothing asks it — zero call sites in `src/`, `tests/` or `frontend/`.
+That is still inside the session's own sources root and `holds()` resolves before comparing
+(`repositories/sources.py:150-152`), so it cannot be used to reach outside. Contained — but
+the docstring should not be read as a guarantee it does not make.
 
-Same character as `safe_workspace_output_path` above, and the same question applies: an
-unwired input check that a reader will assume is guarding the fetch path is worse than no
-check at all. Confirm it was deliberately unwired before removing it.
+## OPEN — nothing checks a symlink at every component of a workspace-relative path
+
+`safe_workspace_output_path` was deleted in this pass because nothing on the live path takes
+an untrusted workspace-relative path: every workspace join is a constant, and the nearest
+analogue — writing an authored policy — is protected twice over, by `policy_slug` reducing a
+title to `[a-z0-9-]` and by catalog lookup refusing an id the workspace does not already
+hold.
+
+Two of its three checks therefore have equivalents. The third does not: it rejected a
+**symlink at any component** of the path, and no other code in this repository performs that
+test. Recorded here so that the next feature writing a user-named file into a workspace
+reintroduces it rather than assuming it is already there.

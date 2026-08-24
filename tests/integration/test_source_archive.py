@@ -405,3 +405,44 @@ def test_a_repository_still_on_disk_is_left_alone(
 
     assert service.restore(root) is False
     assert "asked" not in served, "a present repository was fetched again"
+
+
+def test_a_refused_address_leaves_every_tree_where_it_was(tmp_path: Path) -> None:
+    """Nothing is destroyed on the way to refusing an address.
+
+    Everything between the request and the fetcher is destructive: the visitor's other
+    tree is dropped so one visitor holds one repository, and `make_room` evicts other
+    visitors' trees to stay inside the instance ceiling. All of it used to run before the
+    address was looked at, so `POST /api/repositories/checkout` with `file:///etc/passwd`
+    returned a refusal *and* deleted a working directory — the caller's, and somebody
+    else's. Reproduced before this test existed; this is what stops it coming back.
+
+    The existing failure test above covers a fetch that fails with a *valid* address,
+    which takes the superseded-rename path and passes either way.
+    """
+
+    sources = tmp_path / "session-a" / ".archcompass" / "sources"
+    sources.mkdir(parents=True)
+    mine = sources / "existing-repository-abc123"
+    mine.mkdir()
+    (mine / "keep.py").write_text("# already fetched\n", encoding="utf-8")
+    theirs = tmp_path / "session-b" / ".archcompass" / "sources" / "another-tree"
+    theirs.mkdir(parents=True)
+    (theirs / "keep.py").write_text("# another visitor\n", encoding="utf-8")
+
+    service = SourceArchiveService(
+        fetcher=HttpsTarballFetcher(
+            hosts=frozenset({"github.com"}), max_bytes=1 << 20, timeout=5.0
+        ),
+        sources_root=sources,
+        hosts=frozenset({"github.com"}),
+        origins=_Origins(),
+        # One byte, so `make_room` would evict everything it is allowed to touch.
+        storage=SourceStorage(root=tmp_path, max_total_bytes=1),
+    )
+
+    with pytest.raises(RepositoryCheckoutError):
+        service.fetch("file:///etc/passwd")
+
+    assert (mine / "keep.py").exists(), "the caller's own tree was deleted by a refusal"
+    assert (theirs / "keep.py").exists(), "another visitor's tree was evicted by a refusal"

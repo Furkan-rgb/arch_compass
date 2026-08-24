@@ -117,6 +117,12 @@ class HttpsTarballFetcher:
         shutil.rmtree(staging, ignore_errors=True)
         return FetchedSource(root_path=destination, url=url, revision=revision)
 
+    def accepts(self, url: str, *, branch: str | None = None) -> None:
+        """The same refusal `fetch` makes, offered before the caller has done anything."""
+
+        self._validated(url)
+        self._validated_ref(branch)
+
     def _validated(self, url: str) -> tuple[str, str, str]:
         matched = self._pattern.match(url)
         if matched is None:

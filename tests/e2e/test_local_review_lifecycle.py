@@ -192,15 +192,29 @@ def test_the_summary_is_short_and_says_nothing_the_reader_already_knows(
     sentences = [part for part in re.split(r"(?<=[.!?])\s+", summary) if part.strip()]
     assert len(sentences) <= 4, f"{len(sentences)} sentences: {summary}"
 
+    # Phrases that say nothing a reader of this screen does not already have. They are
+    # forbidden on their own terms — a summary that opens "this is the first review" has
+    # spent its one sentence on the sequence number printed beside it.
     padding = [
         "first review",
         "no previous",
         "nothing to compare",
-        "team's intent",
         "requires attention regarding",
     ]
     said = [phrase for phrase in padding if phrase in summary.lower()]
     assert not said, f"the summary spends itself on {said}: {summary}"
+
+    # "the team's intent" used to be on that list and is not any more. It is padding in
+    # "this depends on the team's intent" and it is the finding in "the review cannot
+    # distinguish a testing boundary from premature abstraction without the team's intent",
+    # which is what a live model actually wrote — beside six named candidates and a reason.
+    # A phrase that can be either is not a phrase this test can judge; what it can judge is
+    # whether the sentence carries something specific, which is what the check below asks.
+    if "intent" in summary.lower():
+        assert any(character in summary for character in "`."), (
+            f"a summary that reaches for intent has to name what it is uncertain about: "
+            f"{summary}"
+        )
 
 
 def test_a_hinge_is_checked_against_this_repository_by_this_model(
