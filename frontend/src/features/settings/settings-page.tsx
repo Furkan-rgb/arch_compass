@@ -20,7 +20,7 @@ import { plural, relativeTime } from "../../lib/format";
 import { useTheme } from "../../lib/theme";
 import { Badge, StatusDot, Tag } from "../../ui/badge";
 import { Button, ToggleButton } from "../../ui/button";
-import { Field, Select } from "../../ui/field";
+import { Field, Input, Select } from "../../ui/field";
 import { CheckIcon, RefreshIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
@@ -48,6 +48,32 @@ type ModelRow = { model: string; choices: Choice[] };
 
 /** A provider and everything it currently offers, which is what a section is. */
 type Group = { provider: ProviderAvailability; models: ModelRow[]; count: number };
+
+/**
+ * Above this many models in one half of the page, the list stops being something you read.
+ *
+ * The page was designed against a catalogue of nine hand-approved models, where every tile
+ * fitted on a screen and a filter would have been a control with nothing to do. OpenRouter
+ * made the reasoning half 225 rows and twelve screens tall — 23,000 pixels on a phone — with
+ * no way to look for a name, so choosing a model meant scrolling past two hundred you were
+ * not choosing. Twelve is roughly the point where scanning turns into searching.
+ */
+const FILTERABLE_FROM = 12;
+
+/** The rows whose model id or description contains what was typed, and their groups. */
+function matching(groups: Group[], query: string): Group[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return groups;
+  return groups.map((group) => {
+    const models = group.models.filter((row) =>
+      [row.model, ...row.choices.map((choice) => choice.detail)]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle),
+    );
+    return { ...group, models };
+  });
+}
 
 /**
  * How hard this row asks the model to think, said in the provider's own vocabulary.
@@ -550,6 +576,12 @@ function ModelSection({
   onRetry: () => void;
   selection: ReactNode;
 }) {
+  const [query, setQuery] = useState("");
+  const total = groups.reduce((count, group) => count + group.count, 0);
+  const filterable = total >= FILTERABLE_FROM;
+  const shown = filterable ? matching(groups, query) : groups;
+  const left = shown.reduce((count, group) => count + group.models.length, 0);
+
   return (
     <section className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)] xl:gap-6">
       {/* The eyebrow is the model's job, not its position in a list. These two choices are
@@ -582,14 +614,36 @@ function ModelSection({
         ) : loading ? (
           <LoadingPanel label={loadingLabel} rows={3} />
         ) : groups.length ? (
-          groups.map((group) => (
-            <ProviderSection
-              key={group.provider.provider}
-              group={group}
-              disabled={pinned || busy}
-              emptyNotice={emptyNotice}
-            />
-          ))
+          <>
+            {filterable ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <Input
+                  type="search"
+                  value={query}
+                  aria-label={`Filter ${title.toLowerCase()}s`}
+                  placeholder="Filter by name — flash, qwen, embed"
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="h-9 min-w-0 max-w-[22rem] flex-1 text-[13px]"
+                />
+                <span className="shrink-0 text-[12px] text-ink-3">
+                  <span className="font-mono tabular-nums text-ink-2">{left}</span> of{" "}
+                  <span className="font-mono tabular-nums">{total}</span>
+                </span>
+              </div>
+            ) : null}
+            {/* A provider whose every model was filtered out keeps its panel: the panel is
+                also where "OPENROUTER_API_KEY is unset" is said, and a filter that hid the
+                reason a provider is empty would answer a search with silence. */}
+            {shown.map((group) => (
+              <ProviderSection
+                key={group.provider.provider}
+                group={group}
+                disabled={pinned || busy}
+                emptyNotice={emptyNotice}
+                filtered={filterable && Boolean(query.trim())}
+              />
+            ))}
+          </>
         ) : (
           <p className="text-sm text-ink-3">No provider is configured.</p>
         )}
@@ -604,10 +658,13 @@ function ProviderSection({
   group,
   disabled,
   emptyNotice,
+  filtered = false,
 }: {
   group: Group;
   disabled: boolean;
   emptyNotice: string;
+  /** Whether a filter is narrowing this, which is a different empty from having nothing. */
+  filtered?: boolean;
 }) {
   const { provider, models, count } = group;
   const available = provider.available;
@@ -626,7 +683,11 @@ function ProviderSection({
         actions={
           <span className="flex flex-wrap items-center justify-end gap-2 text-xs text-ink-3">
             {available ? (
-              <span className="tabular-nums">{plural(count, "model")}</span>
+              <span className="tabular-nums">
+                {filtered && models.length !== count
+                  ? `${models.length} of ${plural(count, "model")}`
+                  : plural(count, "model")}
+              </span>
             ) : (
               <Badge tone="material" glyph="alert">
                 Unavailable
@@ -687,7 +748,14 @@ function ProviderSection({
           </div>
         ) : (
           <p className="text-sm text-ink-3">
-            {available ? emptyNotice : "Nothing to choose from until this provider answers."}
+            {!available
+              ? "Nothing to choose from until this provider answers."
+              : /* Two different empties. A provider that offers nothing says so; a provider
+                   whose models were all filtered out must not be read as offering nothing,
+                   or clearing the box would look like the catalogue changing under you. */
+                filtered && count
+                ? "Nothing here matches what you typed."
+                : emptyNotice}
           </p>
         )}
       </PanelBody>

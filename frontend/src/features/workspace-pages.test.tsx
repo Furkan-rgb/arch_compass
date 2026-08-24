@@ -286,6 +286,46 @@ describe("the models page", () => {
     expect(within(section).getByText("Unavailable")).toBeInTheDocument();
   });
 
+  it("lets a large catalogue be searched rather than scrolled", async () => {
+    // This page was built against nine hand-approved models. OpenRouter made the reasoning
+    // half 225 rows and twelve screens tall — 23,000 pixels on a phone — with no text input
+    // anywhere on it, so choosing a model meant scrolling past two hundred you were not
+    // choosing. The filter appears with the catalogue that needs it and not before.
+    const catalog = modelCatalogFixture();
+    catalog.candidates = Array.from({ length: 40 }, (_, index) => ({
+      provider: "ollama",
+      model: index === 0 ? "qwen3:8b" : `vendor/model-${index}`,
+      thinking: null,
+      label: index === 3 ? "the one with a distinctive description" : "chat model",
+      is_selected: index === 0,
+    }));
+    vi.spyOn(api, "models").mockResolvedValue(catalog);
+    vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
+
+    render(wrap(<SettingsPage />));
+
+    const filter = await screen.findByLabelText("Filter reasoning models");
+    expect(screen.getByRole("button", { name: /model-17/ })).toBeInTheDocument();
+
+    fireEvent.change(filter, { target: { value: "model-3" } });
+
+    // model-3 and model-30..39, and nothing else.
+    expect(screen.queryByRole("button", { name: /model-17/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /model-3\b/ })).toBeInTheDocument();
+
+    // The description is searchable too — it is the half of a row that says what a model is.
+    fireEvent.change(filter, { target: { value: "distinctive" } });
+    expect(screen.getByRole("button", { name: /model-3\b/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /model-17/ })).not.toBeInTheDocument();
+
+    // And a filter that matches nothing says so, rather than showing a blank panel.
+    fireEvent.change(filter, { target: { value: "nothing matches this" } });
+    expect(screen.getByText("Nothing here matches what you typed.")).toBeInTheDocument();
+
+    // The embedding half has three models, so it is scanned rather than searched.
+    expect(screen.queryByLabelText("Filter embedding models")).not.toBeInTheDocument();
+  });
+
   it("selects a reasoning model without touching the embedding selection", async () => {
     vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
     const select = vi.spyOn(api, "selectModel").mockResolvedValue(workspaceFixture());
