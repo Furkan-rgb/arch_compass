@@ -73,6 +73,7 @@ from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingMo
 from archcompass.reasoning.adapters.openai_compatible import (
     descriptors as openai_compatible_descriptors,
 )
+from archcompass.reasoning.adapters.openrouter import DESCRIPTOR as OPENROUTER_DESCRIPTOR
 from archcompass.reasoning.adapters.providers import (
     DETERMINISTIC_DESCRIPTOR,
     GOOGLE_DESCRIPTOR,
@@ -631,6 +632,7 @@ _ALL_PROVIDERS: Final[dict[str, ProviderDescriptor]] = {
         # than listed one by one, so the vendor list lives in the module that knows what a
         # vendor of that API needs and this table keeps saying only which providers exist.
         *openai_compatible_descriptors(),
+        OPENROUTER_DESCRIPTOR,
         DETERMINISTIC_DESCRIPTOR,
     )
 }

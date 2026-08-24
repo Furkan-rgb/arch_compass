@@ -15,6 +15,7 @@ from archcompass.configuration import (
     resolve_api_key,
 )
 from archcompass.domain.errors import ConfigurationError
+from archcompass.reasoning.adapters import openrouter
 from archcompass.reasoning.adapters.openai_compatible import (
     OPENAI_COMPATIBLE_PROVIDERS,
     openai_compatible_http_client,
@@ -110,6 +111,22 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
             retries=0,
             **sampling,
             **thinking,
+        )
+    if config.provider == openrouter.DESCRIPTOR.name:
+        # The same transport as every other vendor of this API, and one difference: the
+        # parameters go through `extra_body` rather than through `ChatOpenAI`'s own fields.
+        # `openrouter.request_body` says why, and it is the whole of the difference.
+        return ChatOpenAI(
+            model=config.model,
+            base_url=config.base_url,
+            api_key=SecretStr(
+                resolve_api_key(config.api_key_env, provider=config.provider)
+            ),
+            temperature=0.0,
+            timeout=config.timeout_seconds,
+            max_retries=0,
+            extra_body=openrouter.request_body(config.max_output_tokens),
+            http_client=openai_compatible_http_client(config.timeout_seconds),
         )
     if config.provider in OPENAI_COMPATIBLE_PROVIDERS:
         # One branch for every vendor of this API, because the only thing that varies
