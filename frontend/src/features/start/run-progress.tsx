@@ -73,13 +73,25 @@ export function progressSteps(stages: readonly string[]): Step[] {
  * A depth, not a stage — which is why it is a count rather than another row. The counts are
  * absent on a run that has not selected yet and on one resumed after a restart, and the
  * step falls back to its plain label rather than claiming `0 of 0`.
+ *
+ * Both halves of a candidate's turn are said, because only one of them used to be and it is
+ * the shorter one. Retrieval runs first and is most of the wait; while it was uncounted this
+ * line read "Judging candidate 1 of 50" from the moment the round selected — a claim about a
+ * candidate nothing had looked at yet, on a number that then sat still long enough to read
+ * as a stuck run. It says what is actually happening now, and the number under it moves.
  */
 function judgingLabel(state: ReviewRun, done: boolean): string {
   const total = state.candidates_to_judge ?? 0;
   const judged = state.candidates_judged ?? 0;
+  const retrieved = state.candidates_retrieved ?? 0;
   if (!total) return "Judging candidates";
   if (done) return `Judged ${plural(total, "candidate")}`;
-  return `Judging candidate ${Math.min(judged + 1, total)} of ${total}`;
+  // Judging is the later half, so any judgement at all means retrieval is no longer what a
+  // reader is waiting on — and a resumed run reports no retrievals but may report verdicts.
+  if (judged || !retrieved) {
+    return `Judging candidate ${Math.min(judged + 1, total)} of ${total}`;
+  }
+  return `Retrieving policies for candidate ${Math.min(retrieved, total)} of ${total}`;
 }
 
 /** Poll a run while it is running, and stop the moment there is nothing left to change. */

@@ -100,6 +100,49 @@ describe("a review being made", () => {
     expect(within(progress).getAllByRole("listitem")).toHaveLength(3);
   });
 
+  it("says it is retrieving while it is retrieving, rather than judging nothing", async () => {
+    // Retrieval is the first half of a candidate's turn and most of the wait. While only
+    // judging was counted, this line read "Judging candidate 1 of 50" from the moment the
+    // round selected — a claim about a candidate nothing had opened yet, on a number that
+    // then sat still long enough to read as a stuck run.
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
+    vi.spyOn(api, "reviewRun").mockResolvedValue(
+      runFixture({
+        stage: "retrieve_policy_set",
+        stages: ["load_context", "select_initial_candidates", "retrieve_policy_set"],
+        candidates_to_judge: 50,
+        candidates_retrieved: 12,
+        candidates_judged: 0,
+      }),
+    );
+
+    render(wrap(<RunPage />));
+
+    const progress = await screen.findByRole("list", { name: "Review progress" });
+    expect(
+      within(progress).getByText("Retrieving policies for candidate 12 of 50"),
+    ).toBeInTheDocument();
+    expect(within(progress).queryByText(/Judging candidate/)).not.toBeInTheDocument();
+  });
+
+  it("moves to judging on the first verdict, whatever retrieval last said", async () => {
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
+    vi.spyOn(api, "reviewRun").mockResolvedValue(
+      runFixture({
+        stage: "judge_candidate",
+        stages: ["select_initial_candidates", "retrieve_policy_set", "judge_candidate"],
+        candidates_to_judge: 50,
+        candidates_retrieved: 50,
+        candidates_judged: 3,
+      }),
+    );
+
+    render(wrap(<RunPage />));
+
+    const progress = await screen.findByRole("list", { name: "Review progress" });
+    expect(within(progress).getByText("Judging candidate 4 of 50")).toBeInTheDocument();
+  });
+
   it("counts the candidate loop as done once the run has left it", async () => {
     vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
     vi.spyOn(api, "reviewRun").mockResolvedValue(

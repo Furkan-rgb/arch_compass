@@ -154,14 +154,28 @@ def test_the_candidate_loop_is_counted_because_a_stage_list_cannot_count_it() ->
     assert progress.observe("select_initial_candidates", {"selected_candidates": (1, 2, 3)})
     assert (progress.to_judge, progress.judged) == (3, 0)
 
-    # The subgraph's own nodes are entered per candidate and produce nothing to count.
-    assert not progress.observe("retrieve_policy_set", {"retrieval": object()})
+    # Retrieval is the first half of a candidate's turn and counts on its own, because it
+    # is most of the wait: while only judging moved a number, the line read "Judging
+    # candidate 1 of 50" from the moment the round selected — a claim about a candidate
+    # nothing had looked at, on a count that then sat still for as long as retrieval took.
+    assert progress.observe("retrieve_policy_set", {"retrieval": object()})
+    assert (progress.retrieved, progress.judged) == (1, 0)
+    assert progress.observe("retrieve_policy_set", {"retrieval": object()})
+    assert (progress.retrieved, progress.judged) == (2, 0)
+
     assert progress.observe("judge_candidate", {"findings": {"a": object()}})
     assert progress.judged == 1
 
-    # A second round counts its own selection rather than continuing the first's.
+    # Neither half runs past the selection it belongs to, however many updates arrive.
+    for _ in range(5):
+        progress.observe("retrieve_policy_set", {"retrieval": object()})
+    assert progress.retrieved == 3
+
+    # A second round counts its own selection rather than continuing the first's, and both
+    # halves start over — a resumed round that kept a stale retrieval count would report
+    # progress through work it has not done again.
     assert progress.observe("select_candidates_for_rejudgement", {"selected_candidates": (1,)})
-    assert (progress.to_judge, progress.judged) == (1, 0)
+    assert (progress.to_judge, progress.judged, progress.retrieved) == (1, 0, 0)
 
 
 def test_a_run_carries_how_far_through_its_candidates_it_is() -> None:

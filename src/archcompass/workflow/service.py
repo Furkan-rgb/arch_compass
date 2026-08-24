@@ -84,6 +84,13 @@ class SubmittedAnswer:
 #: and a second node that answered it would have to be counted the same way.
 _JUDGING_STAGES = frozenset({"judge_candidate"})
 
+#: The other half of a candidate's turn, and the half that takes the time.
+#:
+#: One update per candidate, which is what makes it countable — the node runs once per
+#: candidate in the fan-out, so the number of updates from it is the number of candidates
+#: whose policies have been retrieved.
+_RETRIEVAL_STAGE = "retrieve_policy_set"
+
 #: The nodes that file a snapshot, and therefore the only updates whose review is on disk.
 #:
 #: `compose_final_review` and `compose_waiting_review` also put a `Review` in the state, and
@@ -113,6 +120,7 @@ class _JudgingProgress:
 
     to_judge: int = 0
     judged: int = 0
+    retrieved: int = 0
 
     def observe(self, stage: str, update: Mapping[str, object] | None) -> bool:
         """Take in one graph update. True where the counts moved and are worth reporting."""
@@ -123,6 +131,16 @@ class _JudgingProgress:
         if isinstance(selected, Sized):
             self.to_judge = len(selected)
             self.judged = 0
+            self.retrieved = 0
+            return True
+        # Retrieval is counted as well as judging, because it is most of the wait and none
+        # of it used to show. A candidate's turn is retrieve-then-judge, and only the second
+        # half moved a number — so a reader watched "Judging candidate 1 of 50" for as long
+        # as the retrieval took, which is a sentence that is not true yet about a count that
+        # is not moving. One update per candidate arrives from this stage, so counting them
+        # is counting candidates rather than inventing a percentage.
+        if stage == _RETRIEVAL_STAGE:
+            self.retrieved = min(self.retrieved + 1, self.to_judge)
             return True
         if stage not in _JUDGING_STAGES:
             return False
@@ -285,6 +303,7 @@ class ReviewWorkflowService:
                             thread_id,
                             judged=judging.judged,
                             to_judge=judging.to_judge,
+                            retrieved=judging.retrieved,
                         )
                     review = update.get("review") if update is not None else None
                     if stage in _RECORDING_STAGES and isinstance(review, Review):

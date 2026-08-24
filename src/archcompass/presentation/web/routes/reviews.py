@@ -67,6 +67,7 @@ class ReviewRunResponse(APIModel):
     #: a round has selected anything, which is what a client reads as "no count to show yet".
     candidates_to_judge: int = 0
     candidates_judged: int = 0
+    candidates_retrieved: int = 0
     #: The lineage this run belongs to. Names for a reader, ids so a client can tell that a
     #: run and a review it is looking at are the same line of work.
     repository_name: str = ""
@@ -112,6 +113,7 @@ class ReviewRunResponse(APIModel):
             failure=state.failure,
             candidates_to_judge=state.candidates_to_judge,
             candidates_judged=state.candidates_judged,
+            candidates_retrieved=state.candidates_retrieved,
             started_at=(None if state.started_at is None else state.started_at.isoformat()),
             **cast("dict[str, Any]", lineage),
         )

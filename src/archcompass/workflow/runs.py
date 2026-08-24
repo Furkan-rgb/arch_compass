@@ -64,6 +64,9 @@ class RunState:
     #: second round counts its own work rather than continuing the first's.
     candidates_to_judge: int = 0
     candidates_judged: int = 0
+    #: How many of them have had their policies retrieved, which happens first and takes
+    #: longer. Without it the progress line had nothing to say for most of the wait.
+    candidates_retrieved: int = 0
     failure: str = ""
     #: When this process started the run. `None` for a run it did not start — after a
     #: restart the durable half of the state survives and this does not, and a clock that
@@ -197,10 +200,17 @@ class ReviewRunner:
 
         self._update(run_id, review_id=review_id)
 
-    def report_judgements(self, run_id: str, *, judged: int, to_judge: int) -> None:
-        """How far through its candidates this round is."""
+    def report_judgements(
+        self, run_id: str, *, judged: int, to_judge: int, retrieved: int = 0
+    ) -> None:
+        """How far through its candidates this round is, in both of the halves it has."""
 
-        self._update(run_id, candidates_judged=judged, candidates_to_judge=to_judge)
+        self._update(
+            run_id,
+            candidates_judged=judged,
+            candidates_to_judge=to_judge,
+            candidates_retrieved=retrieved,
+        )
 
     def cancel(self, run_id: str) -> None:
         """Ask a run to stop at its next stage boundary.
