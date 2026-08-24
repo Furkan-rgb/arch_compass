@@ -61,8 +61,9 @@ from archcompass.policies.adapters import (
 )
 from archcompass.policies.adapters.bundled import BUNDLED_POLICY_SOURCE
 from archcompass.policies.adapters.embeddings import (
-    DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS,
-    DEFAULT_GOOGLE_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_DIMENSIONS,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_PROVIDER,
     embedding_config_from_environment,
 )
 from archcompass.policies.corpus import DataclassPolicyCorpus
@@ -362,9 +363,9 @@ def build_runtime(
         discovery=ProviderEmbeddingModelDiscovery(),
         selections=SQLiteEmbeddingModelSelectionRepository(core_database.transaction),
         default=EmbeddingModelSelection(
-            provider="google",
-            model=DEFAULT_GOOGLE_EMBEDDING_MODEL,
-            dimensions=DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS,
+            provider=DEFAULT_EMBEDDING_PROVIDER,
+            model=DEFAULT_EMBEDDING_MODEL,
+            dimensions=DEFAULT_EMBEDDING_DIMENSIONS,
         ),
         pin=embedding_config_from_environment() if explicit_embedding else None,
     )

@@ -67,9 +67,9 @@ make run
 
 `make run` builds the frontend, serves it on loopback and opens a browser. The Models screen
 asks for **two** independent choices — which model judges and which model embeds — and a
-review needs a policy index built for the embedding one. The index that ships was built with
-Google's `gemini-embedding-2` at 3,072 dimensions; any other embedder needs
-`scripts/build_policy_index.py` run for it first.
+review needs a policy index built for the embedding one. The index that ships was built through OpenRouter with
+`google/gemini-embedding-2` at 3,072 dimensions; any other embedder needs
+`make policy-index` run for it first.
 
 Pin a reasoning model for a single run instead:
 
@@ -78,8 +78,9 @@ uv run archcompass --provider google --model gemini-3.5-flash-lite web
 uv run archcompass --provider ollama --model qwen3.8:27b web
 ```
 
-Google, Ollama, Groq and Cerebras are supported for judging; only Google and Ollama serve
-embeddings, so a run judging on Groq or Cerebras still embeds through one of those two. Everything about running it — the CLI,
+**OpenRouter is the hosted boundary** — one credential, and its catalogue is the list of
+models, filtered to those that declare structured output and tool calling. Google, Ollama,
+Groq and Cerebras remain reachable directly. Ollama is the local boundary and needs no key. Everything about running it — the CLI,
 the frontend loop, every environment variable, every limit — is in
 **[docs/operations.md](docs/operations.md)**.
 

@@ -58,6 +58,7 @@ The CLI runs the graph in-process. It makes no HTTP calls and does not need the 
 
 | provider | credential | judges | embeds |
 |---|---|---|---|
+| **openrouter** | `OPENROUTER_API_KEY` | yes — 222 models, discovered live | yes — 5 models, `google/gemini-embedding-2` by default |
 | google | `GOOGLE_API_KEY` | yes | yes — `gemini-embedding-2`, 3,072 dims |
 | ollama | none, a reachable server | yes | yes — whatever installed model advertises the capability |
 | groq | `GROQ_API_KEY` | yes | no |
@@ -72,9 +73,22 @@ Credentials are read from the environment. A `.env` in the workspace — or in t
 directory — is loaded into it without overwriting anything already set, so a shell export
 and CI always win.
 
+**OpenRouter is the hosted boundary.** One credential reaches every model it lists, and
+which upstream serves a request is its routing decision rather than a provider ArchCompass
+knows about. Two things make that safe rather than merely convenient, and both are on every
+request: `provider.require_parameters` refuses a route that cannot honour the JSON schema
+the judgement is asking for, and the output ceiling travels as `max_tokens`, which is what
+those routes declare. See `reasoning/adapters/openrouter.py`.
+
+Its models are not listed here and there is no list of them in the code either. The
+catalogue is the source of truth, filtered to what a review needs — a model that declares
+both `structured_outputs` and `tools` — which was 222 of 422 when this was written. Routers
+(`openrouter/…`), moving pointers (`~…-latest`) and batch-only ids (`…:batch`) are refused,
+because each would break the promise that one model identity means one model.
+
 Groq and Cerebras are reached the same way as each other, over OpenAI's chat API, and
-neither serves embeddings: a run judging through one retrieves through Google or a local
-Ollama.
+neither serves embeddings: a run judging through one retrieves through OpenRouter, Google or
+a local Ollama.
 
 Every provider is judged the same way: one candidate per `Send`, fanned out by LangGraph.
 How many run together is LangGraph's business, not a setting here — there is no knob for it
@@ -84,10 +98,21 @@ Embedding selection is independent of reasoning selection: two choices, both req
 the Models screen offers them separately. Changing the embedding model creates a different
 content-addressed index namespace, and existing review provenance is unchanged by it.
 
-The index that ships was built for Google's `gemini-embedding-2` at 3,072 dimensions. Any
-other embedder needs its own index built first — `scripts/build_policy_index.py`, which
-`make policy-index` runs — and a review is refused before it spends anything on reasoning
-when the selected embedder has no index that applies.
+**The shipped index and the default embedder are one decision.** Production retrieval never
+generates a vector, so the file this package ships is the only source a review has, and
+whichever identity it carries is the embedder that works without configuring anything. That
+is `openrouter:google/gemini-embedding-2:3072` — the same Gemini model the index has always
+been built from, reached through a different front door.
+
+Any other embedder, Google's own included, needs its own index built first:
+
+```bash
+ARCHCOMPASS_EMBEDDING_PROVIDER=google ARCHCOMPASS_EMBEDDING_MODEL=gemini-embedding-2 \
+ARCHCOMPASS_EMBEDDING_DIMENSIONS=3072 make policy-index
+```
+
+A review whose selected embedder has no index that applies is refused before it spends
+anything on reasoning, naming the identity it wanted and the command that makes one.
 
 ## Environment variables
 
@@ -98,6 +123,7 @@ does nothing.
 
 | variable | meaning |
 |---|---|
+| `OPENROUTER_API_KEY` | OpenRouter, for judging and for embedding — **the default for both** |
 | `GOOGLE_API_KEY` | Google, for judging and for `gemini-embedding-2` |
 | `GROQ_API_KEY` | Groq |
 | `CEREBRAS_API_KEY` | Cerebras |
@@ -173,10 +199,10 @@ The size limits are sized against a 1 GiB container together: 250 MB of source p
 analysis peaking near 400 MB at the node cap. Raise them with the container's memory, not on
 their own.
 
-`Dockerfile` sets `ARCHCOMPASS_HOSTED=1`. `.github/workflows/deploy.yml` sets nine of these
+`Dockerfile` sets `ARCHCOMPASS_HOSTED=1`. `.github/workflows/deploy.yml` sets ten of these
 for the Cloud Run deployment — the two run caps, the two fetch caps, `SOURCE_HOSTS`,
-`PROVIDERS` and the three embedding pins — and leaves the six size limits on their code
-defaults.
+`PROVIDERS=openrouter` and the four embedding pins — and leaves the six size limits on their
+code defaults. Its one secret is `OPENROUTER_API_KEY`.
 
 ## Verification
 

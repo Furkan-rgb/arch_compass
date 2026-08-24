@@ -4,8 +4,9 @@ import pytest
 
 from archcompass.domain.errors import ConfigurationError
 from archcompass.policies.adapters.embeddings import (
-    DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS,
-    DEFAULT_GOOGLE_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_DIMENSIONS,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_PROVIDER,
     embedding_config_from_environment,
 )
 
@@ -23,18 +24,39 @@ def _clear_embedding_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(variable, raising=False)
 
 
-def test_google_embeddings_have_working_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_unconfigured_workspace_embeds_with_what_the_index_was_built_from(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default and the shipped index are one decision, not two.
+
+    Production retrieval never generates a vector, so the file this package ships is the
+    only source a review has — and whichever identity it carries is the embedder that works
+    without configuring anything. A default naming a different one would be a workspace
+    that refuses its first review while looking correctly set up.
+    """
+
     _clear_embedding_environment(monkeypatch)
 
     config = embedding_config_from_environment()
 
-    assert config.provider == "google"
-    assert config.model == DEFAULT_GOOGLE_EMBEDDING_MODEL
-    assert config.dimensions == DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS
-    assert config.api_key_env == "GOOGLE_API_KEY"
+    assert config.provider == DEFAULT_EMBEDDING_PROVIDER
+    assert config.model == DEFAULT_EMBEDDING_MODEL
+    assert config.dimensions == DEFAULT_EMBEDDING_DIMENSIONS
+    assert config.api_key_env == "OPENROUTER_API_KEY"
 
 
-def test_google_embedding_defaults_remain_overridable(
+def test_the_shipped_index_carries_the_identity_the_default_asks_for() -> None:
+    """The pairing above, checked against the file rather than against the constants."""
+
+    from archcompass.policies.adapters.bundled import bundled_corpus
+    from archcompass.policies.adapters.prebuilt import PREBUILT_INDEX, coverage
+
+    found = coverage(PREBUILT_INDEX, bundled_corpus(), embedding_config_from_environment())
+
+    assert found.complete, found.explain(path=PREBUILT_INDEX, identity="the default")
+
+
+def test_the_embedding_defaults_remain_overridable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_embedding_environment(monkeypatch)

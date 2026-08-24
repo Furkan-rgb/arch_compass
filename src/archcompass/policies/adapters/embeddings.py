@@ -27,10 +27,22 @@ from archcompass.policies.retrieval import (
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
 from archcompass.reasoning.adapters.factory import build_embeddings, embedding_identity
 
-DEFAULT_GOOGLE_EMBEDDING_MODEL = "gemini-embedding-2"
-DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS = 3072
-DEFAULT_GOOGLE_API_KEY_ENV = "GOOGLE_API_KEY"
-DEFAULT_EMBEDDING_PROVIDER = "google"
+#: What a workspace embeds with when nothing has said otherwise, and therefore the identity
+#: the index this package ships is stamped with. The two are one decision: production
+#: retrieval never generates a vector, so the shipped file is the only source a review has
+#: and whichever identity it carries is the embedder that works out of the box.
+#:
+#: OpenRouter rather than Google because it is the hosted boundary now, and because the
+#: model behind it is the same one — `google/gemini-embedding-2` is Gemini Embedding 2,
+#: reached through a different front door at the same 3,072 dimensions.
+#:
+#: Every other embedder still works and is reached the same way it always was: pin it with
+#: `ARCHCOMPASS_EMBEDDING_*` and build its index with `make policy-index`. That has been
+#: true of Ollama since the shipped index existed, and it is now true of Google as well.
+DEFAULT_EMBEDDING_PROVIDER = "openrouter"
+DEFAULT_EMBEDDING_MODEL = "google/gemini-embedding-2"
+DEFAULT_EMBEDDING_DIMENSIONS = 3072
+DEFAULT_EMBEDDING_API_KEY_ENV = "OPENROUTER_API_KEY"
 
 
 def embedding_config_from_environment() -> EmbeddingModelConfig:
@@ -43,8 +55,8 @@ def embedding_config_from_environment() -> EmbeddingModelConfig:
         "ARCHCOMPASS_EMBEDDING_DIMENSIONS", ""
     ).strip()
     if provider == DEFAULT_EMBEDDING_PROVIDER:
-        model = configured_model or DEFAULT_GOOGLE_EMBEDDING_MODEL
-        dimensions = configured_dimensions or str(DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS)
+        model = configured_model or DEFAULT_EMBEDDING_MODEL
+        dimensions = configured_dimensions or str(DEFAULT_EMBEDDING_DIMENSIONS)
     else:
         model = configured_model
         dimensions = configured_dimensions
@@ -68,7 +80,7 @@ def embedding_config_from_environment() -> EmbeddingModelConfig:
         api_key_env=(
             os.environ.get("ARCHCOMPASS_EMBEDDING_API_KEY_ENV", "").strip()
             or (
-                DEFAULT_GOOGLE_API_KEY_ENV
+                DEFAULT_EMBEDDING_API_KEY_ENV
                 if provider == DEFAULT_EMBEDDING_PROVIDER
                 else None
             )
