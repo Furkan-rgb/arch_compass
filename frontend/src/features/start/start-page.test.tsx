@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../../api";
 import { reviewSummaryFixture, runFixture, workspaceFixture } from "../../test-fixtures";
+import { forgetChoice } from "./choice";
 import { StartPage } from "./start-page";
 
 /** Stands in for the run page, and reports the address the start page moved to. */
@@ -23,6 +24,8 @@ function wrap(children: ReactNode, entry = "/start") {
       <MemoryRouter initialEntries={[entry]}>
         <Routes>
           <Route path="/start" element={children} />
+          {/* Somewhere to go and come back from, which is the whole of the test below. */}
+          <Route path="/settings" element={<Link to="/start">Back to the form</Link>} />
           <Route path="/reviews/:reviewId" element={<div>Review workbench</div>} />
           <Route path="/runs/:runId" element={<RunAddress />} />
         </Routes>
@@ -32,6 +35,9 @@ function wrap(children: ReactNode, entry = "/start") {
 }
 
 beforeEach(() => {
+  // The choice is module state, so it outlives a render: without this, one test picking a
+  // repository hands it to every test after it in the file.
+  forgetChoice();
   vi.spyOn(api, "repositories").mockResolvedValue([
     {
       version_id: "version-1",
@@ -93,6 +99,27 @@ describe("choosing a repository", () => {
   // The branch probe is debounced, so the wait has to be controllable rather than real.
   beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
   afterEach(() => vi.useRealTimers());
+
+  it("still holds the repository and the scope after a trip to the models page", async () => {
+    // The page prints "Both are needed before a review can run" with a link straight to
+    // Settings under its own run button — and then punished anybody who followed it.
+    // `/start` is a route element, so `useState` did not survive the navigation: a
+    // repository found by browsing, or cloned from an address, or ten minutes of ticked
+    // folders, all discarded for taking the page's own advice.
+    render(wrap(<StartPage />, "/start?root=%2Fwork%2Fpayments-platform"));
+
+    await screen.findAllByText(/128 Python files/);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Leave out src" }));
+    expect(screen.getByRole("checkbox", { name: "Leave out src" })).toBeChecked();
+
+    // Away, and back — with no `?root=` on the return, which is the whole point: the link
+    // is gone and the choice has to come from somewhere else.
+    fireEvent.click(screen.getByRole("link", { name: "Choose models" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Back to the form" }));
+
+    await screen.findAllByText(/128 Python files/);
+    expect(await screen.findByRole("checkbox", { name: "Leave out src" })).toBeChecked();
+  });
 
   it("lists a repository once, however many times it has been indexed", async () => {
     vi.spyOn(api, "repositories").mockResolvedValue(indexedThreeTimes());

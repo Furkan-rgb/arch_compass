@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { api, type RepositorySummary, type ReviewRun, type ReviewSummary } from "../../api";
@@ -12,6 +12,7 @@ import { Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
 import { ErrorNotice, Skeleton, Spinner } from "../../ui/states";
+import { rememberChoice, rememberedChoice } from "./choice";
 import { RepositoryPicker } from "./repository-picker";
 import { ScopePicker, filesInScope, useRepositoryTree } from "./scope-picker";
 
@@ -152,7 +153,16 @@ export function StartPage() {
   // `?root=` is how the repositories page hands a repository over: the choice was already made
   // there, and re-picking it here would be the same click twice.
   const [params] = useSearchParams();
-  const [root, setRoot] = useState(() => params.get("root") ?? "");
+  /**
+   * A link that names a repository wins over what the last visit left behind.
+   *
+   * Both are choices somebody made, and the link is the more recent one — it is the
+   * repositories page handing a repository over, or the run page's "Start again". Where the
+   * link names nothing, the remembered choice comes back, which is what makes a trip to
+   * Settings and back cost nothing.
+   */
+  const handed = params.get("root");
+  const [root, setRoot] = useState(() => handed ?? rememberedChoice().root);
   /**
    * The folders the arriving link named, and nothing where it named none.
    *
@@ -166,11 +176,25 @@ export function StartPage() {
    * folder chosen in one is meaningless in another — `src/vendor` exists in both and is not
    * the same subtree.
    */
-  const [excluded, setExcluded] = useState<string[]>(() => params.getAll("exclude"));
-  const [clean, setClean] = useState(false);
+  const [excluded, setExcluded] = useState<string[]>(() =>
+    handed === null ? rememberedChoice().excluded : params.getAll("exclude"),
+  );
+  const [clean, setClean] = useState(() => (handed === null ? rememberedChoice().clean : false));
   const [phase, setPhase] = useState<Phase>("idle");
   const [failure, setFailure] = useState<unknown>(null);
   const reasonId = useId();
+
+  /**
+   * The page owns the choice while it is mounted; this is the copy that outlives it.
+   *
+   * Written on every change rather than on the way out. An unmount-only write has to read the
+   * latest values back out of refs kept in step by hand, and StrictMode's simulated unmount
+   * would fire it spuriously — where writing on change keeps the remembered choice equal to
+   * what is on screen at all times, and a double-invoked effect writes the same value twice.
+   */
+  useEffect(() => {
+    rememberChoice({ root, excluded, clean });
+  }, [root, excluded, clean]);
 
   const chosen = root.trim();
   const tree = useRepositoryTree(chosen);
