@@ -33,6 +33,14 @@ export function useRepositoryTree(root: string) {
     queryKey: ["repository-tree", root],
     queryFn: ({ signal }) => api.repositoryTree(root, signal),
     enabled: isAbsolutePath(root),
+    // No retry, against the global three. The one failure this query has is the read timeout,
+    // and a walk that did not finish in thirty seconds will not finish in thirty seconds on
+    // the second ask: `AbortSignal.timeout` firing is not React Query's own cancellation, so
+    // the retryer read it as an ordinary failure and asked again three times, while the
+    // server — a sync route in a threadpool — kept walking after every abort. One paste of a
+    // large path bought four uncancellable walks and, two minutes later, "That repository
+    // could not be read" about a repository that reads fine.
+    retry: false,
   });
 }
 

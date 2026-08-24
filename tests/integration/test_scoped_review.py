@@ -8,6 +8,7 @@ stored atlas is still true and has to ask the same question the analysis answere
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from archcompass.analysis.analyzer import DataclassRepositoryAnalyzer
+from archcompass.analysis.tree import folder_tree
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.domain import RepositoryRef
 from archcompass.persistence.scopes import SQLiteScopeSelectionRepository
@@ -66,6 +68,47 @@ def workspace(tmp_path: Path) -> Runtime:
 
 def _paths(runtime: Runtime, version_id: str) -> set[str]:
     return {node.path for node in runtime.atlas_repository.get(version_id).nodes}
+
+
+def test_the_folder_listing_never_walks_into_what_it_will_not_offer(
+    repository: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The listing exists to be the cheap step, and it was the expensive one.
+
+    `rglob("*")` descends into every directory and the ignore test throws the results away
+    afterwards, so the walk paid full price for `.venv`, `node_modules` and `site-packages` —
+    which on a working checkout are most of the tree. This repository took 7.5 s to produce
+    1.6 KB, and a home directory 63 s, which is past the client's read timeout: the reader was
+    told the repository could not be read while the server was still reading it.
+
+    A counter rather than a clock. What went wrong is a directory being *entered*, and a time
+    budget on a fixture that answers in milliseconds either way would pass whatever the walk
+    does.
+    """
+
+    buried = repository / ".venv" / "lib" / "site-packages" / "vendored"
+    buried.mkdir(parents=True)
+    for index in range(50):
+        (buried / f"module_{index}.py").write_text("x = 1\n", encoding="utf-8")
+
+    # `os.scandir` rather than whatever the walk is written on top of. It is what both
+    # `os.walk` and `Path.rglob` read a directory through, so this asks the question — was
+    # this directory opened — of any implementation, rather than pinning one.
+    scanned: list[str] = []
+    real = os.scandir
+
+    def counting(path=".", *args, **kwargs):  # type: ignore[no-untyped-def]
+        scanned.append(str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "scandir", counting)
+    listed = folder_tree(repository)
+    monkeypatch.undo()
+
+    assert ".venv" not in {folder.path for folder in listed.folders}
+    assert listed.total_python_files == 6, "the vendored copy must not be counted either"
+    entered = [path for path in scanned if ".venv" in Path(path).parts]
+    assert not entered, f"the listing opened directories it discards: {entered}"
 
 
 def test_the_folder_listing_says_what_is_there_and_what_it_would_cost(

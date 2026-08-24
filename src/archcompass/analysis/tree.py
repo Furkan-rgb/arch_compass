@@ -12,6 +12,7 @@ is going to analyse.
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -66,25 +67,37 @@ def folder_tree(root: Path) -> RepositoryFolderTree:
     counted_bytes: defaultdict[str, int] = defaultdict(int)
     total_files = 0
     total_bytes = 0
-    for path in canonical.rglob("*"):
-        relative_parts = path.relative_to(canonical).parts
-        if any(part in IGNORED_DIRECTORIES for part in relative_parts):
-            continue
-        # Asked in the same order and of the same things as `_discover_files`: a symlink is
-        # never followed, so a link into a tree of Python is not counted as Python here and
-        # would not be analysed either.
-        if path.is_symlink() or not path.is_file():
-            continue
-        if path.suffix != ".py":
-            continue
-        size = path.stat().st_size
-        total_files += 1
-        total_bytes += size
-        directories = relative_parts[:-1]
-        for depth in range(1, min(len(directories), _MAX_DEPTH) + 1):
-            folder = "/".join(directories[:depth])
-            files[folder] += 1
-            counted_bytes[folder] += size
+    # Pruned in place rather than filtered afterwards. `rglob("*")` descends into every
+    # directory and the ignore test then throws the results away, so the walk paid full price
+    # for `.venv`, `node_modules`, `.git` and `site-packages` — which on a working checkout are
+    # most of the tree. This route took 7.5 s on this repository to return 1.6 KB, and 63 s on
+    # a home directory: past the client's 30 s read timeout, so the reader was told the
+    # repository could not be read while the server was still walking it. Cutting the
+    # directories out of `dirnames` is what makes `os.walk` skip them; the answer is identical.
+    for directory, dirnames, filenames in os.walk(canonical, followlinks=False):
+        dirnames[:] = [
+            name
+            for name in dirnames
+            if name not in IGNORED_DIRECTORIES and not Path(directory, name).is_symlink()
+        ]
+        here = Path(directory)
+        directories = here.relative_to(canonical).parts
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            path = here / name
+            # Asked in the same order and of the same things as `_discover_files`: a symlink is
+            # never followed, so a link into a tree of Python is not counted as Python here and
+            # would not be analysed either.
+            if path.is_symlink() or not path.is_file():
+                continue
+            size = path.stat().st_size
+            total_files += 1
+            total_bytes += size
+            for depth in range(1, min(len(directories), _MAX_DEPTH) + 1):
+                folder = "/".join(directories[:depth])
+                files[folder] += 1
+                counted_bytes[folder] += size
     return RepositoryFolderTree(
         root_path=str(canonical),
         folders=tuple(
