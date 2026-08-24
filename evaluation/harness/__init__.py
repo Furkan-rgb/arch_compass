@@ -5,9 +5,14 @@ it must not also be is the definition of a metric, because a definition that liv
 cell is one nobody can test and one that quietly changes between runs. Everything with a
 right answer lives here instead — how a corpus is loaded, what recall@k is, how a labelled
 case becomes a query — and the notebook imports it.
+
+`report` is deliberately not re-exported here. It draws the charts, so it needs the
+`evaluation` dependency group — and importing it from this module made the whole harness
+unimportable without a Jupyter stack, which is why nothing in `make check` could reach it
+while it was broken. The notebook imports `evaluation.harness.report` by name; everything
+that decides something imports from here and needs nothing optional.
 """
 
-from evaluation.harness import report
 from evaluation.harness.corpus import (
     chunk_report,
     evaluation_corpus,

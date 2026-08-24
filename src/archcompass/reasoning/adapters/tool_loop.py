@@ -51,7 +51,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable
 from langchain_core.tools import StructuredTool
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from archcompass.domain import (
@@ -127,8 +126,6 @@ def _forced_first_call(model: BaseChatModel) -> str | None:
     and every structural check for it answers wrongly.
     """
 
-    if isinstance(model, ChatGoogleGenerativeAI):
-        return "any"
     if isinstance(model, ChatOpenAI):
         return "required"
     return None

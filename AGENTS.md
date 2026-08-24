@@ -77,7 +77,7 @@ decides nothing in either direction.
 frontend suite. Green before every commit.
 
 Gated suites are not in `make check` and will not tell you they are broken:
-`make test-ollama`, `make test-google`, `make test-browser`, `make evaluation`. Run the
+`make test-ollama`, `make test-openrouter`, `make test-browser`, `make evaluation`. Run the
 relevant one when you touch what it covers.
 
 `make examples` is not one of them — those tests already run inside `make check`, because

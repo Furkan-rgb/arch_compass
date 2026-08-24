@@ -156,13 +156,13 @@ def test_a_working_directory_env_file_supplies_credentials(
     working_directory = tmp_path / "somewhere"
     working_directory.mkdir()
     (working_directory / ".env").write_text(
-        "GOOGLE_API_KEY=from-the-working-directory\n", encoding="utf-8"
+        "OPENROUTER_API_KEY=from-the-working-directory\n", encoding="utf-8"
     )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     monkeypatch.chdir(working_directory)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     load_provider_environment(workspace)
 
-    assert os.environ["GOOGLE_API_KEY"] == "from-the-working-directory"
+    assert os.environ["OPENROUTER_API_KEY"] == "from-the-working-directory"

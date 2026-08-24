@@ -76,7 +76,7 @@ class ProbeResult(BoundaryDTO):
     """One adapter's answer to "are you there, and what do you have".
 
     Unavailability is a value here, never an exception. The reason is the picker: "Google is
-    unavailable because GOOGLE_API_KEY is unset" has to be something a dropdown can render
+    unavailable because OPENROUTER_API_KEY is unset" has to be something a dropdown can render
     beside the other choices, and an adapter that raised it instead would take the whole
     listing down with it — including the providers that are working.
     """

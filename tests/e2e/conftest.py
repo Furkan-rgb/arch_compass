@@ -7,7 +7,7 @@ verdict. `local_lifecycle` does both halves on Ollama, which is the deployment a
 evaluating this product on its own code actually gets: nothing leaves the machine, and there
 is no key to obtain before the first review runs.
 
-Neither is in `make check`. `make test-google` runs the first, `make test-ollama` the second,
+Neither is in `make check`. `make test-openrouter` runs the first, `make test-ollama` the second,
 and each skips with a message rather than failing when the machine it is on cannot serve it.
 The lifecycles run in module-scoped fixtures because they are the expensive part: every
 candidate judged once per clarification round, questions generated for each, a synopsis
@@ -27,8 +27,8 @@ from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.configuration import EmbeddingModelConfig
 from archcompass.policies.adapters import prebuilt
 from archcompass.policies.adapters.bundled import bundled_corpus
+from archcompass.reasoning.adapters.openrouter import DESCRIPTOR as OPENROUTER_DESCRIPTOR
 from archcompass.reasoning.adapters.providers import (
-    GOOGLE_DESCRIPTOR,
     OLLAMA_DESCRIPTOR,
 )
 from tests.e2e.lifecycle import Lifecycle, run_lifecycle
@@ -36,7 +36,7 @@ from tests.e2e.lifecycle import Lifecycle, run_lifecycle
 #: The cheapest Google model this build offers. Named here rather than left to whatever the
 #: workspace would default to, so a change of default cannot quietly move these onto a model
 #: somebody has to pay for.
-REASONING_MODEL = "gemini-3.5-flash-lite"
+REASONING_MODEL = "google/gemini-3.5-flash-lite"
 
 #: The local reasoning model, and whether it is asked to think.
 #:
@@ -95,7 +95,7 @@ def _local_embedding_config() -> EmbeddingModelConfig:
     )
 
 
-def _require_google() -> None:
+def _require_openrouter() -> None:
     """Skip rather than fail when this machine has no quota to spend.
 
     Constructing the provider is what fails when a key is missing or refused, so the probe is
@@ -103,9 +103,9 @@ def _require_google() -> None:
     unreachable network alike, and its detail is what a reader needs to see.
     """
 
-    if not os.environ.get("GOOGLE_API_KEY", "").strip():
-        pytest.skip("GOOGLE_API_KEY is not set; there is nothing to run these against")
-    probe = GOOGLE_DESCRIPTOR.probe(GOOGLE_DESCRIPTOR.defaults)
+    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+        pytest.skip("OPENROUTER_API_KEY is not set; there is nothing to run these against")
+    probe = OPENROUTER_DESCRIPTOR.probe(OPENROUTER_DESCRIPTOR.defaults)
     if not probe.available:
         pytest.skip(f"Google is not reachable with this key: {probe.detail}")
     offered = {model.name for model in probe.models}
@@ -228,14 +228,14 @@ def lifecycle(
         # `build_runtime` loads the working directory's `.env`, which is where a developer's
         # key lives; the probes after it decide whether there is anything to run.
         runtime = build_runtime(
-            tmp_path_factory.mktemp("google-e2e"),
+            tmp_path_factory.mktemp("hosted-e2e"),
             # Thinking on, because it is what this model is actually run with — and because
             # the hinge pass asks it to choose lookups and then honour a JSON schema in
             # the same breath, which is the combination a non-thinking small model is
             # least reliable at.
-            pin=pinned_model("google", REASONING_MODEL, thinking=True),
+            pin=pinned_model("openrouter", REASONING_MODEL),
         )
-        _require_google()
+        _require_openrouter()
         _require_local_embeddings(runtime)
         try:
             yield run_lifecycle(runtime, str(SUBJECT_REPOSITORY.resolve()))
@@ -258,7 +258,7 @@ def local_runtime(
     """A workspace whose every model is on this machine, and which can reach nothing else.
 
     `ARCHCOMPASS_PROVIDERS` is narrowed to `ollama` so that a `.env` holding a Google key —
-    which the machine running `make test-google` has by definition — cannot make this suite
+    which the machine running `make test-openrouter` has by definition — cannot make this suite
     quietly reach the network. If anything here judged on Google the run would still pass,
     and it would be measuring the wrong thing entirely.
 

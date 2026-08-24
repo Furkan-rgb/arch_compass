@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check policy-index policy-index-check lint typecheck test frontend-check frontend-build test-ollama test-google examples evaluation check build full test-browser run dev web web-google docker-build
+.PHONY: sync frontend-sync api-types api-types-check policy-index policy-index-check lint typecheck test frontend-check frontend-build test-ollama test-openrouter examples evaluation check build full test-browser run dev web web-hosted docker-build
 
 sync:
 	uv sync --locked
@@ -47,7 +47,7 @@ frontend-build:
 # was built with Google's embedder at 3,072 dimensions and vectors from two models are not
 # comparable. That costs about forty seconds, once, and the whole suite is around four
 # minutes on a 24 GB card.
-# Outside `check` for the same reason `test-google` is: it depends on a live service.
+# Outside `check` for the same reason `test-openrouter` is: it depends on a live service.
 test-ollama:
 	uv run pytest -m "ollama"
 
@@ -60,8 +60,8 @@ test-ollama:
 # Outside `check` for the same reason `test-ollama` is: it depends on live services. Anything
 # missing skips with a message rather than failing, including an exhausted quota — so a rerun
 # a minute later is the fix, not a code change.
-test-google:
-	uv run pytest -m "google"
+test-openrouter:
+	uv run pytest -m "openrouter"
 
 # Offline checks that the example repositories under `examples/cases` still present the
 # shapes the review path is demonstrated on. No model, no answer key — they ship neither.
@@ -82,7 +82,7 @@ evaluation:
 	  --output-dir evaluation/results evaluation/retrieval-evaluation.ipynb
 
 # `web` opens the workspace and lets it choose its own model, which is what a reader of
-# this repository gets. `web-google` pins one for the length of the process, which is what
+# this repository gets. `web-hosted` pins one for the length of the process, which is what
 # a demonstration wants: it says which model produced what is on screen instead of
 # inheriting whichever was last clicked. `--provider` and `--model` are global options on
 # the app callback, so they go before the subcommand. After it, Typer rejects the whole
@@ -97,8 +97,8 @@ run: frontend-build
 
 web: run
 
-web-google: frontend-build
-	uv run archcompass --provider google --model gemini-3.5-flash-lite web
+web-hosted: frontend-build
+	uv run archcompass --provider openrouter --model google/gemini-3.5-flash-lite web
 
 # The same two halves that `run` welds into one process, kept apart on purpose. `run` builds
 # the bundle and lets the API process serve it, which is what a reader or a demonstration

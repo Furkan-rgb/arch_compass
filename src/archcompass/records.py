@@ -38,7 +38,7 @@ ThinkingLevel = Literal["minimal", "low", "medium", "high"]
 #: `None` asks for nothing and leaves the model to its own default, which on a Gemini 3
 #: model means dynamic thinking rather than none. `True` and `False` are the switch Ollama
 #: has. A level is the dial Google has. Every adapter owes all of them, in its own spelling
-#: — see `google_thinking_level` for the one place a switch is read as a dial, and why
+#: — a provider that spells depth as a level rather than a switch reads the ends of this
 #: `False` there is the floor rather than off.
 ThinkingMode = bool | ThinkingLevel | None
 

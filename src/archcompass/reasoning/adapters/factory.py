@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
@@ -19,9 +18,7 @@ from archcompass.reasoning.adapters import openrouter
 from archcompass.reasoning.adapters.providers import (
     EMBEDDINGGEMMA_DOCUMENT_PROMPT,
     EMBEDDINGGEMMA_QUERY_PROMPT,
-    GOOGLE_FIXED_SAMPLING_MODELS,
     TASK_PROMPTED_OLLAMA_MODELS,
-    google_thinking_level,
     ollama_model_family,
 )
 
@@ -29,10 +26,11 @@ from archcompass.reasoning.adapters.providers import (
 class TaskPromptedEmbeddings(Embeddings):
     """A model's own task prompts, applied where the provider has no field to carry them.
 
-    Google takes `task_type` on the request, so its embeddings already say whether a text is
-    a query or a document to be found. Ollama takes text and nothing else, which leaves the
-    prefix as the only way to say it — and for a model trained with these prompts, saying
-    nothing is not a neutral default but an input shaped unlike anything it was trained on.
+    A hosted embedding API carries the distinction itself — OpenRouter takes an `input_type`,
+    and the model behind it is told which it is. Ollama takes text and nothing else, which
+    leaves the prefix as the only way to say it — and for a model trained with these prompts,
+    saying nothing is not a neutral default but an input shaped unlike anything it was
+    trained on.
 
     Wrapping rather than subclassing the provider's own class: what varies is the text going
     in, and every other thing `OllamaEmbeddings` does should keep being done by it.
@@ -80,34 +78,6 @@ def embedding_identity(config: EmbeddingModelConfig) -> str:
 
 
 def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
-    if config.provider == "google":
-        # A model that fixes its own sampling is sent no temperature at all. Passing one
-        # would be discarded on the way out and reported as a warning on every single
-        # call, which reads as a misconfiguration and is really just a parameter the model
-        # does not take.
-        sampling = (
-            {}
-            if config.model in GOOGLE_FIXED_SAMPLING_MODELS
-            else {"temperature": 0.0}
-        )
-        # The chosen depth, as the level Gemini 3 takes. Absent where nothing was asked
-        # for, because a request that names no level gets the model's dynamic thinking —
-        # which is a behaviour somebody can choose, not a gap to be filled in with a
-        # default of ours.
-        level = google_thinking_level(config.thinking)
-        thinking = {} if level is None else {"reasoning_effort": level}
-        # `retries=0` leaves retrying to `archcompass.retrying`, which is the only place
-        # that can wait for the length of a quota window, say in the log that it is
-        # waiting, and fail as a `ProviderError` the API already knows how to report.
-        return ChatGoogleGenerativeAI(
-            model=config.model,
-            api_key=SecretStr(resolve_api_key(config.api_key_env, provider="google")),
-            max_tokens=config.max_output_tokens,
-            request_timeout=config.timeout_seconds,
-            retries=0,
-            **sampling,
-            **thinking,
-        )
     if config.provider == openrouter.DESCRIPTOR.name:
         # The same transport as every other vendor of this API, and one difference: the
         # parameters go through `extra_body` rather than through `ChatOpenAI`'s own fields.
@@ -143,12 +113,6 @@ def build_embeddings(config: EmbeddingModelConfig) -> Embeddings:
             api_key=resolve_api_key(config.api_key_env, provider="openrouter"),
             model=config.model,
             dimensions=config.dimensions,
-        )
-    if config.provider == "google":
-        return GoogleGenerativeAIEmbeddings(
-            model=config.model,
-            api_key=SecretStr(resolve_api_key(config.api_key_env, provider="google")),
-            output_dimensionality=config.dimensions,
         )
     if config.provider == "ollama":
         embeddings = OllamaEmbeddings(

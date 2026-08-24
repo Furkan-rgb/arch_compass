@@ -74,7 +74,6 @@ from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingMo
 from archcompass.reasoning.adapters.openrouter import DESCRIPTOR as OPENROUTER_DESCRIPTOR
 from archcompass.reasoning.adapters.providers import (
     DETERMINISTIC_DESCRIPTOR,
-    GOOGLE_DESCRIPTOR,
     OLLAMA_DESCRIPTOR,
 )
 from archcompass.reasoning.adapters.selected import (
@@ -618,15 +617,14 @@ def initialize_workspace(
 #: One table rather than three parallel dispatches on the same strings. Building, probing
 #: and the defaults are wanted at different moments — one when a review runs, one when
 #: someone opens the chooser, one when a selection is resolved — and three if-chains over
-#: `"ollama" | "google" | "fake"` are three things that drift. It is also where the
+#: `"ollama" | "openrouter" | "fake"` are three things that drift. It is also where the
 #: descriptors are type-checked: probes are plain functions held by name, so this is the one
 #: place their signatures have to agree with the port.
 _ALL_PROVIDERS: Final[dict[str, ProviderDescriptor]] = {
     descriptor.name: descriptor
     for descriptor in (
         OLLAMA_DESCRIPTOR,
-        GOOGLE_DESCRIPTOR,
-        OPENROUTER_DESCRIPTOR,
+            OPENROUTER_DESCRIPTOR,
         DETERMINISTIC_DESCRIPTOR,
     )
 }

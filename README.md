@@ -129,13 +129,14 @@ follow-up asked — and both skip with a message rather than failing when the ma
 serve them.
 
 ```bash
-make test-google    # judges on Google, embeds on a local Ollama — two vendors, one review
-make test-ollama    # both halves on this machine, and two further reviews of the same repo
+make test-openrouter  # judges through the hosted boundary, embeds on a local Ollama
+make test-ollama      # both halves on this machine, and two further reviews of the same repo
 make test-browser
 ```
 
-`make test-google` is the sharpest demonstration that the reasoning and embedding selections
-are independent: they are not even the same vendor. `make test-ollama` is the deployment
+`make test-openrouter` is the sharpest demonstration that the reasoning and embedding
+selections are independent: they are not even the same vendor. `make test-ollama` is the
+deployment
 somebody evaluating ArchCompass on their own source actually gets, and it goes two steps
 further because there is no metered quota to ration — it asks for a second review of the
 unchanged repository, which should be refused rather than charged for, then changes the

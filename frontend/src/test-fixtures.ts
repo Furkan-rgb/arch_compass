@@ -266,7 +266,7 @@ export function modelCatalogFixture(): ModelCatalog {
         provider: "google",
         label: "Google",
         available: false,
-        detail: "The google provider needs an API key: set GOOGLE_API_KEY",
+        detail: "The openrouter provider needs an API key: set OPENROUTER_API_KEY",
         probed_at: "2026-01-01T00:00:00Z",
       },
     ],

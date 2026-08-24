@@ -59,7 +59,6 @@ The CLI runs the graph in-process. It makes no HTTP calls and does not need the 
 | provider | credential | judges | embeds |
 |---|---|---|---|
 | **openrouter** | `OPENROUTER_API_KEY` | yes — 222 models, discovered live | yes — 5 models, `google/gemini-embedding-2` by default |
-| google | `GOOGLE_API_KEY` | yes | yes — `gemini-embedding-2`, 3,072 dims |
 | ollama | none, a reachable server | yes | yes — whatever installed model advertises the capability |
 | fake | none | deterministically, without a model | deterministically |
 
@@ -98,11 +97,11 @@ whichever identity it carries is the embedder that works without configuring any
 is `openrouter:google/gemini-embedding-2:3072` — the same Gemini model the index has always
 been built from, reached through a different front door.
 
-Any other embedder, Google's own included, needs its own index built first:
+Any other embedder — a local Ollama, or another of OpenRouter's five — needs its own index built first:
 
 ```bash
-ARCHCOMPASS_EMBEDDING_PROVIDER=google ARCHCOMPASS_EMBEDDING_MODEL=gemini-embedding-2 \
-ARCHCOMPASS_EMBEDDING_DIMENSIONS=3072 make policy-index
+ARCHCOMPASS_EMBEDDING_PROVIDER=ollama ARCHCOMPASS_EMBEDDING_MODEL=embeddinggemma \
+ARCHCOMPASS_EMBEDDING_DIMENSIONS=768 make policy-index
 ```
 
 A review whose selected embedder has no index that applies is refused before it spends
@@ -118,9 +117,9 @@ does nothing.
 | variable | meaning |
 |---|---|
 | `OPENROUTER_API_KEY` | OpenRouter, for judging and for embedding — **the default for both** |
-| `GOOGLE_API_KEY` | Google, for judging and for `gemini-embedding-2` |
 
 Each is named by its provider descriptor's `api_key_env`, never hardcoded at the call site.
+There is one, because there is one hosted boundary. Ollama needs none.
 
 ### Any deployment
 
@@ -211,7 +210,7 @@ These are **not** in `make check` and will not tell you they are broken:
 | target | what it needs |
 |---|---|
 | `make test-ollama` | a running Ollama with the models installed |
-| `make test-google` | `GOOGLE_API_KEY` |
+| `make test-openrouter` | `OPENROUTER_API_KEY` with credit, and a local Ollama for the retrieval side |
 | `make test-browser` | Playwright browsers |
 | `make evaluation` | the `evaluation` dependency group and a local Ollama; executes the notebook in place |
 | `make docker-build` | Docker; builds the image and smokes it the way `deploy.yml` starts it |

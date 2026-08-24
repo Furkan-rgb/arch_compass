@@ -299,7 +299,7 @@ reader can act on, and it failed the whole review. Now:
 - judging and indexing both degrade to the interactive path rather than losing the work;
 - the key is not asked again for the life of the process, because the refusal is about the
   project rather than about that batch;
-- `ARCHCOMPASS_GOOGLE_BATCH=0` turns batching off without changing the model.
+- `ARCHCOMPASS_GOOGLE_BATCH=0` turned batching off. Both the variable and the batch path are gone.
 
 Which means the retry in §15 is doing the real work on a free-tier key, and the batch is the
 optimisation it becomes when billing is on.

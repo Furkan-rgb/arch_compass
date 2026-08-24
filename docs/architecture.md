@@ -207,8 +207,9 @@ confined to `workflow/`.
 any other here; which company serves a request is its routing decision, expressed as a
 `provider` block on the request. There is deliberately no Google, Anthropic or OpenAI
 abstraction beneath it, and no local list of its models — the catalogue is the source of
-truth, filtered to what a review needs. Ollama is the local boundary beside it, and Google
-remains reachable directly as a fallback.
+truth, filtered to what a review needs. Ollama is the local boundary beside it, and there
+is no third: the direct Google, Groq and Cerebras integrations are gone, and the models they
+served are reachable as OpenRouter catalogue entries.
 
 Two guarantees ride on every OpenRouter request and both are load-bearing.
 `provider.require_parameters` makes schema support a hard routing filter rather than a
@@ -266,9 +267,9 @@ many rounds it asks. Collapsing them made a review that asked twice occupy three
 and made the number beside a review change while somebody was reading it.
 
 **`supports_tools()` is asked per dispatch, not at startup.** The model is chosen while the
-process is running: the same graph judges through Google this afternoon and through Ollama
-this evening, and whether a hinge can be investigated is a fact about the model selected at
-the moment the node runs.
+process is running: the same graph judges through OpenRouter this afternoon and through
+Ollama this evening, and whether a hinge can be investigated is a fact about the model
+selected at the moment the node runs.
 
 **The finding cache keys on identities that must agree.** Model identity, prompt identity,
 retrieval identity and — since the second judgement exists — the investigation's identity.
@@ -281,6 +282,6 @@ They are each computed in exactly one place for that reason.
 record on an immutable review; the other is the live transcript a loop is writing.
 
 **Every transport sends one prompt.** A judgement must not depend on which transport carried
-it — a review judged through Google is not allowed to have been asked a different question
-from one judged through Ollama — so `judgement_prompt` is built in one place and every
-adapter sends what it returns.
+it — a review judged through OpenRouter is not allowed to have been asked a different
+question from one judged through Ollama — so `judgement_prompt` is built in one place and
+every adapter sends what it returns.

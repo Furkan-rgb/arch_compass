@@ -28,6 +28,10 @@ def test_the_harness_still_imports() -> None:
     """The failure that went unnoticed for two days, reduced to one line."""
 
     pytest.importorskip("yaml")
+    pytest.importorskip("numpy")
+    # Not `report`: it draws the charts and needs the `evaluation` dependency group, which
+    # `uv sync --locked` does not install. What has to import without one is the part that
+    # decides anything.
     from evaluation.harness import corpus, dataset, indexes, metrics, runner  # noqa: F401
 
 
@@ -35,6 +39,7 @@ def test_the_labelled_cases_still_load_and_still_join_to_the_corpus() -> None:
     """A dataset that stops matching the corpus is a baseline measuring nothing."""
 
     pytest.importorskip("yaml")
+    pytest.importorskip("numpy")
     from evaluation.harness.corpus import shipped_corpus
     from evaluation.harness.dataset import load_cases
 
@@ -61,6 +66,7 @@ def test_a_query_can_still_be_built_from_a_labelled_case() -> None:
     """
 
     pytest.importorskip("yaml")
+    pytest.importorskip("numpy")
     from evaluation.harness.dataset import load_cases
 
     from archcompass.policies.retrieval import retrieval_query

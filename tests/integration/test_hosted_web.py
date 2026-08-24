@@ -107,7 +107,7 @@ def hosted_environment(
 ) -> Iterator[None]:
     monkeypatch.setenv("ARCHCOMPASS_HOSTED", "1")
     # The deterministic substitute, so nothing here reaches a network. It also keeps the
-    # startup check quiet about GOOGLE_API_KEY, which is its own test below.
+    # startup check quiet about OPENROUTER_API_KEY, which is its own test below.
     monkeypatch.setenv("ARCHCOMPASS_PROVIDERS", "fake")
     monkeypatch.setenv("ARCHCOMPASS_SESSION_ROOT", str(tmp_path / "sessions"))
     for name, value in _EMBEDDING_PIN.items():
@@ -296,10 +296,10 @@ def test_the_budget_is_counted_per_session(monkeypatch: pytest.MonkeyPatch) -> N
 def test_a_hosted_instance_with_no_reachable_provider_refuses_to_start(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ARCHCOMPASS_PROVIDERS", "google")
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("ARCHCOMPASS_PROVIDERS", "openrouter")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
-    with pytest.raises(Exception, match="GOOGLE_API_KEY"):
+    with pytest.raises(Exception, match="OPENROUTER_API_KEY"):
         create_hosted_app()
 
 

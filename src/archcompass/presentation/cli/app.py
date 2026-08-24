@@ -195,7 +195,7 @@ def _thinking_mode(given: str | None) -> ThinkingMode:
 
     `on` and `off` are kept because a switch is what somebody types when they do not care
     which level, and because they were the flag this option replaced. Where the provider has
-    levels they are read as its ends — see `google_thinking_level`.
+    levels they are read as its ends.
     """
 
     if given is None:

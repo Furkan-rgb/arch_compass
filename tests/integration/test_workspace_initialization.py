@@ -81,10 +81,10 @@ def test_opening_a_workspace_reads_its_own_credentials_first(
 
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True)
-    (workspace / ".env").write_text("GOOGLE_API_KEY=from-the-workspace\n", encoding="utf-8")
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    (workspace / ".env").write_text("OPENROUTER_API_KEY=from-the-workspace\n", encoding="utf-8")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     runtime = initialize_workspace(workspace)
 
     assert runtime.workspace == workspace.resolve()
-    assert os.environ["GOOGLE_API_KEY"] == "from-the-workspace"
+    assert os.environ["OPENROUTER_API_KEY"] == "from-the-workspace"

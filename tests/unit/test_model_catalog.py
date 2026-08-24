@@ -17,8 +17,8 @@ from archcompass.reasoning.records import (
     ReasoningModelSelection,
 )
 
-_GOOGLE_DEFAULTS = ProviderDefaults(
-    api_key_env="GOOGLE_API_KEY",
+_HOSTED_DEFAULTS = ProviderDefaults(
+    api_key_env="OPENROUTER_API_KEY",
     context_window_tokens=131072,
     max_output_tokens=16384,
     max_output_tokens_thinking=32768,
@@ -106,7 +106,7 @@ def test_a_workspace_that_has_chosen_nothing_reasons_with_nothing() -> None:
     for still works, and the one thing that does can ask for one where it is needed."""
 
     service = _service(
-        _descriptor("google", _answering(), _GOOGLE_DEFAULTS),
+        _descriptor("openrouter", _answering(), _HOSTED_DEFAULTS),
         _descriptor("ollama", _answering(), _OLLAMA_DEFAULTS),
     )
 
@@ -119,14 +119,14 @@ def test_a_workspace_that_has_chosen_nothing_reasons_with_nothing() -> None:
 def test_a_choice_resolves_through_its_providers_own_defaults() -> None:
     """Nothing about reaching a provider is stored with the choice, so nothing can drift."""
 
-    service = _service(_descriptor("google", _answering(), _GOOGLE_DEFAULTS))
+    service = _service(_descriptor("openrouter", _answering(), _HOSTED_DEFAULTS))
 
-    service.select("google", "gemini-3.6-flash", False)
+    service.select("openrouter", "google/gemini-3.6-flash", False)
 
     resolved = service.current()
     assert resolved is not None
-    assert (resolved.provider, resolved.model) == ("google", "gemini-3.6-flash")
-    assert resolved.api_key_env == "GOOGLE_API_KEY"
+    assert (resolved.provider, resolved.model) == ("openrouter", "google/gemini-3.6-flash")
+    assert resolved.api_key_env == "OPENROUTER_API_KEY"
     assert resolved.timeout_seconds == 360
     assert resolved.thinking is False
 
@@ -140,11 +140,11 @@ def test_a_thinking_selection_is_given_the_larger_output_budget() -> None:
     use it, which is the direction that truncates rather than refuses.
     """
 
-    service = _service(_descriptor("google", _answering(), _GOOGLE_DEFAULTS))
+    service = _service(_descriptor("openrouter", _answering(), _HOSTED_DEFAULTS))
 
-    service.select("google", "gemini-3.6-flash", False)
+    service.select("openrouter", "google/gemini-3.6-flash", False)
     without = service.current()
-    service.select("google", "gemini-3.6-flash", True)
+    service.select("openrouter", "google/gemini-3.6-flash", True)
     thinking = service.current()
 
     assert without is not None and without.max_output_tokens == 16384
@@ -181,24 +181,24 @@ def test_the_environment_may_move_a_self_hosted_provider(
 def test_a_pinned_run_reports_its_model_and_refuses_to_be_changed() -> None:
     """`--provider` and `--model` say which provider this run costs against.
 
-    A stored selection overriding them would make the flags mean nothing — `make web-google`
+    A stored selection overriding them would make the flags mean nothing — `make web-hosted`
     would run whichever model was last clicked.
     """
 
     selections = _Selections()
     selections.set(ReasoningModelSelection(provider="ollama", model="gemma4:26b"))
     service = _service(
-        _descriptor("google", _answering(), _GOOGLE_DEFAULTS),
+        _descriptor("openrouter", _answering(), _HOSTED_DEFAULTS),
         _descriptor("ollama", _answering(), _OLLAMA_DEFAULTS),
         selections=selections,
-        pin="google",
+        pin="openrouter",
     )
 
     status = service.status()
     assert status.pinned
-    assert (status.provider, status.model, status.thinking) == ("google", "pinned-model", True)
+    assert (status.provider, status.model, status.thinking) == ("openrouter", "pinned-model", True)
     resolved = service.current()
-    assert resolved is not None and resolved.provider == "google"
+    assert resolved is not None and resolved.provider == "openrouter"
     with pytest.raises(ConfigurationError, match="not this workspace's to choose"):
         service.select("ollama", "gemma4:26b")
 
@@ -210,7 +210,7 @@ def test_a_choice_naming_a_provider_this_deployment_lacks_reads_as_no_choice() -
     selections = _Selections()
     selections.set(ReasoningModelSelection(provider="ollama", model="gemma4:26b"))
     service = _service(
-        _descriptor("google", _answering(), _GOOGLE_DEFAULTS), selections=selections
+        _descriptor("openrouter", _answering(), _HOSTED_DEFAULTS), selections=selections
     )
 
     status = service.status()
@@ -230,7 +230,7 @@ def test_budgets_are_clamped_down_to_the_chosen_model_and_never_up() -> None:
 
     service = _service(
         _descriptor(
-            "google",
+            "openrouter",
             _answering(
                 AvailableModel(
                     name="gemini-tiny", input_token_limit=8192, output_token_limit=2048
@@ -239,53 +239,51 @@ def test_budgets_are_clamped_down_to_the_chosen_model_and_never_up() -> None:
                     name="gemini-huge", input_token_limit=1048576, output_token_limit=65536
                 ),
             ),
-            _GOOGLE_DEFAULTS,
+            _HOSTED_DEFAULTS,
         )
     )
 
-    service.select("google", "gemini-tiny", True)
+    service.select("openrouter", "gemini-tiny", True)
     small = service.current()
     assert small is not None
     assert (small.context_window_tokens, small.max_output_tokens) == (8192, 2048)
 
-    service.select("google", "gemini-huge", True)
+    service.select("openrouter", "gemini-huge", True)
     large = service.current()
     assert large is not None
     assert (large.context_window_tokens, large.max_output_tokens) == (131072, 32768)
 
 
-def test_google_inherits_a_gemini_sized_context_window() -> None:
-    """The 131072 default in `ProviderDefaults` is sized for a self-hosted provider.
+def test_a_hosted_descriptor_states_a_floor_and_the_probe_narrows_it() -> None:
+    """One `context_window_tokens` cannot describe a catalogue, so it does not try.
 
-    Gemini advertises ~1M input tokens, and holding it to the generic default made every
-    stage refuse requests the model would have taken comfortably. The probe-based clamp
-    still pulls the number down for a smaller model, so generosity here is safe.
+    OpenRouter offers models spanning four thousand tokens to two million. The descriptor
+    carries a floor for what applies before a model has been chosen, and the probe reports
+    each model's own window — which this clamps an authored budget down to. Holding every
+    model to one number is what made a stage refuse a request a large model would have taken
+    comfortably, and what would let a small one be sent more than it can hold.
     """
 
-    from archcompass.reasoning.adapters.providers import GOOGLE_DESCRIPTOR
+    from archcompass.reasoning.adapters.openrouter import DESCRIPTOR
 
-    assert GOOGLE_DESCRIPTOR.defaults.context_window_tokens == 1_048_576
+    assert DESCRIPTOR.defaults.context_window_tokens == 128_000
 
     service = _service(
         _descriptor(
-            "google",
+            "openrouter",
             _answering(
-                AvailableModel(name="gemini-huge"),
-                AvailableModel(name="gemini-small", input_token_limit=131072),
+                AvailableModel(name="vendor/large"),
+                AvailableModel(name="vendor/small", input_token_limit=32_768),
             ),
-            GOOGLE_DESCRIPTOR.defaults,
+            DESCRIPTOR.defaults,
         )
     )
+    service.select("openrouter", "vendor/small", False)
 
-    service.select("google", "gemini-huge", True)
-    unclamped = service.current()
-    assert unclamped is not None
-    assert unclamped.context_window_tokens == 1_048_576
+    resolved = service.current()
 
-    service.select("google", "gemini-small", True)
-    clamped = service.current()
-    assert clamped is not None
-    assert clamped.context_window_tokens == 131072
+    assert resolved is not None
+    assert resolved.context_window_tokens == 32_768, "the probe's own window did not win"
 
 
 def test_the_catalog_reports_an_unreachable_provider_rather_than_hiding_it() -> None:
@@ -293,17 +291,17 @@ def test_the_catalog_reports_an_unreachable_provider_rather_than_hiding_it() -> 
 
     service = _service(
         _descriptor("ollama", _answering(AvailableModel(name="gemma4:26b", label="26B"))),
-        _descriptor("google", _silent("GOOGLE_API_KEY is unset")),
+        _descriptor("openrouter", _silent("OPENROUTER_API_KEY is unset")),
     )
 
     catalog = service.catalog()
 
     assert {(item.provider, item.available) for item in catalog.providers} == {
         ("ollama", True),
-        ("google", False),
+        ("openrouter", False),
     }
-    unreachable = next(item for item in catalog.providers if item.provider == "google")
-    assert unreachable.detail == "GOOGLE_API_KEY is unset"
+    unreachable = next(item for item in catalog.providers if item.provider == "openrouter")
+    assert unreachable.detail == "OPENROUTER_API_KEY is unset"
     assert [item.model for item in catalog.candidates] == ["gemma4:26b"]
 
 
@@ -341,14 +339,14 @@ def test_a_model_with_a_dial_is_listed_once_per_depth_it_offers() -> None:
 
     service = _service(
         _descriptor(
-            "google",
+            "openrouter",
             _answering(
                 AvailableModel(
                     name="gemini-3.5-flash-lite",
                     thinking_modes=(None, "minimal", "low", "medium", "high"),
                 )
             ),
-            _GOOGLE_DEFAULTS,
+            _HOSTED_DEFAULTS,
         )
     )
 
@@ -362,7 +360,7 @@ def test_a_model_with_a_dial_is_listed_once_per_depth_it_offers() -> None:
         "high",
     ]
 
-    service.select("google", "gemini-3.5-flash-lite", "medium")
+    service.select("openrouter", "gemini-3.5-flash-lite", "medium")
     assert (config := service.current()) is not None and config.thinking == "medium"
 
 
@@ -377,14 +375,14 @@ def test_only_the_depths_that_ask_for_little_get_the_smaller_output_budget() -> 
 
     service = _service(
         _descriptor(
-            "google",
+            "openrouter",
             _answering(AvailableModel(name="gemini-3.6-flash")),
-            _GOOGLE_DEFAULTS,
+            _HOSTED_DEFAULTS,
         )
     )
     budgets: dict[object, int] = {}
     for mode in (None, False, "minimal", "low", "medium", "high", True):
-        service.select("google", "gemini-3.6-flash", mode)
+        service.select("openrouter", "google/gemini-3.6-flash", mode)
         config = service.current()
         assert config is not None
         budgets[mode] = config.max_output_tokens
@@ -412,15 +410,15 @@ def test_only_the_candidate_that_was_chosen_is_marked_selected() -> None:
 def test_choosing_forgets_a_failure_recorded_against_the_model_being_replaced() -> None:
     selections = _Selections()
     service = _service(
-        _descriptor("google", _answering(AvailableModel(name="gemini-3.6-flash"))),
+        _descriptor("openrouter", _answering(AvailableModel(name="gemini-3.6-flash"))),
         selections=selections,
     )
-    service.select("google", "gemini-3.6-flash", True)
+    service.select("openrouter", "google/gemini-3.6-flash", True)
     service.record_failure("quota spent")
     assert service.status().selection is not None
     assert service.status().selection.failure_detail == "quota spent"  # pyright: ignore[reportOptionalMemberAccess]
 
-    service.select("google", "gemini-3.6-flash", True)
+    service.select("openrouter", "google/gemini-3.6-flash", True)
 
     assert service.status().selection.failure_detail == ""  # pyright: ignore[reportOptionalMemberAccess]
 
@@ -430,10 +428,10 @@ def test_a_provider_that_answers_clears_a_failure_it_has_outlived() -> None:
 
     selections = _Selections()
     service = _service(
-        _descriptor("google", _answering(AvailableModel(name="gemini-3.6-flash"))),
+        _descriptor("openrouter", _answering(AvailableModel(name="gemini-3.6-flash"))),
         selections=selections,
     )
-    service.select("google", "gemini-3.6-flash", True)
+    service.select("openrouter", "google/gemini-3.6-flash", True)
     service.record_failure("temporarily unavailable")
 
     service.catalog()

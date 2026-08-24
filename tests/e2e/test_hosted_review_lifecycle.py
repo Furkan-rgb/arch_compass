@@ -27,7 +27,7 @@ from tests.e2e.conftest import (
     Lifecycle,
 )
 
-pytestmark = pytest.mark.google
+pytestmark = pytest.mark.openrouter
 
 
 def test_a_real_review_judges_every_candidate_within_the_domain_vocabulary(
@@ -227,7 +227,7 @@ def test_the_review_records_which_model_and_which_embedding_produced_it(
 
     final = lifecycle.final
 
-    assert final["model_identity"].startswith("google:")
+    assert final["model_identity"].startswith("openrouter:")
     assert REASONING_MODEL in final["model_identity"]
     # The deterministic substitute has its own prompt identity, so this also proves the run
     # did not quietly fall back to it.

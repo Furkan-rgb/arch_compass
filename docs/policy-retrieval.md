@@ -51,8 +51,8 @@ Embedding identity is `provider:model:dimensions`, plus a suffix naming anything
 changes the vectors a model returns — currently `:task-prompted`, for providers whose API
 carries no task type and where the instruction must therefore be prefixed to the text.
 `factory.embedding_identity` is its only author, because the index namespaces its chunks by
-this string and an index may be reused only where its vectors still compare. Google sends
-the equivalent as a `task_type` on the request and needs no suffix.
+this string and an index may be reused only where its vectors still compare. A hosted API
+carries the distinction on the request itself and needs no suffix.
 
 Reasoning and embedding providers are configured independently. A review is refused before
 reasoning expenditure when the configured retriever lacks its embedding provider or index.

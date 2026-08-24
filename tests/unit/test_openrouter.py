@@ -364,3 +364,35 @@ def test_the_client_carries_the_hook_and_the_timeout() -> None:
 
     assert openrouter._raise_inline_error in client.event_hooks["response"]
     assert client.timeout.read == 12.5
+
+
+def test_the_embedding_catalogue_offers_only_what_is_being_served(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Discovery is the live listing intersected with the widths this build knows.
+
+    Both halves matter. The listing alone would offer a model whose width nothing here can
+    supply, and the index keys on an exact width; the table alone would offer one OpenRouter
+    has since withdrawn, which fails on the first review that picks it.
+    """
+
+    monkeypatch.setattr(
+        openrouter,
+        "_catalogue",
+        lambda path, key: [
+            {"id": "google/gemini-embedding-2", "name": "Gemini Embedding 2"},
+            {"id": "some/model-we-have-no-width-for", "name": "Unknown"},
+        ],
+    )
+
+    offered = openrouter.embedding_candidates("test-key")
+
+    assert offered == (("google/gemini-embedding-2", 3072, "Gemini Embedding 2"),)
+
+
+def test_an_embedding_model_withdrawn_upstream_leaves_the_chooser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(openrouter, "_catalogue", lambda path, key: [])
+
+    assert openrouter.embedding_candidates("test-key") == ()

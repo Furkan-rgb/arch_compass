@@ -2,19 +2,9 @@
 
 from __future__ import annotations
 
-import warnings
-
 import pytest
-from langchain_core.messages import HumanMessage
 
-from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ProviderError
-from archcompass.reasoning.adapters.factory import build_chat_model
-from archcompass.reasoning.adapters.providers import (
-    GOOGLE_FIXED_SAMPLING_MODELS,
-    GOOGLE_MODELS,
-)
-from archcompass.records import ThinkingMode
 from archcompass.retrying import (
     RetryPolicy,
     call_with_retry,
@@ -140,89 +130,6 @@ def test_a_provider_that_carries_no_status_is_read_from_its_words() -> None:
 
 def test_no_delay_is_read_when_the_provider_names_none() -> None:
     assert suggested_delay(RuntimeError("429 RESOURCE_EXHAUSTED")) is None
-
-
-def test_the_supported_google_models_are_the_only_ones_classified() -> None:
-    """The sampling list is about models this workspace offers, so it cannot outlive them.
-
-    If `GOOGLE_MODELS` gains a model, this fails until someone has said which of the two
-    kinds it is — which is the moment to check, rather than the first time a run warns.
-    """
-
-    assert set(GOOGLE_MODELS) >= GOOGLE_FIXED_SAMPLING_MODELS
-
-
-@pytest.mark.parametrize("model", sorted(GOOGLE_MODELS))
-def test_a_google_model_is_sent_a_temperature_only_if_it_takes_one(
-    model: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A discarded parameter warns on every call and buys no determinism.
-
-    The assertion is on the request the SDK builds rather than on our own list, so the
-    check is against the provider's behaviour and not against a restatement of the code.
-    """
-
-    monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
-    chat = build_chat_model(
-        ReasoningModelConfig(
-            provider="google",
-            model=model,
-            api_key_env="GOOGLE_API_KEY",
-            timeout_seconds=30,
-        )
-    )
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        chat._prepare_request([HumanMessage("judge this")], tools=None)
-
-    assert [str(item.message) for item in caught] == []
-    fixed = model in GOOGLE_FIXED_SAMPLING_MODELS
-    assert (chat.temperature is None) is fixed
-
-
-@pytest.mark.parametrize(
-    ("mode", "expected"),
-    [
-        (None, None),
-        (True, "HIGH"),
-        (False, "MINIMAL"),
-        ("minimal", "MINIMAL"),
-        ("low", "LOW"),
-        ("medium", "MEDIUM"),
-        ("high", "HIGH"),
-    ],
-)
-def test_the_chosen_thinking_depth_reaches_the_google_request(
-    mode: ThinkingMode, expected: str | None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The setting was offered in the picker and sent nowhere for the life of the provider.
-
-    Every Google judgement ran on the model's dynamic default whichever mode was chosen, and
-    every finding was stamped `thinking=True` regardless — a provenance record of something
-    the request never asked for. So the assertion is on the request the SDK builds, not on a
-    field of ours: what is checked is that Gemini is told.
-
-    `False` arrives as `MINIMAL` rather than as nothing. Gemini 3 replaced the thinking
-    switch with a level and kept no way to say no, so the floor is the honest reading of
-    "do not think" and a request that simply omitted the level would be the model's dynamic
-    default wearing the label of its opposite.
-    """
-
-    monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
-    chat = build_chat_model(
-        ReasoningModelConfig(
-            provider="google",
-            model="gemini-3.5-flash-lite",
-            api_key_env="GOOGLE_API_KEY",
-            timeout_seconds=30,
-            thinking=mode,
-        )
-    )
-
-    request = chat._prepare_request([HumanMessage("judge this")], tools=None)
-    thinking = getattr(request.get("config"), "thinking_config", None)
-
-    assert (None if thinking is None else thinking.thinking_level.name) == expected
 
 
 class _Wrapped(Exception):

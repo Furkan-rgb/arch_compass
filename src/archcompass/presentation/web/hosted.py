@@ -149,7 +149,7 @@ def create_hosted_app() -> FastAPI:
             "are opened with `archcompass web`."
         )
     providers = enabled_providers()
-    # Every enabled provider that declares a credential, not google by name: a deployment
+    # Every enabled provider that declares a credential, none of them named here: a deployment
     # that turns on a keyed provider without its key is the same misconfiguration wearing
     # a different variable, and this guard exists to say it once, at startup, to the
     # person deploying.

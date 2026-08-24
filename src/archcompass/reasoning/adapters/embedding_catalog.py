@@ -6,8 +6,6 @@ from collections.abc import Mapping
 from typing import cast
 
 import httpx
-from google import genai
-from google.genai import errors, types
 from ollama import Client, ResponseError
 
 from archcompass.configuration import resolve_api_key
@@ -20,11 +18,6 @@ from archcompass.reasoning.records import (
     ProviderAvailability,
 )
 
-_GOOGLE_EMBEDDINGS = (
-    ("gemini-embedding-2", 3072),
-    ("gemini-embedding-001", 3072),
-)
-
 
 class ProviderEmbeddingModelDiscovery:
     def discover(
@@ -33,9 +26,7 @@ class ProviderEmbeddingModelDiscovery:
         availability: list[ProviderAvailability] = []
         candidates: list[EmbeddingModelCandidate] = []
         for descriptor in providers:
-            if descriptor.name == "google":
-                result, offered = self._google(descriptor)
-            elif descriptor.name == "ollama":
+            if descriptor.name == "ollama":
                 result, offered = self._ollama(descriptor)
             elif descriptor.name == openrouter.DESCRIPTOR.name:
                 result, offered = self._openrouter(descriptor)
@@ -85,60 +76,6 @@ class ProviderEmbeddingModelDiscovery:
             available=bool(candidates),
             detail="" if candidates else "OpenRouter is serving none of the supported "
             "embedding models",
-        ), candidates
-
-    @staticmethod
-    def _google(
-        descriptor: ProviderDescriptor,
-    ) -> tuple[ProviderAvailability, list[EmbeddingModelCandidate]]:
-        try:
-            api_key = resolve_api_key(descriptor.defaults.api_key_env, provider="google")
-            # Keep the SDK client alive until the pager has been consumed. Accessing
-            # ``genai.Client(...).models.list(...)`` as one chained expression leaves the
-            # client temporary eligible for finalization after ``.models`` is resolved;
-            # the SDK then closes its HTTP transport before ``list`` sends the request.
-            # This surfaced as a 500 from /api/embeddings when the Models page requested
-            # the reasoning and embedding catalogues together.
-            client = genai.Client(
-                api_key=api_key,
-                http_options=types.HttpOptions(timeout=2_000),
-            )
-            try:
-                page = client.models.list(
-                    config=types.ListModelsConfig(query_base=True, page_size=100)
-                ).page
-                names = {
-                    (model.name or "").removeprefix("models/") for model in page
-                }
-            finally:
-                client.close()
-        except (
-            ConfigurationError,
-            errors.APIError,
-            httpx.HTTPError,
-            ConnectionError,
-            KeyError,
-            TypeError,
-            ValueError,
-        ) as error:
-            return ProviderAvailability(
-                provider="google", label="Google", available=False, detail=str(error)
-            ), []
-        candidates = [
-            EmbeddingModelCandidate(
-                provider="google",
-                model=model,
-                dimensions=dimensions,
-                label="Google Gemini embedding",
-            )
-            for model, dimensions in _GOOGLE_EMBEDDINGS
-            if model in names
-        ]
-        return ProviderAvailability(
-            provider="google",
-            label="Google",
-            available=bool(candidates),
-            detail="" if candidates else "no supported Google embedding model is available",
         ), candidates
 
     @staticmethod
