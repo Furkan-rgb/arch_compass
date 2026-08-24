@@ -203,6 +203,20 @@ with provenance; nothing above it knows about dense scores, lanes or vector stor
 `policies/adapters/` — and a guard fails the build if one appears anywhere else. LangGraph is
 confined to `workflow/`.
 
+**One hosted boundary, and no upstream vendors behind it.** OpenRouter is a provider like
+any other here; which company serves a request is its routing decision, expressed as a
+`provider` block on the request. There is deliberately no Google, Anthropic or OpenAI
+abstraction beneath it, and no local list of its models — the catalogue is the source of
+truth, filtered to what a review needs. Google, Ollama, Groq and Cerebras remain reachable
+directly, beside it rather than under it.
+
+Two guarantees ride on every OpenRouter request and both are load-bearing.
+`provider.require_parameters` makes schema support a hard routing filter rather than a
+preference, because a model's declared capabilities are a union across its endpoints and
+five of twenty on one model do not honour a schema. The output ceiling travels as
+`max_tokens` rather than `max_completion_tokens` for the same reason: it is what those
+endpoints declare, and the two together route to nothing.
+
 **Pydantic validates at the boundary; the domain uses its own types.** Records that cross
 into HTTP, SQLite or a model's structured output are Pydantic; `domain/` is frozen stdlib
 dataclasses with explicit constructors and invariants in `__post_init__`. A model's output is
