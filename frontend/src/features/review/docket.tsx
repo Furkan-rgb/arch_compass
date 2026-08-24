@@ -627,9 +627,15 @@ function ClarificationCard({
             {plural(review.questions.length, "question")} want
             {review.questions.length === 1 ? "s" : ""} an answer
           </span>
+          {/* "re-judges what it touches" invited the reading that answering is cheap and
+              local. It is neither: `select_rejudgements_node` returns every candidate,
+              because an answer is about intent and intent bears on all of them. The API
+              layer already said so — `api.ts`, "minutes of model work" — and the surface a
+              person actually presses the button on did not. */}
           <span className="mt-0.5 block text-[12.5px] leading-[1.5] text-ink-2">
             Nothing below can be finished until these are answered. Answering completes this
-            review's case revision and re-judges what it touches.
+            review's case revision and judges every candidate again, which is minutes of model
+            work.
           </span>
         </span>
         <ChevronDown
@@ -856,7 +862,6 @@ export function Docket({
   const cursor = useRef({ id: openId, settled: settledUnderCursor });
   /** The row the docket moved the cursor to on its own, which is the one that takes focus. */
   const advanced = useRef<string | null>(null);
-
   useEffect(() => {
     const stayed = cursor.current.id === openId;
     if (stayed && settledUnderCursor && openId && !cursor.current.settled) {
@@ -866,7 +871,6 @@ export function Docket({
       // Written before the re-render `advance` triggers, so the row that opens reads it on
       // the same pass it mounts its panel on.
       advanced.current = next ? next.candidate.id : null;
-
       // What happened, and what is now under you. From the keyboard, scrolled past the bar,
       // the fade on three buttons was the entire report on a decision — and once the cursor
       // moves on its own, "which row am I on now" is a question the screen answers only by
@@ -906,7 +910,6 @@ export function Docket({
       // where the reveal's own handler applies — but `j` and `k` walk off the row just as
       // destructively, and only Escape was ever reported.
       if (hasOpenReveal()) return;
-
 
       if (event.key === "Escape") {
         if (!openId) return;

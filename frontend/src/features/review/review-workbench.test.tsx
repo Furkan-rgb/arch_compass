@@ -1818,6 +1818,59 @@ describe("the review workbench", () => {
     expect(decide).not.toHaveBeenCalled();
   });
 
+  it("does not claim a cancelled round was concluded", async () => {
+    // One ternary answered two questions — is there a question naming this candidate on an
+    // `awaiting_answers` review — and every no printed "the round was concluded with the
+    // uncertainty preserved". `cancel()` keeps every question, so on a cancelled review both
+    // clauses were false at once: there is an open question covering it, and nothing was
+    // concluded.
+    const review = reviewFixture({ status: "cancelled" });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    await docket();
+    // The held candidate the round's one question names. A row that is not open renders no
+    // footnote at all, and a test that asserts on an absent sentence proves nothing.
+    const row = rows().find((item) => item.dataset.candidate === "candidate-1");
+    if (row?.getAttribute("aria-expanded") === "false") fireEvent.click(row);
+
+    expect(screen.queryByText(/round was concluded/)).not.toBeInTheDocument();
+    expect(screen.getByText(/cancelled before the question was answered/)).toBeInTheDocument();
+  });
+
+  it("says a failed review never put the question, rather than that it decided not to", async () => {
+    const review = reviewFixture({ status: "failed", failure: "The provider stopped" });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    await docket();
+    // The held candidate the round's one question names. A row that is not open renders no
+    // footnote at all, and a test that asserts on an absent sentence proves nothing.
+    const row = rows().find((item) => item.dataset.candidate === "candidate-1");
+    if (row?.getAttribute("aria-expanded") === "false") fireEvent.click(row);
+
+    expect(screen.queryByText(/round was concluded/)).not.toBeInTheDocument();
+    expect(screen.getByText(/did not finish, so the uncertainty was never put/)).toBeInTheDocument();
+  });
+
+  it("says answering judges every candidate again, which is what the backend does", async () => {
+    // Four surfaces said "re-judges what it touches" or "the affected candidates".
+    // `select_rejudgements_node` returns `state["candidates"]` — all of them — because an
+    // answer is about intent and intent bears on every candidate. Understating that
+    // understates what pressing the button costs.
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    await docket();
+
+    expect(screen.queryByText(/re-judges what it touches/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/judges every candidate again/).length).toBeGreaterThan(0);
+  });
+
   it("does not teach a keyboard to a screen that has none", async () => {
     // The hints were gated on nothing at all, so a phone got eleven key caps and four verbs
     // as the densest thing above the list, describing keys that are not there. Gated on the

@@ -401,10 +401,13 @@ export function ClarificationRound({
               >
                 The repository cannot answer these
               </h2>
+              {/* Every candidate, not "the affected" ones: an answer is about intent, and
+                  intent bears on all of them, which is what `select_rejudgements_node`
+                  does. The narrower phrasing understated what pressing this costs. */}
               <p className="mt-2 max-w-[58ch] text-sm leading-6 text-ink-2">
-                Answers complete this review's case revision, and the affected
-                candidates are judged again. Asking again does not start another
-                revision. Skip anything that should stay explicitly unknown.
+                Answers complete this review's case revision, and every candidate is judged
+                again — minutes of model work. Asking again does not start another revision.
+                Skip anything that should stay explicitly unknown.
               </p>
             </div>
             <div className="rounded-md border border-rule bg-surface-2 px-3 py-2 text-center">

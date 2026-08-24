@@ -206,6 +206,41 @@ function Disclosure({
 }
 
 /**
+ * What became of the question this finding hinges on, said per state rather than per absence.
+ *
+ * One ternary used to answer this — is there a question naming this candidate on an
+ * `awaiting_answers` review, yes or no — and every no printed "the round was concluded with
+ * the uncertainty preserved". That sentence is a positive claim about a deliberate act, and it
+ * was rendered on cancelled reviews (where `cancel()` keeps every question, so an open question
+ * covering this candidate is sitting right there), on failed ones (where the run crashed and
+ * the question was never put), and on open ones whose questions happen to name other
+ * candidates. Both of its clauses were false at once on the first of those.
+ *
+ * `docs/charter.md`: uncertainty is stated, not smoothed, and nothing is inferred on a
+ * person's behalf. A round that did not conclude does not get to say it concluded.
+ *
+ * The re-judgement scope is the backend's, not a guess: `select_rejudgements_node` returns
+ * every candidate, because an answer is about intent and intent bears on all of them.
+ */
+function hingeFootnote(status: string, answerable: boolean, asked: boolean): string {
+  if (status === "cancelled") {
+    return asked
+      ? "This round was cancelled before the question was answered."
+      : "This round was cancelled with the uncertainty unresolved.";
+  }
+  if (status === "failed") {
+    return "This review did not finish, so the uncertainty was never put to anyone.";
+  }
+  if (answerable) {
+    return "Answering completes this review's case revision and judges every candidate again.";
+  }
+  if (status === "awaiting_answers") {
+    return "No question was asked about this candidate. Answering the open round judges it again with the rest.";
+  }
+  return "No open question covers this. The round was concluded with the uncertainty preserved.";
+}
+
+/**
  * The body of one finding: the model's argument, beside the material it rests on.
  *
  * This is everything a reader needs to check a claim and nothing they need to *find* it —
@@ -244,10 +279,14 @@ export function FindingBody({
   );
   const answered = review.case.answers.filter((answer) => answer.status === "answered");
   const firstLocation = finding.evidence.find((item) => item.location)?.location;
-  const waitingOn =
-    review.status === "awaiting_answers"
-      ? review.questions.find((question) => question.candidate_ids.includes(finding.candidate.id))
-      : undefined;
+  // Two separate questions, and folding them into one ternary made the footnote below assert
+  // things that were not true. `openQuestion` is whether this review holds a question naming
+  // this candidate — it does on a cancelled review, because `cancel()` keeps every question.
+  // `waitingOn` is whether that question can still be answered, which only an open round can.
+  const openQuestion = review.questions.find((question) =>
+    question.candidate_ids.includes(finding.candidate.id),
+  );
+  const waitingOn = review.status === "awaiting_answers" ? openQuestion : undefined;
 
   // What the machine actually produced, as the attribution for its own column: how many
   // things it counted and how many excerpts it pinned.
@@ -302,9 +341,7 @@ export function FindingBody({
                   ) : null}
                 </Notice>
                 <Footnote>
-                  {waitingOn
-                    ? "Answering completes this review's case revision and re-judges what it touches."
-                    : "No open question covers this. The round was concluded with the uncertainty preserved."}{" "}
+                  {hingeFootnote(review.status, Boolean(waitingOn), Boolean(openQuestion))}{" "}
                   {plural(answered.length, "answer")} recorded so far.
                 </Footnote>
               </div>
