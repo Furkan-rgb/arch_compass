@@ -168,6 +168,12 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
 
 
 def build_embeddings(config: EmbeddingModelConfig) -> Embeddings:
+    if config.provider == openrouter.DESCRIPTOR.name:
+        return openrouter.OpenRouterEmbeddings(
+            api_key=resolve_api_key(config.api_key_env, provider="openrouter"),
+            model=config.model,
+            dimensions=config.dimensions,
+        )
     if config.provider == "google":
         return GoogleGenerativeAIEmbeddings(
             model=config.model,

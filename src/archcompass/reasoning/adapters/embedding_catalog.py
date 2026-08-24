@@ -1,4 +1,4 @@
-"""Live discovery of Google and Ollama embedding models."""
+"""Live discovery of the embedding models each provider is serving."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from ollama import Client, ResponseError
 
 from archcompass.configuration import resolve_api_key
 from archcompass.domain.errors import ConfigurationError
+from archcompass.reasoning.adapters import openrouter
 from archcompass.reasoning.ports import ProviderDescriptor
 from archcompass.reasoning.records import (
     EmbeddingModelCandidate,
@@ -36,11 +37,55 @@ class ProviderEmbeddingModelDiscovery:
                 result, offered = self._google(descriptor)
             elif descriptor.name == "ollama":
                 result, offered = self._ollama(descriptor)
+            elif descriptor.name == openrouter.DESCRIPTOR.name:
+                result, offered = self._openrouter(descriptor)
             else:
                 continue
             availability.append(result)
             candidates.extend(offered)
         return EmbeddingModelCatalog(providers=availability, candidates=candidates)
+
+    @staticmethod
+    def _openrouter(
+        descriptor: ProviderDescriptor,
+    ) -> tuple[ProviderAvailability, list[EmbeddingModelCandidate]]:
+        """The rows OpenRouter is serving today, from its own embedding catalogue.
+
+        A separate endpoint from the reasoning one: `/models` is the chat catalogue and has
+        none of these in it. Which widths they return is `openrouter._EMBEDDING_MODELS`, and
+        the docstring there says why it cannot come from the listing.
+        """
+
+        try:
+            api_key = resolve_api_key(descriptor.defaults.api_key_env, provider="openrouter")
+            rows = openrouter.embedding_candidates(api_key)
+        except (
+            ConfigurationError,
+            httpx.HTTPError,
+            ConnectionError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
+            return ProviderAvailability(
+                provider="openrouter",
+                label="OpenRouter",
+                available=False,
+                detail=str(error),
+            ), []
+        candidates = [
+            EmbeddingModelCandidate(
+                provider="openrouter", model=model, dimensions=dimensions, label=label
+            )
+            for model, dimensions, label in rows
+        ]
+        return ProviderAvailability(
+            provider="openrouter",
+            label="OpenRouter",
+            available=bool(candidates),
+            detail="" if candidates else "OpenRouter is serving none of the supported "
+            "embedding models",
+        ), candidates
 
     @staticmethod
     def _google(

@@ -12,6 +12,7 @@ from typing import Any, cast
 import pytest
 
 from archcompass.configuration import ReasoningModelConfig
+from archcompass.domain.errors import ProviderError
 from archcompass.reasoning.adapters import openrouter
 from archcompass.reasoning.adapters.factory import build_chat_model
 
@@ -176,3 +177,103 @@ def test_the_route_is_required_to_support_what_was_asked_for() -> None:
     """
 
     assert openrouter.request_body(1)["provider"] == {"require_parameters": True}
+
+
+class _Response:
+    def __init__(self, status: int, body: Any) -> None:
+        self.status_code = status
+        self._body = body
+        self.text = str(body)
+
+    def json(self) -> Any:
+        return self._body
+
+
+def _embeddings(
+    monkeypatch: pytest.MonkeyPatch, response: _Response
+) -> openrouter.OpenRouterEmbeddings:
+    sent: dict[str, Any] = {}
+
+    def _post(url: str, **kwargs: Any) -> _Response:
+        sent["url"] = url
+        sent["json"] = kwargs.get("json")
+        return response
+
+    monkeypatch.setattr(openrouter.httpx, "post", _post)
+    embedder = openrouter.OpenRouterEmbeddings(
+        api_key="k", model="vendor/embed", dimensions=8
+    )
+    embedder._sent = sent
+    return embedder
+
+
+def test_the_width_the_index_keys_on_is_sent_with_every_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`embedding_identity` is `provider:model:dimensions`, so the width is not advisory.
+
+    A namespace whose vectors do not compare is a silently wrong answer rather than a
+    failure, which is why the number goes on the request and is validated upstream.
+    """
+
+    embedder = _embeddings(
+        monkeypatch,
+        _Response(200, {"data": [{"index": 0, "embedding": [0.5] * 8}]}),
+    )
+
+    embedder.embed_query("one question")
+
+    sent = cast("dict[str, Any]", embedder._sent)
+    assert sent["json"]["dimensions"] == 8
+    assert sent["json"]["input"] == ["one question"]
+
+
+def test_vectors_are_paired_by_index_and_never_by_arrival(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The join the deleted Google batch path got wrong, done the other way here.
+
+    The caller pairs these back onto its own list of chunks, so a response that arrived
+    out of order would file every chunk under its neighbour's text — and the index would
+    be wrong in a way nothing downstream could see.
+    """
+
+    embedder = _embeddings(
+        monkeypatch,
+        _Response(
+            200,
+            {
+                "data": [
+                    {"index": 1, "embedding": [2.0] * 8},
+                    {"index": 0, "embedding": [1.0] * 8},
+                ]
+            },
+        ),
+    )
+
+    vectors = embedder.embed_documents(["first", "second"])
+
+    assert vectors[0][0] == 1.0
+    assert vectors[1][0] == 2.0
+
+
+def test_a_short_answer_is_refused_rather_than_written(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing vector reads as an unrelated one once it is in the index."""
+
+    embedder = _embeddings(
+        monkeypatch, _Response(200, {"data": [{"index": 0, "embedding": [1.0] * 8}]})
+    )
+
+    with pytest.raises(ProviderError, match="1 of 2"):
+        embedder.embed_documents(["first", "second"])
+
+
+def test_a_refused_request_is_a_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """So `call_with_retry` at the call site can decide whether waiting would help."""
+
+    embedder = _embeddings(monkeypatch, _Response(429, {"error": {"message": "slow down"}}))
+
+    with pytest.raises(ProviderError, match="429"):
+        embedder.embed_query("one question")

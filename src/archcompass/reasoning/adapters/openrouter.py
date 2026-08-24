@@ -21,11 +21,13 @@ capabilities it needs; it does not choose a company.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Final, cast
 
 import httpx
+from langchain_core.embeddings import Embeddings
 
+from archcompass.domain.errors import ProviderError
 from archcompass.reasoning.ports import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.records import AvailableModel, ProbeResult
 
@@ -36,6 +38,10 @@ API_KEY_ENV: Final = "OPENROUTER_API_KEY"
 #: every other probe allows: this answers a dropdown, not a review. Measured at 0.11s for
 #: the whole catalogue, which is 690 KB uncompressed and a tenth of that over the wire.
 _CATALOGUE_TIMEOUT: Final = 20.0
+
+#: Longer, because this one is a model call rather than a listing: the policy corpus goes
+#: through it in groups of sixty-four.
+_EMBEDDING_TIMEOUT: Final = 120.0
 
 #: What a model must declare to be worth offering. `structured_outputs` because every
 #: judgement is a JSON-schema call and a model that cannot hold one fails forty times in the
@@ -204,6 +210,114 @@ def embedding_models(api_key: str) -> tuple[tuple[str, str], ...]:
         name = entry.get("name")
         listed.append((identifier, name if isinstance(name, str) and name else identifier))
     return tuple(listed)
+
+
+#: The embedding models this workspace offers, and the width each one returns.
+#:
+#: A table, where the reasoning models are a live filter, and the difference is not a
+#: preference. The index keys on an exact width — `embedding_identity` is
+#: `provider:model:dimensions` and a namespace whose vectors do not compare is a silent
+#: wrong answer — and **no catalogue row carries dimensions**, on either endpoint. What
+#: `/embeddings/models` reports under `supported_parameters` is chat sampling: `temperature`,
+#: `top_p`, `response_format`. So the number has to come from somewhere that knows it.
+#:
+#: Discovering it would mean one embedding call per model, and the chooser has two seconds
+#: for the whole catalogue. `_GOOGLE_EMBEDDINGS` has always worked this way beside it.
+#:
+#: `dimensions` is sent on every request and validated upstream — an unsupported width comes
+#: back as `dimensions must be one of 2048` rather than as a shorter vector — so a wrong row
+#: here fails loudly on the first call rather than quietly filling an index.
+_EMBEDDING_MODELS: Final = (
+    ("google/gemini-embedding-2", 3072, "Gemini Embedding 2"),
+    ("google/gemini-embedding-001", 3072, "Gemini Embedding 001"),
+    ("openai/text-embedding-3-large", 3072, "OpenAI text-embedding-3-large"),
+    ("openai/text-embedding-3-small", 1536, "OpenAI text-embedding-3-small"),
+    ("qwen/qwen3-embedding-8b", 4096, "Qwen3 Embedding 8B"),
+)
+
+
+def embedding_candidates(api_key: str) -> tuple[tuple[str, int, str], ...]:
+    """The rows above that OpenRouter is actually serving today.
+
+    Intersected with the live listing rather than offered blind, so a model withdrawn
+    upstream leaves the chooser instead of failing on the first review that picks it.
+    """
+
+    listed = {identifier for identifier, _ in embedding_models(api_key)}
+    return tuple(row for row in _EMBEDDING_MODELS if row[0] in listed)
+
+
+class OpenRouterEmbeddings(Embeddings):
+    """`POST /api/v1/embeddings`, which is OpenAI-shaped and takes a list natively.
+
+    Its own class rather than `OpenAIEmbeddings` pointed here, and rather than anything from
+    `langchain-openrouter`, which ships no `Embeddings` implementation at all. What it has to
+    do is small enough that borrowing a larger one would be the bigger dependency: send the
+    texts, send the width, keep the order.
+
+    `call_with_retry` is not here. Every caller already wraps it — `sqlite_index` retries a
+    group of chunks, and a query retries at its own call site — and a second retry inside
+    this one would multiply the waits rather than add to them.
+    """
+
+    def __init__(self, *, api_key: str, model: str, dimensions: int) -> None:
+        self._api_key = api_key
+        self._model = model
+        self._dimensions = dimensions
+
+    def _embed(self, texts: Sequence[str]) -> list[list[float]]:
+        response = httpx.post(
+            f"{BASE_URL}/embeddings",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json={
+                "model": self._model,
+                "input": list(texts),
+                "dimensions": self._dimensions,
+            },
+            timeout=_EMBEDDING_TIMEOUT,
+        )
+        if response.status_code // 100 != 2:
+            raise ProviderError(
+                f"OpenRouter refused an embedding request for {self._model}: "
+                f"{response.status_code} {response.text[:200]}"
+            )
+        body = cast(object, response.json())
+        if not isinstance(body, dict):
+            raise ProviderError("OpenRouter answered an embedding request with no object.")
+        data = cast(Mapping[str, object], body).get("data")
+        answered = len(cast(list[object], data)) if isinstance(data, list) else 0
+        if answered != len(texts):
+            raise ProviderError(
+                f"OpenRouter embedded {answered} of {len(texts)} texts. A partial answer "
+                "is not written into an index, because a missing vector reads as an "
+                "unrelated one."
+            )
+        vectors: list[list[float]] = []
+        # Ordered by `index` rather than by arrival: the caller pairs these back onto its own
+        # list, and a reordered response would file every chunk under its neighbour's text.
+        # This is the join the deleted batch path got wrong by trusting position instead.
+        def _position(item: Mapping[str, object]) -> int:
+            at = item.get("index")
+            return at if isinstance(at, int) else 0
+
+        for entry in sorted(cast(list[Mapping[str, object]], data), key=_position):
+            vector = entry.get("embedding")
+            if not isinstance(vector, list):
+                raise ProviderError("OpenRouter answered an embedding request without a vector.")
+            vectors.append(
+                [
+                    float(value)
+                    for value in cast(list[object], vector)
+                    if isinstance(value, (int, float))
+                ]
+            )
+        return vectors
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._embed(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed([text])[0]
 
 
 DESCRIPTOR: Final = ProviderDescriptor(
