@@ -652,7 +652,7 @@ export interface components {
     "node_id": string;
     "limit"?: number;
   };
-    "Termination": "natural_end" | "model_call_limit" | "lookup_limit" | "investigation_size_limit" | "provider_error";
+    "Termination": "natural_end" | "model_call_limit" | "lookup_limit" | "investigation_size_limit" | "provider_error" | "wall_clock_limit" | "repeated_tool_call";
     "WorkspaceModels": {
     "reasoning"?: components["schemas"]["ModelIdentity"] | null;
     "embedding"?: components["schemas"]["EmbeddingIdentity"] | null;
