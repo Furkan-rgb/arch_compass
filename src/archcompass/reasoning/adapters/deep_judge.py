@@ -47,7 +47,7 @@ from langchain.agents.middleware import ModelCallLimitMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 from archcompass.domain import (
     ArchitectureCase,
@@ -105,10 +105,6 @@ MAX_IDENTICAL_TOOL_CALLS = 2
 JUDGEMENT_PROMPT_IDENTITY = "judge:deep-v1"
 
 
-class _Stuck(Exception):
-    """Raised inside the tool wrapper when the same question is asked a third time."""
-
-
 class _Gathering(AgentMiddleware[Any, Any]):
     """The circuit breakers, and the record of every tool call the judgement made.
 
@@ -131,6 +127,11 @@ class _Gathering(AgentMiddleware[Any, Any]):
         self.detail = ""
 
     def _expired(self) -> Termination | None:
+        # Already decided, by the tool wrapper below: the run ends on the next turn rather
+        # than from inside a tool, because an exception raised there escapes the tools node
+        # and takes the whole judgement with it.
+        if self.termination is not None:
+            return self.termination
         if self.model_calls >= MAX_JUDGEMENT_GATHERING_MODEL_CALLS:
             return Termination.MODEL_CALL_LIMIT
         if len(self._subject.lookups) >= MAX_JUDGEMENT_TOOL_CALLS:
@@ -154,12 +155,6 @@ class _Gathering(AgentMiddleware[Any, Any]):
             # retrying the run would record every call twice — and a rate limit on the third
             # turn should cost a wait rather than the two turns already spent.
             return call_with_retry(lambda: handler(request), subject="Judging a candidate")
-        except _Stuck:
-            # The tool wrapper below refused a third identical question. Ending here rather
-            # than letting it escape: what was already looked up stands, and the caller
-            # finishes the judgement from it.
-            self.termination = Termination.REPEATED_TOOL_CALL
-            return AIMessage("")
         except ProviderError as error:
             self.termination = Termination.PROVIDER_ERROR
             self.detail = str(error)
@@ -172,10 +167,20 @@ class _Gathering(AgentMiddleware[Any, Any]):
         signature = _signature(name, arguments)
         self._asked[signature] = self._asked.get(signature, 0) + 1
         if self._asked[signature] > MAX_IDENTICAL_TOOL_CALLS:
-            # Not executed a third time. The answer it would return is already in the
-            # conversation twice, so running it again would spend a call to learn nothing.
+            # Not executed a third time, and not recorded: the answer it would return is
+            # already in the conversation twice, so running it again would spend a call to
+            # learn nothing. Answered rather than raised, because an exception here escapes
+            # the tools node and would take the whole judgement with it — the run ends on the
+            # next turn instead, where `_expired` sees the termination this just set.
             self.termination = Termination.REPEATED_TOOL_CALL
-            raise _Stuck(name)
+            return ToolMessage(
+                content=(
+                    f"You have already asked {name} exactly this, twice, and the repository "
+                    "has not changed since. Decide from what you have."
+                ),
+                tool_call_id=str(call.get("id", "")),
+                name=name,
+            )
         result = handler(request)
         text = getattr(result, "content", "")
         answer = text if isinstance(text, str) else str(text)
