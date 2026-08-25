@@ -53,10 +53,12 @@ from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     Finding,
+    InvestigationLookup,
     RecordedInvestigation,
     Termination,
 )
 from archcompass.domain.errors import ProviderError
+from archcompass.ports.capabilities import ReviewedSubject
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.reasoning.adapters.judge_tools import JudgeToolbox
 from archcompass.reasoning.adapters.langchain import (
@@ -66,7 +68,6 @@ from archcompass.reasoning.adapters.langchain import (
     judgement_prompt,
     structured_output,
 )
-from archcompass.reasoning.ports import RecordedLookup, ReviewedSubject
 from archcompass.retrying import call_with_retry
 
 _log = logging.getLogger(__name__)
@@ -180,7 +181,11 @@ class _Gathering(AgentMiddleware[Any, Any]):
         answer = text if isinstance(text, str) else str(text)
         self.recorded += len(answer)
         self._subject.lookups.append(
-            RecordedLookup(name, dict(arguments), answer)
+            InvestigationLookup(
+                name,
+                tuple((key, str(value)) for key, value in sorted(arguments.items())),
+                answer,
+            )
         )
         return result
 
@@ -318,7 +323,25 @@ class DeepArchitectureJudge:
                 candidate,
                 policies,
             )
+        subject.model_identity = self._model_identity
+        subject.prompt_identity = self._prompt_identity
         offered = self._toolbox.for_subject(subject)
+        if not offered.tools:
+            # Nothing could be looked at — no atlas to ask, or one an older parser wrote.
+            # The judgement still happens, on the dossier alone, and the reason is recorded.
+            subject.termination = Termination.NATURAL_END
+            subject.retrieval = policies
+            return self._finding(
+                structured_output(
+                    self._model,
+                    FindingOutput,
+                    opening,
+                    subject="a review finding",
+                    model_identity=self._model_identity,
+                ),
+                candidate,
+                policies,
+            )
         gathering = _Gathering(subject)
         agent = create_agent(
             self._model,
@@ -343,7 +366,10 @@ class DeepArchitectureJudge:
         if not isinstance(output, FindingOutput):
             output = self._terminalise(final, subject)
         subject.termination = gathering.termination or Termination.NATURAL_END
-        return self._finding(output, candidate, offered.available(policies))
+        # The set the citation check runs against, and the one the review will store: the
+        # deterministic retrieval widened by whatever this judgement searched out for itself.
+        subject.retrieval = offered.available(policies)
+        return self._finding(output, candidate, subject.retrieval)
 
     def _terminalise(
         self, final: Mapping[str, object], subject: ReviewedSubject

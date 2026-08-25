@@ -31,7 +31,7 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.domain.errors import ModelOutputValidationError
-from archcompass.ports.capabilities import ReviewSynopsis
+from archcompass.ports.capabilities import ReviewedSubject, ReviewSynopsis
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.reasoning.adapters.tool_loop import (
     investigate_with_tools,
@@ -728,7 +728,12 @@ class LangChainArchitectureJudge:
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
         investigation: RecordedInvestigation | None = None,
+        *,
+        subject: ReviewedSubject | None = None,
     ) -> Finding:
+        # One structured call and no tools, so there is nothing to look at. Taken to satisfy
+        # the port; a judgement that reads the repository is `DeepArchitectureJudge`.
+        del subject
         output = structured_output(
             self._model,
             FindingOutput,

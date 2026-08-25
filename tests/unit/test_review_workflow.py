@@ -158,7 +158,10 @@ class Judge:
         case: ArchitectureCase,
         policies: object,
         investigation: RecordedInvestigation | None = None,
+        *,
+        subject: object = None,
     ) -> Finding:
+        del subject
         if investigation is not None:
             self.investigated.append(str(candidate.id))
         if investigation is not None and investigation.lookups and self._settles:
@@ -186,7 +189,10 @@ class FailingJudge:
         case: ArchitectureCase,
         policies: object,
         investigation: RecordedInvestigation | None = None,
+        *,
+        subject: object = None,
     ) -> Finding:
+        del subject
         raise RuntimeError("provider stopped")
 
 

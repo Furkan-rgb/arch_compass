@@ -22,13 +22,10 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.tools import BaseTool, StructuredTool
 
 from archcompass.domain import Policy
+from archcompass.ports.capabilities import ReviewedSubject
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.reasoning.adapters.reviewed_backend import ReviewedRevisionBackend
-from archcompass.reasoning.ports import (
-    InvestigatorSource,
-    ReviewedSubject,
-    SourceInvestigator,
-)
+from archcompass.reasoning.ports import InvestigatorSource, SourceInvestigator
 
 #: How many policies one search returns. Three, because the judgement already holds the
 #: deterministic set and this is for the principle that set missed — a search that answered

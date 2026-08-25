@@ -7,7 +7,7 @@ adapters decide whether an implementation uses LangChain, SQLite, or determinist
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from archcompass.domain import (
@@ -15,6 +15,7 @@ from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     Finding,
+    InvestigationLookup,
     Policy,
     Question,
     RecordedInvestigation,
@@ -22,6 +23,7 @@ from archcompass.domain import (
     RepositoryRef,
     Review,
     ReviewDelta,
+    Termination,
 )
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 
@@ -54,6 +56,39 @@ class PolicyRetriever(Protocol):
     ) -> RetrievedPolicySet: ...
 
 
+@dataclass
+class ReviewedSubject:
+    """What one judgement is about, and the record of what it looked at while deciding.
+
+    Mutable and deliberately so: it goes in carrying the repository and the atlas, and comes
+    back also carrying every tool call the judgement made and the policies it turned out to
+    have available. One object rather than an argument and a return value, because the two
+    are the same judgement and a caller that received them separately could store one
+    without the other.
+
+    It travels as a parameter rather than in the branch's state. A `Send` payload is
+    checkpointed once per branch, and one round of six candidates cost 21 MB of
+    `__pregel_tasks` when the atlas travelled that way.
+    """
+
+    repository: RepositoryRef
+    atlas: RepositoryAtlas
+    #: Every model-visible tool call, in order, whichever middleware injected the tool.
+    lookups: list[InvestigationLookup] = field(default_factory=list[InvestigationLookup])
+    #: Why gathering stopped. `None` until it has.
+    termination: Termination | None = None
+    #: Whether the judgement reached its verdict on its own or had to be terminalised after a
+    #: circuit breaker fired. Both are the same execution; only one ran out of room.
+    terminalised: bool = False
+    #: The policies the judgement could actually cite — the deterministic set, widened by
+    #: anything it searched out for itself. `None` where it did not run.
+    retrieval: RetrievedPolicySet | None = None
+    #: Which judge and which prompt produced this. Set on the way back, so what stores the
+    #: record does not have to know which adapter ran.
+    model_identity: str = ""
+    prompt_identity: str = ""
+
+
 class ArchitectureJudge(Protocol):
     """The one component allowed to say what a candidate means.
 
@@ -70,7 +105,18 @@ class ArchitectureJudge(Protocol):
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
         investigation: RecordedInvestigation | None = None,
-    ) -> Finding: ...
+        *,
+        subject: ReviewedSubject | None = None,
+    ) -> Finding:
+        """One verdict on one candidate.
+
+        `subject` is the repository this candidate was found in, offered to a judge that can
+        read it, and the place a judge that does write down what it looked at. `None` means
+        there is nothing to look at and the judgement is reached from the dossier alone —
+        which is what a deterministic provider gets, and what every caller that has not
+        opened a repository gets.
+        """
+        ...
 
 
 class HingeInvestigator(Protocol):

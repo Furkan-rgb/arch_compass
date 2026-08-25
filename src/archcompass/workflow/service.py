@@ -36,7 +36,7 @@ from archcompass.persistence.executions import ExecutionRecord
 from archcompass.persistence.ports import CaseSnapshots, ReviewSnapshots, ReviewSummary
 from archcompass.ports.capabilities import ReviewRecorder
 from archcompass.workflow.runs import ReviewRunner, RunState
-from archcompass.workflow.state import ReviewInput, ReviewState
+from archcompass.workflow.state import ReviewInput, ReviewRuntime, ReviewState
 
 _log = logging.getLogger(__name__)
 
@@ -173,7 +173,7 @@ class ReviewWorkflowService:
 
     def __init__(
         self,
-        graph: CompiledStateGraph[ReviewState, None, ReviewInput, ReviewState],
+        graph: CompiledStateGraph[ReviewState, ReviewRuntime, ReviewInput, ReviewState],
         *,
         reviews: ReviewSnapshots,
         recorder: ReviewRecorder,
@@ -217,6 +217,11 @@ class ReviewWorkflowService:
                     ci=ci,
                 ),
                 self._config(thread_id),
+                # A run of its own gets a runtime of its own. Nothing is carried between
+                # runs in it: what it holds is set by the dispatch, from state, every time
+                # the candidates fan out — so a resumed review repopulates it before any
+                # branch reads it, and a fresh object is the honest starting point.
+                context=ReviewRuntime(),
             )
         except Exception as error:
             self._record_failure(thread_id, error)
@@ -304,6 +309,7 @@ class ReviewWorkflowService:
                 for raw in self._graph.stream(
                     source,
                     self._config(thread_id),
+                    context=ReviewRuntime(),
                     # A list of one rather than the bare string, because a list is what
                     # makes every item arrive as `(mode, payload)` — the shape `_streamed`
                     # unwraps. It carried a second mode while a node could report progress
@@ -399,7 +405,9 @@ class ReviewWorkflowService:
         # fine and refuses every later answer.
         self._executions.resume(thread_id)
         try:
-            state = self._graph.invoke(command, self._config(thread_id))
+            state = self._graph.invoke(
+                command, self._config(thread_id), context=ReviewRuntime()
+            )
         except Exception as error:
             self._record_failure(thread_id, error)
             raise

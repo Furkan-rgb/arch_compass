@@ -35,7 +35,7 @@ from archcompass.domain import (
     Termination,
     Verdict,
 )
-from archcompass.ports.capabilities import ReviewSynopsis
+from archcompass.ports.capabilities import ReviewedSubject, ReviewSynopsis
 from archcompass.ports.policy_retrieval import (
     RetrievedPolicySet,
 )
@@ -70,7 +70,12 @@ class DeterministicJudge:
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
         investigation: RecordedInvestigation | None = None,
+        *,
+        subject: ReviewedSubject | None = None,
     ) -> Finding:
+        # A deterministic verdict reads nothing, so there is nothing to look at and nothing
+        # to record. The subject is taken so this satisfies the same port and dropped here.
+        del subject
         # Taken and ignored, deliberately. This chain's rule is about what a person has
         # answered, and lookups are not answers — so the second judgement of an investigated
         # candidate reaches the same verdict as the first, the hinge survives, and the

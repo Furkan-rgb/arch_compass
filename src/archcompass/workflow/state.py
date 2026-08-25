@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
 from archcompass.domain import (
@@ -25,6 +26,36 @@ def merge_mappings[Value](
     left: dict[str, Value], right: dict[str, Value]
 ) -> dict[str, Value]:
     return {**left, **right}
+
+
+@dataclass
+class ReviewRuntime:
+    """What a judgement needs that must never be written down.
+
+    A `Send` payload is checkpointed once per branch, so anything travelling in it is stored
+    as many times as there are candidates — one round of six cost 21 MB of `__pregel_tasks`
+    when the atlas went that way. The atlas is also the one thing a per-candidate judgement
+    cannot do without: it is what its tools answer from.
+
+    So it travels as run-scoped context instead, which LangGraph passes to every node of a
+    run and never serialises. `subject` is set by the dispatch that fans the candidates out,
+    from state it already holds, and it is set again on every dispatch — which is what makes
+    this survive a clarification round. A resumed review starts with a fresh context object,
+    and the second fan-out repopulates it before any branch reads it.
+
+    `None` where a review runs without tools at all: the deterministic provider, and any
+    caller that has not set a context. The judgement then reads only its dossier.
+    """
+
+    subject: JudgementSubject | None = None
+
+
+@dataclass(frozen=True)
+class JudgementSubject:
+    """The repository and atlas one round's judgements are about."""
+
+    repository: RepositoryRef
+    atlas: RepositoryAtlas
 
 
 class ReviewInput(TypedDict):

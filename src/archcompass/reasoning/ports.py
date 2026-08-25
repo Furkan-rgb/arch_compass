@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
@@ -284,32 +284,6 @@ class SourceInvestigator(Protocol):
     def termination(self) -> Termination | None:
         """Why execution ended, or None until it has ended."""
         ...
-
-
-@dataclass
-class ReviewedSubject:
-    """What one judgement is about, and the record of what it looked at while deciding.
-
-    Mutable and deliberately so: it goes in carrying the repository and the atlas, and comes
-    back also carrying every tool call the judgement made. One object rather than an argument
-    and a return value, because the two are the same judgement and a caller that received
-    them separately could store one without the other.
-
-    It travels as a parameter rather than in the branch's state. A `Send` payload is
-    checkpointed per branch, and one round of six candidates cost 21 MB of `__pregel_tasks`
-    when the atlas travelled that way; the node reads it from the run's context, which is
-    scoped to the run and never written down.
-    """
-
-    repository: RepositoryRef
-    atlas: RepositoryAtlas
-    #: Every model-visible tool call, in order, whichever middleware injected the tool.
-    lookups: list[RecordedLookup] = field(default_factory=list["RecordedLookup"])
-    #: Why gathering stopped. `None` until it has.
-    termination: Termination | None = None
-    #: Whether the judgement reached its verdict on its own or had to be terminalised after a
-    #: circuit breaker fired. Both are the same execution; only one of them ran out of room.
-    terminalised: bool = False
 
 
 @dataclass(frozen=True, slots=True)

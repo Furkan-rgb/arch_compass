@@ -59,7 +59,7 @@ from archcompass.policies.adapters import (
     MarkdownPolicyStore,
     SelectedDensePolicyRetriever,
 )
-from archcompass.policies.adapters.bundled import BUNDLED_POLICY_SOURCE
+from archcompass.policies.adapters.bundled import BUNDLED_POLICY_SOURCE, bundled_corpus
 from archcompass.policies.adapters.embeddings import (
     DEFAULT_EMBEDDING_DIMENSIONS,
     DEFAULT_EMBEDDING_MODEL,
@@ -71,6 +71,7 @@ from archcompass.policies.retrieval import corpus_fingerprint
 from archcompass.policies.service import PolicyService
 from archcompass.reasoning.adapters.deterministic import DETERMINISTIC_MODEL_IDENTITY
 from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
+from archcompass.reasoning.adapters.judge_tools import JudgeToolbox
 from archcompass.reasoning.adapters.openrouter import DESCRIPTOR as OPENROUTER_DESCRIPTOR
 from archcompass.reasoning.adapters.providers import (
     DETERMINISTIC_DESCRIPTOR,
@@ -319,6 +320,21 @@ def _reclaim_checkpoint_space(connection: sqlite3.Connection) -> None:
         _log.warning("The checkpoint database could not be compacted", exc_info=True)
 
 
+#: Whether a judgement may read the repository it is judging.
+#:
+#: A switch rather than a setting: it names which of two judges runs, and both produce the
+#: same `FindingOutput`. It exists so the two can be compared on real reviews, and it is
+#: expected to go once one of them is simply the judge.
+def _deep_judge_enabled() -> bool:
+    return os.environ.get("ARCHCOMPASS_DEEP_JUDGE", "0").strip().casefold() not in {
+        "",
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 def build_runtime(
     workspace: Path,
     *,
@@ -488,6 +504,20 @@ def build_runtime(
             )
         return selected.provider == "fake"
 
+    # What a judgement may reach for, or `None` while the repository stays closed to it.
+    #
+    # Off by default for now. The judge that uses it reaches the same verdicts by a different
+    # route — a bounded conversation with tools instead of one structured call — and the two
+    # are compared on real reviews before either becomes what everybody gets.
+    judge_toolbox = (
+        JudgeToolbox(
+            AtlasInvestigatorSource(queries, freshness),
+            bundled_corpus(),
+        )
+        if _deep_judge_enabled()
+        else None
+    )
+
     graph = build_review_graph(
         ReviewWorkflowCapabilities(
             context=SQLiteContextLoader(
@@ -510,7 +540,7 @@ def build_runtime(
                 deterministic_mode=deterministic_retrieval_mode,
             ),
             judge=CachingArchitectureJudge(
-                SelectedLangChainJudge(selected_chat),
+                SelectedLangChainJudge(selected_chat, judge_toolbox),
                 core_finding_cache,
                 model_identity=selected_model_identity,
                 prompt_identity=selected_prompt_identity,

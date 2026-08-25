@@ -14,10 +14,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.runtime import get_runtime
 from langgraph.types import Send
 
 from archcompass.domain import (
@@ -67,7 +68,13 @@ from archcompass.workflow.nodes import (
     select_rejudgements_node,
     write_synopsis_node,
 )
-from archcompass.workflow.state import CandidateReviewOutput, ReviewInput, ReviewState
+from archcompass.workflow.state import (
+    CandidateReviewOutput,
+    JudgementSubject,
+    ReviewInput,
+    ReviewRuntime,
+    ReviewState,
+)
 
 
 class _NoReviewSynopsis:
@@ -144,8 +151,10 @@ class ReviewWorkflowCapabilities:
 
 def _candidate_graph(
     capabilities: ReviewWorkflowCapabilities,
-) -> CompiledStateGraph[ReviewState, None, ReviewState, CandidateReviewOutput]:
-    graph = StateGraph(ReviewState, output_schema=CandidateReviewOutput)
+) -> CompiledStateGraph[ReviewState, ReviewRuntime, ReviewState, CandidateReviewOutput]:
+    graph = StateGraph(
+        ReviewState, ReviewRuntime, output_schema=CandidateReviewOutput
+    )
     graph.add_node("retrieve_policy_set", retrieve_policy_set_node(capabilities.retriever))
     graph.add_node("judge_candidate", judge_candidate_node(capabilities.judge))
     graph.add_edge(START, "retrieve_policy_set")
@@ -193,6 +202,16 @@ def _dispatch_candidates(
         # The size is the second reason and still worth having — a `Send` payload is
         # checkpointed per branch, and one round of six candidates fell from 21 MB of
         # `__pregel_tasks` to 1.3 MB.
+        # The atlas the branches will judge against, put where a `Send` cannot carry it.
+        # Set here rather than once at the start of the run because this is the only code
+        # both fan-outs pass through: a review that asked a question and was answered comes
+        # back through `select_candidates_for_rejudgement` into this same callable, with a
+        # context object that a resumed process created empty.
+        runtime = cast("ReviewRuntime | None", get_runtime(ReviewRuntime).context)
+        if runtime is not None:
+            runtime.subject = JudgementSubject(
+                repository=state["repository"], atlas=state["atlas"]
+            )
         return [
             Send(
                 "review_candidate",
@@ -231,8 +250,8 @@ def build_review_graph(
     capabilities: ReviewWorkflowCapabilities,
     *,
     checkpointer: object | None = None,
-) -> CompiledStateGraph[ReviewState, None, ReviewInput, ReviewState]:
-    graph = StateGraph(ReviewState, input_schema=ReviewInput)
+) -> CompiledStateGraph[ReviewState, ReviewRuntime, ReviewInput, ReviewState]:
+    graph = StateGraph(ReviewState, ReviewRuntime, input_schema=ReviewInput)
     graph.add_node("load_context", load_context_node(capabilities.context))
     graph.add_node("analyze_repository", analyze_repository_node(capabilities.analyzer))
     graph.add_node("detect_candidates", detect_candidates_node(capabilities.detector))

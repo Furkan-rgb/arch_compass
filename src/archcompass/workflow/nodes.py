@@ -7,11 +7,13 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import cast
 
+from langgraph.runtime import get_runtime
 from langgraph.types import interrupt
 
 from archcompass.domain import (
     Answer,
     Candidate,
+    CandidateId,
     Finding,
     RecordedInvestigation,
     Review,
@@ -32,11 +34,12 @@ from archcompass.ports.capabilities import (
     RepositoryAnalyzer,
     ReviewComposer,
     ReviewDraft,
+    ReviewedSubject,
     ReviewRecorder,
     ReviewSynopsisWriter,
     RevisionCalculator,
 )
-from archcompass.workflow.state import ReviewState
+from archcompass.workflow.state import ReviewRuntime, ReviewState
 
 _log = logging.getLogger(__name__)
 
@@ -174,13 +177,91 @@ def retrieve_policy_set_node(retriever: PolicyRetriever) -> Node:
     return retrieve_policy_set
 
 
+def _judgement_subject(state: ReviewState) -> ReviewedSubject | None:
+    """What this branch is judging, from the run's context rather than from its state.
+
+    `None` where the run has no context — a graph invoked without one, which is every test
+    that drives a branch by hand — and the judgement then reads only its dossier.
+    """
+
+    try:
+        # Typed as always present and absent in practice: a graph invoked without `context=`
+        # hands back `None` here, which is every test that drives a node by hand and the CLI
+        # paths that compose a review without running one.
+        context = cast("ReviewRuntime | None", get_runtime(ReviewRuntime).context)
+    except RuntimeError:
+        return None
+    subject = None if context is None else context.subject
+    if subject is None:
+        return None
+    return ReviewedSubject(repository=subject.repository, atlas=subject.atlas)
+
+
+def recorded_judgement(
+    subject: ReviewedSubject, *, candidate_id: str
+) -> RecordedInvestigation | None:
+    """What one judgement looked at, as the review will keep it.
+
+    `None` where it looked at nothing, which is the common case and must not be stored as an
+    empty record: a manifest entry saying "checked nothing" reads as a check that came back
+    empty, and those are opposite facts about a verdict.
+
+    `terminalised` is recorded as a note beside the termination rather than as one of its
+    states. Running out of room and finishing the answer anyway are two things: the first is
+    why gathering stopped, the second is how the verdict was reached, and a single enum
+    collapsing them would lose whichever the reader needed.
+    """
+
+    if not subject.lookups:
+        return None
+    return RecordedInvestigation(
+        candidate_id=CandidateId(candidate_id),
+        lookups=tuple(subject.lookups),
+        closing=(
+            "The verdict was stated after this judgement ran out of room to look further."
+            if subject.terminalised
+            else ""
+        ),
+        termination=subject.termination,
+        atlas_fingerprint=subject.repository.content_id,
+        prompt_identity=subject.prompt_identity,
+        model_identity=subject.model_identity,
+    )
+
+
 def judge_candidate_node(judge: ArchitectureJudge) -> Node:
+    """One candidate judged, with the repository open to it if this run has one.
+
+    The subject comes from the run's context rather than from the branch's state: it carries
+    the atlas, and a `Send` payload is checkpointed once per branch. `None` where a review is
+    running without one — the deterministic provider, and every test that drives a branch
+    directly — and the judgement then reads only what it was handed.
+
+    What the judgement looked at comes back on the same object, and is stored beside the
+    finding rather than inside it. Tool results are what a verdict was reached *against*;
+    `Finding.evidence` is what the detector pinned, and nothing here is allowed to grow it.
+    """
+
     def judge_candidate(state: ReviewState) -> dict[str, object]:
         candidate_id = str(state["candidate"].id)
-        finding = judge.judge(state["candidate"], state["case"], state["retrieval"])
+        subject = _judgement_subject(state)
+        finding = judge.judge(
+            state["candidate"], state["case"], state["retrieval"], subject=subject
+        )
+        if subject is None:
+            return {
+                "retrievals": {candidate_id: state["retrieval"]},
+                "findings": {candidate_id: finding},
+            }
+        record = recorded_judgement(subject, candidate_id=candidate_id)
         return {
-            "retrievals": {candidate_id: state["retrieval"]},
-            "findings": {candidate_id: finding},
+            "retrievals": {candidate_id: subject.retrieval or state["retrieval"]},
+            "findings": {
+                candidate_id: finding
+                if record is None
+                else replace(finding, investigation_identity=record.identity)
+            },
+            "investigations": {} if record is None else {candidate_id: record},
         }
 
     return judge_candidate
