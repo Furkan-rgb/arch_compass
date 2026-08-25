@@ -83,7 +83,22 @@ from archcompass.records import canonical_json, stable_id
 # v5 atlas of unchanged source would go on reporting nothing about concentration and give a
 # reader no way to tell that from a repository with none. Same rule as above: a stored atlas
 # that cannot answer a question the analyzer now answers is stale.
-PARSER_VERSION = "python-ast-3.12-v6"
+#
+# v7 puts a mention on the line that holds it in the two places v5 could not: the wrapped
+# import, where the name sits below `from x import (`, and the long literal, where it sits
+# below the opening quotes. Both recorded the line the *statement* began on, so the evidence
+# shown for a leak was again a line without the leaked name in it — the defect v5 was for,
+# surviving in the shapes v5 did not reach. The lines are stored, so a v6 atlas keeps the
+# wrong ones and is stale.
+#
+# v8 walks a function's signature as part of it, so a parameter or return annotation is a
+# reference the way a class attribute's annotation always was. Every port injected through
+# a constructor had no reference edge at all, and `dependants_of_abstraction` — the only
+# contextual measurement `sole_implementation` carries — read zero for thirty-five of the
+# fifty ports in this repository while every one of them was wired. A judge reading "no
+# code currently routes through this boundary" was reading a fact about the walk. Edges are
+# stored, so a v7 atlas is missing them and is stale.
+PARSER_VERSION = "python-ast-3.12-v8"
 
 
 @dataclass(frozen=True)
@@ -2216,9 +2231,17 @@ def _mentioned_names(module: ParsedModule) -> dict[str, list[int]]:
     them is what lets a scattered-concept participant point at the import that names the
     vendor rather than at line 1 — see `NamedMention`, which exists because it did not.
 
-    An `ast.alias` has no position of its own before Python 3.10 and is attributed to its
-    statement here regardless, because `from x import y` is the line a reader wants either
-    way: the name is on it, and the alias node's own column is not what they asked for.
+    An `ast.alias` carries its own line from Python 3.10 on, and that is the one recorded.
+    The statement's line was used while older versions were supported, and it was only ever
+    right for a single-line import: in the parenthesised form the name is several lines
+    below `from x import (`, so the evidence shown for a leak was an import line that did
+    not contain the leaked name.
+
+    A string literal has the same shape and the same fix. Its recorded line is where the
+    literal opens, which for a prompt or a template is the assignment and the opening
+    quotes and nothing else — so a name written forty lines into it was reported at a line
+    that does not contain it. Which names the literal contributes is unchanged; only where
+    each one is said to be.
     """
 
     docstrings = {
@@ -2231,6 +2254,7 @@ def _mentioned_names(module: ParsedModule) -> dict[str, list[int]]:
         and isinstance(node.body[0].value.value, str)
     }
     found: dict[str, set[int]] = defaultdict(set)
+    lines = module.source.splitlines()
 
     def record(tokens: set[str], line: int | None) -> None:
         if line is None:
@@ -2238,17 +2262,39 @@ def _mentioned_names(module: ParsedModule) -> dict[str, list[int]]:
         for token in tokens:
             found[token].add(line)
 
+    def record_literal(tokens: set[str], node: ast.Constant) -> None:
+        """A literal's names, each on the line of the literal that holds it.
+
+        Searched in the source rather than in the decoded value, because the line numbers
+        being recorded are the source's. A token that the search cannot place — an escape,
+        a spelling the splitter reached but the text does not show — falls back to where
+        the literal opens, which is no worse than where every one of them used to go.
+        """
+
+        end = node.end_lineno or node.lineno
+        if end <= node.lineno:
+            record(tokens, node.lineno)
+            return
+        span = [
+            (number, lines[number - 1].casefold())
+            for number in range(node.lineno, min(end, len(lines)) + 1)
+        ]
+        for token in tokens:
+            at = next((number for number, text in span if token in text), node.lineno)
+            found[token].add(at)
+
     for parent in ast.walk(module.syntax()):
-        # Imports first, so an alias inherits the statement's line rather than being missed.
+        # Imports first, so an alias is read as an import rather than as a bare name.
         if isinstance(parent, (ast.Import, ast.ImportFrom)):
             # The names, not the module they came from. `from provider.qwen import X` has
             # always contributed `x` and not `qwen`, and widening that here would change
             # which boundaries are detected — this change is about where a mention is, not
             # about what counts as one.
             for alias in parent.names:
-                record(_name_tokens(alias.name.replace(".", "_")), parent.lineno)
+                line = getattr(alias, "lineno", parent.lineno)
+                record(_name_tokens(alias.name.replace(".", "_")), line)
                 if alias.asname:
-                    record(_name_tokens(alias.asname), parent.lineno)
+                    record(_name_tokens(alias.asname), line)
             continue
         if isinstance(parent, ast.Name):
             record(_name_tokens(parent.id), parent.lineno)
@@ -2261,7 +2307,7 @@ def _mentioned_names(module: ParsedModule) -> dict[str, list[int]]:
             and isinstance(parent.value, str)
             and id(parent) not in docstrings
         ):
-            record(_name_tokens(parent.value), parent.lineno)
+            record_literal(_name_tokens(parent.value), parent)
     return {name: sorted(lines) for name, lines in found.items()}
 
 
@@ -2279,3 +2325,4 @@ def _name_tokens(text: str) -> set[str]:
 
     spaced = _TOKEN_BOUNDARY.sub(" ", text)
     return {token.casefold() for token in re.split(r"[^A-Za-z0-9]+", spaced) if token}
+

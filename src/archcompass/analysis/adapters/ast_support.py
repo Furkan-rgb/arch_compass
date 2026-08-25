@@ -167,11 +167,31 @@ def lies_within(path: Path, roots: tuple[Path, ...]) -> bool:
 
 
 def lexical_nodes(syntax: ast.AST) -> Iterable[ast.AST]:
-    """Walk one lexical body while treating nested definitions as opaque."""
+    """Walk one lexical body while treating nested definitions as opaque.
+
+    A function's signature is part of it. Seeding from `body` alone left every parameter
+    annotation and every return annotation outside the walk, so a name a function was
+    written entirely in terms of was not a name it referenced — and the shape that hides
+    is the one this codebase is built from. `class Runtime: lineage: LineageRepository`
+    was seen, because a class attribute's annotation is a statement in the body;
+    `def __init__(self, source_repository: PolicySourceRepository)` was not, because a
+    parameter's is not. So the ports declared as dataclass fields had dependants and the
+    ports injected through constructors had none, and `dependants_of_abstraction` reported
+    zero for most of the ports in the repository while every one of them was wired.
+
+    Decorators are still left out. A decorator names something the definition is passed
+    to rather than something its body is written in terms of, and pulling it in here would
+    change what a reference means as well as how many there are.
+    """
 
     boundaries = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-    if isinstance(syntax, (ast.Module, *boundaries)):
-        stack: list[ast.AST] = list(reversed(syntax.body))
+    if isinstance(syntax, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        signature: list[ast.AST] = [syntax.args]
+        if syntax.returns is not None:
+            signature.append(syntax.returns)
+        stack: list[ast.AST] = list(reversed([*signature, *syntax.body]))
+    elif isinstance(syntax, (ast.Module, ast.ClassDef)):
+        stack = list(reversed(syntax.body))
     else:
         stack = list(reversed(list(ast.iter_child_nodes(syntax))))
     while stack:
