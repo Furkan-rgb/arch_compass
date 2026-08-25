@@ -15,7 +15,6 @@ from archcompass.domain import (
     Candidate,
     CaseFacet,
     Finding,
-    InvestigationLookup,
     Participant,
     Policy,
     PolicyScope,
@@ -28,28 +27,22 @@ from archcompass.domain import (
     Review,
     ReviewDelta,
     ReviewStatus,
-    Termination,
     Verdict,
 )
 from archcompass.domain._support import new_id, utc_now
-from archcompass.domain.errors import ProviderError, ReviewNotCancellableError
+from archcompass.domain.errors import ReviewNotCancellableError
 from archcompass.persistence.executions import SQLiteReviewExecutionRepository
 from archcompass.persistence.reviews import SQLiteCoreReviewRepository
 from archcompass.policies.ports import DensePolicyMatch
 from archcompass.policies.retrieval import DensePolicyRetriever
 from archcompass.ports.capabilities import (
     CandidateSelection,
-    HingeInvestigator,
     LoadedReviewContext,
     ReviewDraft,
     ReviewSynopsis,
 )
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
-from archcompass.workflow.nodes import (
-    investigate_hinges_node,
-    rejudge_investigated_node,
-)
 from archcompass.workflow.report import DeterministicReviewComposer
 from archcompass.workflow.service import ReviewWorkflowService
 
@@ -506,7 +499,9 @@ def test_graph_exposes_capability_sequence_and_candidate_fanout(tmp_path: Path) 
     assert "detect_candidates" in rendered
     assert "calculate_delta" in rendered
     assert "review_candidate" in rendered
-    assert "investigate_hinges" in rendered
+    # No second pass: a judgement that needed a repository fact got it while deciding.
+    assert "investigate_hinges" not in rendered
+    assert "rejudge_investigated" not in rendered
     assert "generate_questions" in rendered
     assert "select_candidates_for_rejudgement" in rendered
 
@@ -906,44 +901,6 @@ def test_the_manifest_carries_provenance_only_for_findings_this_review_holds(
     ]
 
 
-class Investigator:
-    """A hinge pass whose answers a test dictates, recording what it was asked about.
-
-    Declared beside the tests that use it rather than up top, like `Synopsist`: every
-    other capability in this file is one a review cannot be produced without, and this is
-    one most workspaces will never have.
-    """
-
-    def __init__(self, *, fail: bool = False, looked: bool = True) -> None:
-        self.seen: list[str] = []
-        self._fail = fail
-        self._looked = looked
-
-    def supports_tools(self) -> bool:
-        return True
-
-    def investigate(
-        self,
-        finding: Finding,
-        case: ArchitectureCase,
-        *,
-        repository: RepositoryRef,
-        atlas: RepositoryAtlas,
-    ) -> RecordedInvestigation | None:
-        del case, atlas
-        self.seen.append(str(finding.candidate.id))
-        if self._fail:
-            raise ProviderError("the provider stopped mid-investigation")
-        return RecordedInvestigation(
-            candidate_id=finding.candidate.id,
-            lookups=(
-                (InvestigationLookup("related_code", (("qualified_name", "Port"),), "one row"),)
-                if self._looked
-                else ()
-            ),
-            termination=Termination.NATURAL_END,
-            atlas_fingerprint=repository.content_id,
-        )
 
 
 class HingeSensitiveQuestions:
@@ -976,41 +933,6 @@ class HingeSensitiveQuestions:
         )
 
 
-def _investigating(
-    repository: RepositoryRef,
-    case: ArchitectureCase,
-    investigator: HingeInvestigator | None = None,
-    judge: Judge | None = None,
-) -> ReviewWorkflowCapabilities:
-    """The capability set the investigation tests share.
-
-    Two of these differ from the literals above, and both differences are the point:
-    `HingeSensitiveQuestions` applies the rule the production generator applies, and the
-    real composer is what actually keeps a manifest.
-    """
-
-    capabilities = ReviewWorkflowCapabilities(
-        context=Context(repository, case),
-        analyzer=Analyzer(),
-        detector=Detector(),
-        revisions=Revisions(),
-        initial_candidates=Initial(),
-        corpus=Corpus(),
-        retriever=DensePolicyRetriever(Index(), top_k=8),
-        judge=judge or Judge(),
-        questions=HingeSensitiveQuestions(),
-        cases=Cases(),
-        # The real composer, not the stub above: these tests are about what the review
-        # keeps, and the stub keeps none of the manifests.
-        composer=DeterministicReviewComposer(),
-        recorder=Recorder(),
-    )
-    # Left to the capability's own default when a test does not supply one, rather than
-    # naming the null object: "no investigator" is what the default already means, and the
-    # graph owns which class fills that seam.
-    return capabilities if investigator is None else replace(
-        capabilities, investigator=investigator
-    )
 
 
 def _run(
@@ -1031,61 +953,10 @@ def _run(
     )
 
 
-def test_a_hinge_the_repository_settles_never_reaches_the_question_generator(
-    tmp_path: Path,
-) -> None:
-    """The whole point. A question a lookup answered is an interruption nobody needed."""
-
-    repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
-    case = ArchitectureCase.create()
-    investigator = Investigator()
-    judge = Judge(settles_on_observations=True)
-
-    state = _run(
-        _investigating(repository, case, investigator, judge),
-        repository,
-        case,
-    )
-
-    assert investigator.seen
-    # The verdict moved, and it moved in the judge. The investigator was asked, recorded what
-    # it found, and changed nothing — `judge.investigated` is the proof the second judgement
-    # actually happened rather than the first one being read twice.
-    assert judge.investigated == investigator.seen
-    assert state["questions"] == ()
-    assert [item.verdict for item in state["review"].findings] == [Verdict.CLEARED]
 
 
-def test_a_hinge_nothing_could_settle_reaches_the_question_generator_unchanged(
-    tmp_path: Path,
-) -> None:
-    """The behaviour that existed before this pass, now guarded rather than assumed."""
-
-    repository = RepositoryRef("repo-2", tmp_path.resolve(), "branch-1", "content-1")
-    case = ArchitectureCase.create()
-
-    state = _run(
-        _investigating(repository, case, Investigator()),
-        repository,
-        case,
-    )
-
-    assert state["questions"]
-    assert [item.hinge for item in state["review"].findings] == ["future variation"]
 
 
-def test_a_review_composes_the_same_way_when_nothing_can_look_anything_up(
-    tmp_path: Path,
-) -> None:
-    """Omitting the capability entirely is the configuration most workspaces run."""
-
-    repository = RepositoryRef("repo-3", tmp_path.resolve(), "branch-1", "content-1")
-    case = ArchitectureCase.create()
-
-    state = _run(_investigating(repository, case), repository, case)
-
-    assert state["questions"]
-    assert state["review"].investigation_manifest == ()
 
 
 def _round_state(
@@ -1141,113 +1012,11 @@ def _round_state(
     return state, changed, carried
 
 
-def test_a_finding_carried_from_a_previous_review_is_not_investigated(
-    tmp_path: Path,
-) -> None:
-    """It cannot be re-judged afterwards, so investigating it spends a call for nothing.
-
-    A carried finding keeps the verdict the previous review reached, and this round retrieved
-    no policies for it. It used to pass the hinge filter anyway — so the lookups ran, the
-    second judgement then skipped it for want of a retrieval, and the record reached the
-    reader joined to a finding it had never been weighed against.
-    """
-
-    repository = RepositoryRef("repo-7", tmp_path.resolve(), "branch-1", "content-1")
-    state, changed, carried = _round_state(repository, ArchitectureCase.create())
-    investigator = Investigator()
-
-    written = investigate_hinges_node(investigator)(state)  # type: ignore[arg-type]
-
-    assert investigator.seen == [str(changed.id)], (
-        "a candidate this round cannot re-judge was investigated anyway"
-    )
-    assert str(carried.id) not in written["investigations"]  # type: ignore[index]
 
 
-def test_an_investigation_from_an_earlier_round_does_not_buy_a_second_judgement(
-    tmp_path: Path,
-) -> None:
-    """`investigations` outlives a round, and reading all of it reaches into the last one.
-
-    It is a merged mapping, seeded once and never cleared, so a record from round one was
-    still there in round two — where the candidate had already been judged afresh against
-    the answers. The judge was asked again, off the older record, and the finding came back
-    stamped with that record's identity.
-    """
-
-    repository = RepositoryRef("repo-8", tmp_path.resolve(), "branch-1", "content-1")
-    state, _changed, carried = _round_state(repository, ArchitectureCase.create())
-    # Round one investigated the candidate this round is not looking at again.
-    state["investigations"] = {
-        str(carried.id): RecordedInvestigation(
-            candidate_id=carried.id,
-            lookups=(InvestigationLookup("related_code", (("qualified_name", "S"),), "row"),),
-            termination=Termination.NATURAL_END,
-        )
-    }
-    judge = Judge(settles_on_observations=True)
-
-    written = rejudge_investigated_node(judge)(state)  # type: ignore[arg-type]
-
-    assert judge.investigated == [], "an earlier round's record bought a judgement"
-    assert written["findings"] == {}  # type: ignore[index]
 
 
-def test_an_investigation_that_looked_at_nothing_does_not_pay_for_a_second_judgement(
-    tmp_path: Path,
-) -> None:
-    """No lookups means no new facts, and a judge asked again would answer the same thing.
-
-    Derived from the record rather than flagged on it: a `RecordedInvestigation` with an
-    empty `lookups` is the whole of what "there is nothing to re-judge on" means, and a
-    second field saying so could disagree with it.
-    """
-
-    repository = RepositoryRef("repo-6", tmp_path.resolve(), "branch-1", "content-1")
-    case = ArchitectureCase.create()
-    judge = Judge(settles_on_observations=True)
-
-    state = _run(
-        _investigating(repository, case, Investigator(looked=False), judge),
-        repository,
-        case,
-    )
-
-    assert judge.investigated == []
-    assert state["questions"]
-    assert [item.hinge for item in state["review"].findings] == ["future variation"]
 
 
-def test_an_investigation_that_fails_does_not_fail_the_review(tmp_path: Path) -> None:
-    """Losing an improvement must never cost the review the question belongs to."""
-
-    repository = RepositoryRef("repo-4", tmp_path.resolve(), "branch-1", "content-1")
-    case = ArchitectureCase.create()
-
-    state = _run(
-        _investigating(repository, case, Investigator(fail=True)),
-        repository,
-        case,
-    )
-
-    assert state["questions"]
-    assert [item.hinge for item in state["review"].findings] == ["future variation"]
 
 
-def test_the_review_keeps_what_each_hinge_checked(tmp_path: Path) -> None:
-    """A hinge nobody can see the checking behind is a hinge a reader cannot weigh."""
-
-    repository = RepositoryRef("repo-5", tmp_path.resolve(), "branch-1", "content-1")
-    case = ArchitectureCase.create()
-
-    state = _run(
-        _investigating(
-            repository, case, Investigator(), Judge(settles_on_observations=True)
-        ),
-        repository,
-        case,
-    )
-
-    manifest = state["review"].investigation_manifest
-    assert [item.tool for item in manifest[0].lookups] == ["related_code"]
-    assert manifest[0].identity == state["review"].findings[0].investigation_identity

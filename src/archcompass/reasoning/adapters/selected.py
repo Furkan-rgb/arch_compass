@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Generator
 from contextlib import contextmanager
 from threading import BoundedSemaphore, Lock
@@ -17,12 +16,10 @@ from archcompass.domain import (
     Finding,
     Question,
     RecordedInvestigation,
-    RepositoryAtlas,
-    RepositoryRef,
     Review,
     ReviewDelta,
 )
-from archcompass.domain.errors import NoReasoningModelSelectedError, ProviderError
+from archcompass.domain.errors import NoReasoningModelSelectedError
 from archcompass.ports.capabilities import (
     ReviewedSubject,
     ReviewSynopsis,
@@ -31,15 +28,11 @@ from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.reasoning.adapters.deep_judge import DeepArchitectureJudge
 from archcompass.reasoning.adapters.deterministic import (
     DeterministicAnswerer,
-    DeterministicHingeInvestigator,
     DeterministicJudge,
     DeterministicQuestionGenerator,
     DeterministicSynopsist,
 )
 from archcompass.reasoning.adapters.factory import build_chat_model
-from archcompass.reasoning.adapters.investigation import (
-    LangChainHingeInvestigator,
-)
 from archcompass.reasoning.adapters.judge_tools import JudgeToolbox
 from archcompass.reasoning.adapters.langchain import (
     LangChainArchitectureJudge,
@@ -153,30 +146,6 @@ def _is_deterministic(selected: SelectedLangChainChatModel) -> bool:
 
     config = selected.configuration()
     return config is not None and config.provider == "fake"
-
-
-def _investigation_enabled() -> bool:
-    """Hinge investigation is on by default and can be turned off without changing the model.
-
-    The graph already treats it as optional — `ReviewWorkflowCapabilities.investigator`
-    defaults to `NoHingeInvestigation`, and a workspace on a model that cannot call tools
-    asks its questions the way it always asked them — so this switch selects between two
-    configurations the product already supports rather than introducing a third.
-
-    It exists because the pass is not free and its value is not uniform. Up to eight held
-    findings, up to twelve lookups over twelve model calls each, and one further judgement
-    per finding that found something: on a hosted tier that is a rounding error, and on one
-    local GPU it is minutes added to a review before anybody is asked anything. An operator
-    who would rather be asked the question than have it checked first can say so without
-    moving off their model.
-    """
-
-    return os.environ.get("ARCHCOMPASS_HINGE_INVESTIGATION", "1").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
 
 
 class SelectedLangChainJudge:
@@ -318,73 +287,3 @@ class SelectedLangChainReviewAnswerer:
             return LangChainReviewAnswerer(model, self._investigators).answer(
                 review, history, question
             )
-
-
-class SelectedLangChainHingeInvestigator:
-    """The hinge pass, against whichever model is selected right now.
-
-    Follows the judge: the deterministic provider is answered first and never reaches a
-    transport, a provider that turns out not to offer tools is not asked again for the life
-    of the process, and a failure degrades to the finding unchanged. Losing an investigation
-    must never cost the review the hinge belongs to.
-    """
-
-    def __init__(
-        self, selected: SelectedLangChainChatModel, investigators: InvestigatorSource
-    ) -> None:
-        self._selected = selected
-        self._investigators = investigators
-        self._tools_refused = False
-
-    def supports_tools(self) -> bool:
-        """Whether anything could look, asked per dispatch.
-
-        The deterministic provider can: it has a real toolbox over a real atlas, and it is
-        the only configuration `make check` ever runs. What it has no use for is a
-        transport.
-        """
-
-        if not _investigation_enabled():
-            return False
-        config = self._selected.configuration()
-        if config is None:
-            return False
-        if _is_deterministic(self._selected):
-            # It has a real toolbox over a real atlas. What it has no use for is a transport.
-            return True
-        return not self._tools_refused
-
-    def investigate(
-        self,
-        finding: Finding,
-        case: ArchitectureCase,
-        *,
-        repository: RepositoryRef,
-        atlas: RepositoryAtlas,
-    ) -> RecordedInvestigation | None:
-        if _is_deterministic(self._selected):
-            return DeterministicHingeInvestigator(self._investigators).investigate(
-                finding, case, repository=repository, atlas=atlas
-            )
-        try:
-            with self._selected.in_use() as (model, identity):
-                return LangChainHingeInvestigator(
-                    model, self._investigators, model_identity=identity
-                ).investigate(finding, case, repository=repository, atlas=atlas)
-        except (NotImplementedError, ProviderError) as error:
-            # A hinge that could not be checked is the hinge this product produced
-            # yesterday. It goes to a person, and the record says why nothing settled it.
-            _log.warning(
-                "The hinge on %s was not investigated: %s", finding.candidate.id, error
-            )
-                # `or`, not `=`. Assigning cleared the latch the moment a *different* failure
-            # followed a refusal — a provider that had already said it cannot bind tools was
-            # asked again for the rest of the process, which is the opposite of what the
-            # class docstring promises.
-            self._tools_refused = self._tools_refused or isinstance(
-                error, NotImplementedError
-            )
-            # No record: nothing was looked up and nothing could be. The hinge stands, and
-            # the judge is not called again for a candidate whose facts have not moved.
-            return None
-

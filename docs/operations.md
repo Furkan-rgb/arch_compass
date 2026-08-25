@@ -127,7 +127,6 @@ There is one, because there is one hosted boundary. Ollama needs none.
 |---|---|---|
 | `ARCHCOMPASS_PROVIDERS` | all | comma-separated allow-list; narrows what is offered at all |
 | `ARCHCOMPASS_OLLAMA_URL` | `http://127.0.0.1:11434` | moves the local Ollama server |
-| `ARCHCOMPASS_HINGE_INVESTIGATION` | `1` | `0` skips the lookups a hinge gets before a person is asked |
 | `ARCHCOMPASS_EMBEDDING_PROVIDER` | selected model's | pins the embedding provider |
 | `ARCHCOMPASS_EMBEDDING_MODEL` | selected model's | pins the embedding model |
 | `ARCHCOMPASS_EMBEDDING_DIMENSIONS` | selected model's | pins the embedding width |
@@ -138,13 +137,6 @@ The five `ARCHCOMPASS_EMBEDDING_*` variables are a pin, not five independent kno
 one and the workspace stops choosing an embedding model for itself.
 
 Booleans accept `0`, `false`, `no` and `off` for the off state; anything else is on.
-
-`ARCHCOMPASS_HINGE_INVESTIGATION=0` turns off the read-only lookups a hinged finding gets
-before its question is put to a person. Each held finding otherwise costs up to twelve
-lookups over up to twelve model calls, plus one further judgement if they found anything —
-a rounding error on a hosted tier and minutes on one local GPU. Off, the workspace asks its
-questions the way it did before the pass existed. It is not a model switch: the selection
-does not change.
 
 ### Hosted deployment only
 

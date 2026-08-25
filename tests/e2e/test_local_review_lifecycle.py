@@ -18,18 +18,20 @@ missing — the service, either model — skips with the command that would fix 
 from __future__ import annotations
 
 import re
-from dataclasses import replace
 
 import pytest
 
 from archcompass.analysis.investigation import AtlasInvestigatorSource
 from archcompass.bootstrap import Runtime
 from archcompass.configuration import EmbeddingModelConfig
-from archcompass.domain import Termination, Verdict
+from archcompass.domain import Termination
+from archcompass.policies.adapters.bundled import bundled_corpus
+from archcompass.ports.capabilities import ReviewedSubject
 from archcompass.reasoning.adapters.factory import embedding_identity
+from archcompass.reasoning.adapters.judge_tools import JudgeToolbox
 from archcompass.reasoning.adapters.selected import (
     SelectedLangChainChatModel,
-    SelectedLangChainHingeInvestigator,
+    SelectedLangChainJudge,
 )
 from tests.e2e.conftest import (
     EMBEDDING_DIMENSIONS,
@@ -217,90 +219,61 @@ def test_the_summary_is_short_and_says_nothing_the_reader_already_knows(
         )
 
 
-def test_a_hinge_is_checked_against_this_repository_by_this_model(
+def test_a_judgement_checks_this_repository_with_this_model(
     local_runtime: Runtime, local_lifecycle: Lifecycle
 ) -> None:
-    """A real tool loop, against a real local model and the real atlas its review judged.
+    """A live local model, given the repository, chooses lookups and records what it chose.
 
-    The lifecycle runs with the lookups off, so that whether a person is asked is not left
-    to how a tool loop went that morning — see `local_runtime`. This is the pass that switch
-    skips, run here on its own for one finding, so nothing about it goes uncovered.
+    What this establishes is not a verdict — verdicts move with the model and a test that
+    pinned one would fail on an upgrade rather than on a defect. It establishes that a model
+    on this machine can drive the tool loop the judge is built around: that it chooses tools
+    the toolbox actually offers, that what it chose survives onto the record with the
+    arguments it was made with, and that the record says why the looking ended.
 
-    Everything offline drives this through a stub or the deterministic provider, so nothing
-    else establishes that a model on this machine chooses lookups the toolbox accepts, that
-    what it chose survives onto the record, and that the record says why the looking ended.
-
-    What it no longer establishes is a verdict, because this pass does not reach one. It
-    collects facts; `rejudge_investigated` puts them to the judge. So the assertions here are
-    about the record, and the finding handed in is returned untouched by construction — there
-    is nothing to return it through.
-
-    The hinge is put onto a finding the review actually produced rather than invented
-    alongside one. A hinge is this capability's input by definition: what is under test is
-    what the model does with the repository when it is asked something the finding cannot
-    answer, and the finding here is a real judgement of real code.
+    Not caught. The workflow catches everything around a judgement on purpose, because
+    losing one must never cost the review a finding — and the price of that is a run where
+    the model could not honour the contract finishing green with an empty manifest. This is
+    the one place that price is not paid: a model on this machine has no quota to blame, so
+    anything it raises is the defect.
     """
 
     review = local_runtime.core_review_repository.get(local_lifecycle.final["id"])
-    assert review.findings, "the completed review carried no findings to investigate"
-    held = replace(
-        review.findings[0],
-        verdict=Verdict.HELD,
-        recommended_response=None,
-        hinge="whether this boundary is deliberate or was reached for out of habit",
+    assert review.findings, "the completed review carried no findings"
+    candidate = review.findings[0].candidate
+    retrieval = next(
+        item for item in review.retrieval_manifest if item.candidate_id == candidate.id
     )
+    del retrieval  # the manifest is the review's; the judgement below retrieves its own
 
-    investigator = SelectedLangChainHingeInvestigator(
+    subject = ReviewedSubject(repository=review.repository, atlas=review.atlas)
+    judge = SelectedLangChainJudge(
         SelectedLangChainChatModel(local_runtime.model_catalog_service),
-        AtlasInvestigatorSource(local_runtime.query_service),
+        JudgeToolbox(
+            AtlasInvestigatorSource(local_runtime.query_service),
+            bundled_corpus(),
+        ),
     )
-    # Not caught. `investigate_hinges` catches everything on purpose, because losing an
-    # investigation must never cost the review the question it belongs to — and the price of
-    # that is a run where the model could not honour the contract finishing green with an
-    # empty manifest. This is the one place that price is not paid: a model on this machine
-    # has no quota to blame, so anything it raises is the defect.
-    record = investigator.investigate(
-        held, review.case, repository=review.repository, atlas=review.atlas
-    )
+    policies = local_runtime.policy_service.retrieve_for(candidate, review.case)
 
-    assert record is not None, "a live model with a real toolbox recorded nothing"
-    assert record.candidate_id == str(held.candidate.id)
-    # `withheld` is the sentence the toolbox returns when there was nothing to look at — an
-    # empty atlas, or one an older parser wrote. It is a legitimate outcome of the *product*
-    # and an illegitimate one here: `investigate` returns on it without calling the model or
-    # a single tool, and every assertion below is then satisfied by a record that describes
-    # nothing happening. This test exists to prove a live model chose lookups.
-    assert not record.withheld, f"nothing was looked at: {record.withheld}"
-    assert record.lookups, "a live model with a real toolbox made no lookup"
-    # Why the looking ended, always, and never left to be guessed at. A run that spent its
-    # last allowed call on one more lookup and a run that spent it writing a conclusion both
-    # end with the budget at zero, and only the first was cut short.
-    assert record.termination is not None, "a live investigation recorded no termination"
-    assert record.termination is not Termination.PROVIDER_ERROR, (
-        f"the provider stopped answering: {record.closing}"
-    )
-    # A lookup nobody can repeat is the unverifiable evidence the charter refuses, so every
-    # call keeps the arguments it was made with alongside what came back — and names a tool
-    # the toolbox actually offers rather than one the model imagined.
-    offered = {
-        "search_code",
-        "describe_code",
-        "related_code",
-        "read_code",
-        "flagged_signals",
-    }
-    for lookup in record.lookups:
+    finding = judge.judge(candidate, review.case, policies, subject=subject)
+
+    assert finding.verdict is not None
+    assert finding.reasoning, "a judgement reached a verdict and said nothing about it"
+    assert finding.policies, "a verdict cited no policy"
+    # It may legitimately decide from the dossier alone, so an empty trace is not a failure
+    # — but everything in a non-empty one has to be real.
+    offered = {"search_code", "describe_code", "related_code", "ls", "read_file", "glob",
+               "grep", "search_policies"}
+    for lookup in subject.lookups:
         assert lookup.tool in offered, f"a recorded lookup named {lookup.tool!r}"
         assert lookup.result, "a recorded lookup kept no answer"
-    # The handle stays the application's. Every tool takes a qualified name now, and a result
-    # that printed an atlas id would be teaching a shape nothing accepts.
-    for lookup in record.lookups:
+        # The handle stays the application's: a result printing an atlas id would be
+        # teaching a shape nothing accepts.
         assert "node_" not in lookup.result, f"an atlas id reached the model: {lookup.tool}"
-    assert record.atlas_fingerprint == review.repository.content_id
-    assert record.model_identity.startswith("ollama:")
-    # The library's own "limits exceeded" message is not the model's prose, and a reader is
-    # shown `closing` as the model's account of what it found.
-    assert "limits exceeded" not in record.closing
+    assert subject.termination is not None, "a live judgement recorded no termination"
+    assert subject.termination is not Termination.PROVIDER_ERROR, (
+        "the provider stopped answering"
+    )
 
 
 def test_questions_ground_in_candidates_the_application_identified(

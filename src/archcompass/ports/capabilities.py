@@ -119,46 +119,6 @@ class ArchitectureJudge(Protocol):
         ...
 
 
-class HingeInvestigator(Protocol):
-    """A second, bounded pass over the findings that stopped to ask a person.
-
-    Judging is one structured call over pinned evidence. When a verdict turns on a fact
-    that evidence does not carry, the judgement emits a hinge, and a hinge stops the
-    review. Many hinges are answerable from the repository itself, and stopping to ask a
-    person something the repository could have answered is the worst outcome the charter
-    names.
-
-    So this pass gets read-only lookups and one job: establish what the repository says
-    about the hinge. It returns the record of that and nothing else — no verdict, no
-    reasoning, no recommendation, not even a narrowed question. All of those are readings
-    of the facts rather than facts, and `ArchitectureJudge` is the one component allowed to
-    make them.
-
-    It used to return the finding, changed. That made two components able to mint an
-    architecture verdict under two different contracts, and the weaker of the two — this
-    one, which sees policy titles rather than their guidance — could overwrite the stronger.
-    Measured on a local model, four investigations in twelve returned a verdict that their
-    own reasoning argued against.
-
-    Whether the selected model can call tools is asked per dispatch rather than answered at
-    startup, for the same reason `_is_deterministic` is asked per call: the model is
-    chosen while the workspace is running.
-    """
-
-    def supports_tools(self) -> bool: ...
-
-    def investigate(
-        self,
-        finding: Finding,
-        case: ArchitectureCase,
-        *,
-        repository: RepositoryRef,
-        atlas: RepositoryAtlas,
-    ) -> RecordedInvestigation | None:
-        """What was looked up, or `None` where there was nothing to record at all."""
-        ...
-
-
 class QuestionGenerator(Protocol):
     def generate(
         self,

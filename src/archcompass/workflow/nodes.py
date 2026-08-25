@@ -14,7 +14,6 @@ from archcompass.domain import (
     Answer,
     Candidate,
     CandidateId,
-    Finding,
     RecordedInvestigation,
     Review,
     ReviewDelta,
@@ -26,7 +25,6 @@ from archcompass.ports.capabilities import (
     CandidateSelection,
     CaseReviser,
     ContextLoader,
-    HingeInvestigator,
     InitialCandidateSelector,
     PolicyCorpus,
     PolicyRetriever,
@@ -42,13 +40,6 @@ from archcompass.ports.capabilities import (
 from archcompass.workflow.state import ReviewRuntime, ReviewState
 
 _log = logging.getLogger(__name__)
-
-#: How many hinged findings one round will investigate. A sequencing decision, and
-#: therefore the graph's rather than an adapter's: investigating is interactive by
-#: construction, so a review where everything hinged is a run of tool loops in
-#: front of a waiting reader. The ones past the ceiling keep their hinges and reach a
-#: person exactly as they did before this existed.
-MAX_INVESTIGATED_FINDINGS = 8
 
 Node = Callable[[ReviewState], dict[str, object]]
 
@@ -265,124 +256,6 @@ def judge_candidate_node(judge: ArchitectureJudge) -> Node:
         }
 
     return judge_candidate
-
-
-def investigate_hinges_node(investigator: HingeInvestigator) -> Node:
-    """The findings that stopped to ask a person, checked against the repository first.
-
-    Its own node rather than something the judge does, because it is a second and
-    differently bounded conversation with a model, and a graph whose nodes are its
-    capabilities is how that stays visible. It runs after judgement because a hinge is what
-    judgement produces, and before `generate_questions` because a hinge the repository
-    settled is not a question worth anybody's interruption.
-
-    It writes investigations and nothing else. Findings are `rejudge_investigated`'s to
-    write, which is the whole of why this node is allowed to exist: it establishes facts and
-    has no opinion about them.
-    """
-
-    def investigate_hinges(state: ReviewState) -> dict[str, object]:
-        if not investigator.supports_tools():
-            return {}
-        # Ordered by the candidate list rather than by the findings mapping, like every
-        # other node that reads it: two runs over one review must investigate the same
-        # findings in the same order, and a dict's order is whichever branch finished first.
-        #
-        # Narrowed to what this round judged. `candidates` includes findings carried
-        # unchanged from the previous review (`delta.unchanged`), and a carried finding's
-        # hinge passes this filter while nothing in this round retrieved policies for it —
-        # so it was investigated, could not then be re-judged, and its record reached the
-        # reader attached to a verdict it had never been weighed against. Investigating
-        # exactly what can be re-judged keeps the two passes over one set.
-        judged_here = {str(candidate.id) for candidate in state["selected_candidates"]}
-        held = [
-            (str(candidate.id), state["findings"][str(candidate.id)])
-            for candidate in state["candidates"]
-            if str(candidate.id) in judged_here
-            and str(candidate.id) in state["findings"]
-            and state["findings"][str(candidate.id)].hinge
-        ][:MAX_INVESTIGATED_FINDINGS]
-        if not held:
-            return {}
-        investigations: dict[str, RecordedInvestigation] = {}
-        for candidate_id, finding in held:
-            try:
-                record = investigator.investigate(
-                    finding,
-                    state["case"],
-                    repository=state["repository"],
-                    atlas=state["atlas"],
-                )
-            except Exception:
-                # An investigation is an improvement to a question. Losing one must never
-                # cost the review the question belongs to, so the hinge stands and the run
-                # goes on to ask it.
-                _log.warning(
-                    "The hinge on %s was not investigated", candidate_id, exc_info=True
-                )
-                continue
-            if record is not None:
-                investigations[candidate_id] = record
-        # No findings written. This node used to return them changed, because the
-        # investigator returned a verdict; it establishes facts now, and `rejudge_investigated`
-        # is what turns those facts into a verdict.
-        return {"investigations": investigations}
-
-    return investigate_hinges
-
-
-def rejudge_investigated_node(judge: ArchitectureJudge) -> Node:
-    """The second judgement, on the candidates whose hinge was investigated.
-
-    The step that makes `ArchitectureJudge` the only thing in the system that can say what a
-    candidate means. Judging produced the hinge; the investigation answered what it could of
-    it; this asks the same judge again, with the same candidate, the same case and the same
-    retrieved policies, plus what was looked up.
-
-    The policies are reused rather than retrieved again, and that is the point of doing this
-    here rather than through the general rejudgement path: nothing about the *question* has
-    changed. Answering a clarification is different — it revises the case, which is new
-    intent, and that path retrieves afresh.
-
-    A candidate is re-judged only where lookups actually happened. An investigation that was
-    withheld before it began, or that failed before its first lookup, leaves the judge with
-    exactly the inputs it had the first time, and asking it again would spend a model call to
-    be told the same thing. Derived from the record rather than flagged on it.
-
-    And only for candidates this round judged. Both mappings read here outlive a round, so
-    reading either one whole reaches back into an earlier one.
-    """
-
-    def rejudge_investigated(state: ReviewState) -> dict[str, object]:
-        findings: dict[str, Finding] = {}
-        # This round's work only. `investigations` accumulates across rounds — it is a merged
-        # mapping seeded once and never cleared — so reading all of it re-judged candidates
-        # the current round had already settled, against a record from before the answers
-        # arrived, and stamped the result with that older record's identity.
-        for candidate in state["selected_candidates"]:
-            candidate_id = str(candidate.id)
-            record = state["investigations"].get(candidate_id)
-            retrieval = state["retrievals"].get(candidate_id)
-            if record is None or not record.lookups or retrieval is None:
-                continue
-            try:
-                finding = judge.judge(candidate, state["case"], retrieval, record)
-            except Exception:
-                # Same bargain as the investigation itself: a second judgement that could
-                # not be made leaves the first one standing, hinge and all, and the review
-                # goes on to ask the person it was always going to ask.
-                _log.warning(
-                    "The investigated hinge on %s was not re-judged",
-                    candidate_id,
-                    exc_info=True,
-                )
-                continue
-            findings[candidate_id] = replace(
-                finding, investigation_identity=record.identity
-            )
-        return {"findings": findings}
-
-    return rejudge_investigated
 
 
 def generate_questions_node(generator: QuestionGenerator) -> Node:

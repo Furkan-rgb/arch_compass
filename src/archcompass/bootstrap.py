@@ -79,7 +79,6 @@ from archcompass.reasoning.adapters.providers import (
 )
 from archcompass.reasoning.adapters.selected import (
     SelectedLangChainChatModel,
-    SelectedLangChainHingeInvestigator,
     SelectedLangChainJudge,
     SelectedLangChainQuestionGenerator,
     SelectedLangChainReviewAnswerer,
@@ -320,21 +319,6 @@ def _reclaim_checkpoint_space(connection: sqlite3.Connection) -> None:
         _log.warning("The checkpoint database could not be compacted", exc_info=True)
 
 
-#: Whether a judgement may read the repository it is judging.
-#:
-#: A switch rather than a setting: it names which of two judges runs, and both produce the
-#: same `FindingOutput`. It exists so the two can be compared on real reviews, and it is
-#: expected to go once one of them is simply the judge.
-def _deep_judge_enabled() -> bool:
-    return os.environ.get("ARCHCOMPASS_DEEP_JUDGE", "0").strip().casefold() not in {
-        "",
-        "0",
-        "false",
-        "no",
-        "off",
-    }
-
-
 def build_runtime(
     workspace: Path,
     *,
@@ -504,19 +488,8 @@ def build_runtime(
             )
         return selected.provider == "fake"
 
-    # What a judgement may reach for, or `None` while the repository stays closed to it.
-    #
-    # Off by default for now. The judge that uses it reaches the same verdicts by a different
-    # route — a bounded conversation with tools instead of one structured call — and the two
-    # are compared on real reviews before either becomes what everybody gets.
-    judge_toolbox = (
-        JudgeToolbox(
-            AtlasInvestigatorSource(queries, freshness),
-            bundled_corpus(),
-        )
-        if _deep_judge_enabled()
-        else None
-    )
+    # What a judgement may reach for while it decides.
+    judge_toolbox = JudgeToolbox(AtlasInvestigatorSource(queries, freshness), bundled_corpus())
 
     graph = build_review_graph(
         ReviewWorkflowCapabilities(
@@ -546,9 +519,6 @@ def build_runtime(
                 prompt_identity=selected_prompt_identity,
             ),
             questions=SelectedLangChainQuestionGenerator(selected_chat),
-            investigator=SelectedLangChainHingeInvestigator(
-                selected_chat, AtlasInvestigatorSource(queries)
-            ),
             cases=PersistentCaseReviser(core_cases),
             synopsist=SelectedLangChainReviewSynopsist(selected_chat),
             composer=DeterministicReviewComposer(),

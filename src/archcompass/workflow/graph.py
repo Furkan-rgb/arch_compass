@@ -25,9 +25,6 @@ from archcompass.domain import (
     ArchitectureCase,
     Finding,
     Question,
-    RecordedInvestigation,
-    RepositoryAtlas,
-    RepositoryRef,
     Review,
     ReviewDelta,
 )
@@ -36,7 +33,6 @@ from archcompass.ports.capabilities import (
     CandidateDetector,
     CaseReviser,
     ContextLoader,
-    HingeInvestigator,
     InitialCandidateSelector,
     PolicyCorpus,
     PolicyRetriever,
@@ -55,12 +51,10 @@ from archcompass.workflow.nodes import (
     compose_review_node,
     detect_candidates_node,
     generate_questions_node,
-    investigate_hinges_node,
     judge_candidate_node,
     load_context_node,
     load_policy_corpus_node,
     record_review_node,
-    rejudge_investigated_node,
     retrieve_policy_set_node,
     revise_case_node,
     seal_case_node,
@@ -99,30 +93,6 @@ class _NoReviewSynopsis:
         return None
 
 
-class _NoHingeInvestigation:
-    """The seam filled when nothing is going to look anything up.
-
-    Not every model can call tools and a workspace may have selected one that cannot, so
-    the absence answer here is not a failure — it is the finding, unchanged, and a hinge
-    that goes to a person the way every hinge did before this existed. `supports_tools`
-    answering False is what keeps the node cheap: it returns before it reads a finding.
-    """
-
-    def supports_tools(self) -> bool:
-        return False
-
-    def investigate(
-        self,
-        finding: Finding,
-        case: ArchitectureCase,
-        *,
-        repository: RepositoryRef,
-        atlas: RepositoryAtlas,
-    ) -> RecordedInvestigation | None:
-        del finding, case, repository, atlas
-        return None
-
-
 @dataclass(frozen=True, slots=True)
 class ReviewWorkflowCapabilities:
     context: ContextLoader
@@ -146,7 +116,6 @@ class ReviewWorkflowCapabilities:
     # hinges were never checked is exactly the review this product produced yesterday.
     # A workspace on a model that cannot call tools asks its questions the way it
     # always asked them.
-    investigator: HingeInvestigator = field(default_factory=_NoHingeInvestigation)
 
 
 def _candidate_graph(
@@ -190,11 +159,10 @@ def _dispatch_candidates(
         # round-one verdict and the review asked again. The model calls were made and paid
         # for and then thrown away.
         #
-        # It stayed invisible because the hinge pass that runs next re-judged exactly the
-        # findings that reverted, so with the pass on — the default — the round looked right.
-        # (That re-judgement is `rejudge_investigated` now; `investigate_hinges` establishes
-        # facts and writes no findings at all.) It is also why no test caught it: every graph
-        # test judges one candidate, and one candidate is the case this cannot happen in.
+        # It stayed invisible because a second judgement used to run after this one and
+        # re-judged exactly the findings that reverted, so the round looked right. It is
+        # also why no test caught it: every graph test judges one candidate, and one
+        # candidate is the case this cannot happen in.
         #
         # What the subgraph reads is all that goes: `retrieve_policy_set` needs the
         # candidate, the case and the corpus; `judge_candidate` needs the candidate and the
@@ -262,12 +230,6 @@ def build_review_graph(
     )
     graph.add_node("load_policy_corpus", load_policy_corpus_node(capabilities.corpus))
     graph.add_node("review_candidate", _candidate_graph(capabilities))
-    graph.add_node(
-        "investigate_hinges", investigate_hinges_node(capabilities.investigator)
-    )
-    graph.add_node(
-        "rejudge_investigated", rejudge_investigated_node(capabilities.judge)
-    )
     graph.add_node("generate_questions", generate_questions_node(capabilities.questions))
     graph.add_node(
         "write_waiting_synopsis",
@@ -318,14 +280,11 @@ def build_review_graph(
     # per branch against that branch's state — so a routing decision about the whole
     # set of findings does not belong on this edge. Both destinations reached
     # `generate_questions` anyway, so the two-way routing bought nothing.
-    graph.add_edge("review_candidate", "investigate_hinges")
-    # The second judgement, and the reason it is here rather than through
-    # `select_candidates_for_rejudgement`: that path re-enters `review_candidate`, whose own
-    # edge leads back to `investigate_hinges`, so a review would investigate what it had just
-    # investigated. A dedicated edge needs no loop guard and puts "judged, looked, judged
-    # again" in the graph where it can be read.
-    graph.add_edge("investigate_hinges", "rejudge_investigated")
-    graph.add_edge("rejudge_investigated", "generate_questions")
+    # A judged candidate goes straight to the questions. There is no second pass: a
+    # judgement that needed a fact from the repository went and got it while it was
+    # deciding, so a finding that still carries a hinge carries one nothing here could
+    # settle. Two nodes and a model call per hinged candidate used to sit on this edge.
+    graph.add_edge("review_candidate", "generate_questions")
     graph.add_conditional_edges("generate_questions", _after_questions)
     # Every way out of the loop passes through here, which is why the revision this review
     # opened is written in one place rather than at each exit.

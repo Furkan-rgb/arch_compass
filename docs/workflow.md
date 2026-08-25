@@ -22,8 +22,6 @@ START
        |                                                       |
        `- review_candidate ------------------------------------'
                                 |
-  -> investigate_hinges         (look up what the repository says about anything held)
-  -> rejudge_investigated       (put what was found back to the same judge)
   -> generate_questions
        |
        `- settled / CI / round >= 3 / stop requested
@@ -38,8 +36,7 @@ START
             -> revise_case
             |    `- stop requested -> seal_case -> ... -> END
             -> select_candidates_for_rejudgement
-            `- dispatch (the same closure) -> review_candidate
-                 -> investigate_hinges -> rejudge_investigated -> generate_questions
+            `- dispatch (the same closure) -> review_candidate -> generate_questions
 ```
 
 After the first review, `select_initial_candidates` sends only the changed and the new to a
@@ -77,97 +74,40 @@ and `cleared` may not carry one, because they are answers rather than questions.
 
 `ArchitectureJudge` is the only component in the system that produces a verdict.
 
-## The hinge investigation
+## What a judgement may look at
 
-A hinge stops the review to ask a person, and many hinges are questions the repository can
-answer for itself. So `investigate_hinges` gives each held finding a bounded, recorded pass
-of read-only lookups over the atlas the review analysed and the source at the revision that
-produced it.
+A judgement is not shown a candidate and asked to decide from it alone. It may read the
+repository the candidate was found in while it decides — read-only, at the exact revision the
+analysis was made from — and it does that inside the same conversation that produces the
+verdict. There is no separate investigation phase and no second judgement.
 
-The edge is unconditional, so the pass also runs where nobody will be asked anything — a CI
-run, and the third round, which seals. There it is not saving an interruption; it is
-improving the verdict a review ends on, which is the other half of what it is for.
+Eight tools, and each answers one thing. `ls`, `read_file`, `glob` and `grep` read the
+reviewed source. `describe_code`, `related_code` and `search_code` ask the atlas the
+questions no search over text can answer: what implements this, what reaches it, what it
+reaches for. `search_policies` finds a principle the deterministic retrieval did not send —
+and whatever it returns joins the set the verdict's citations are checked against, so a
+judgement can never cite a policy nobody put in front of it.
 
-"The source at the revision" has one fallback. `read_code` asks git for the file at the
-atlas's commit; where there is no revision to read — an unversioned directory, or a commit
-git no longer holds — it reads the working tree instead, and only after a freshness check
-confirms the tree still is what was judged.
+"At the revision" has one fallback. The source is asked of git at the atlas's commit; where
+there is no revision to read — an unversioned directory, or a commit git no longer holds —
+the working tree is read instead, and only after a freshness check confirms the tree still is
+what was judged. That check runs immediately before every such read rather than once, because
+a tree can change while a judgement is still using it.
 
-**It establishes facts and decides nothing.** It returns a `RecordedInvestigation` — every
-lookup, its arguments and the exact answer — and writes no findings at all. It is shown
-which policies the judgement said the candidate bears on, by title and strength, so it knows
-what the question is about; it is never shown the policy list, so there is no identifier it
-could cite and nothing to validate.
+Using no tools at all is an ordinary outcome. Where the dossier and the policies settle the
+question, the judgement says so and finishes; measured on a hosted model, that is about one
+judgement in five.
 
-`rejudge_investigated` then puts that record back to the **same judge**, with the same
-candidate, the same case and the same retrieved policies. Nothing about the question changed,
-so nothing is retrieved again. A candidate is re-judged only if it has a record, that record
-has at least one lookup, and **this round** retrieved for it — so an investigation that was
-withheld, or that could not ask anything, leaves the judge with exactly the inputs it had the
-first time, and the finding it already reached stands.
+Four circuit breakers bound it — model calls, tool calls, recorded characters and wall clock
+— and a fifth ends a run that asks the same question of the same tool a third time, which
+cannot answer differently because the reviewed repository does not change while it is being
+judged. None of them is a quota, and none is a lost finding: when one fires the tools are
+taken away and the same conversation is asked to state the verdict it was working towards.
 
-The round condition is the load-bearing one. `investigations` is a merged mapping that
-accumulates across rounds and is never cleared, so reading all of it re-judged candidates the
-current round had already settled, against a record from before the answers arrived, and
-stamped the result with that older record's identity. Scoping to `selected_candidates` and to
-this round's retrievals is what stops that.
-
-The judge sees three named blocks and they are three kinds of thing:
-
-| block | whose choice | becomes |
-|---|---|---|
-| `CASE` | a person's | architectural intent |
-| `CANDIDATE` | the detector's | `Finding.evidence` |
-| `OBSERVATIONS` | the model's | `RecordedInvestigation`, never evidence |
-
-The observations block is rendered by the application from `(tool, arguments, result)` — not
-from the investigating model's prose, which would put an interpretation between the
-repository and the verdict. It says out loud that a model chose these and that they are not
-evidence, and it says when an investigation was cut short, because "the repository is silent"
-and "we stopped asking" are opposite facts about a hinge.
-
-A hinge nothing could settle reaches `generate_questions` unchanged and is put to a person.
-That is a correct outcome, not a failure: the goal is to avoid *unnecessary* questions.
-
-### The toolbox
-
-Five lookups, over the pinned atlas and the reviewed revision:
-
-| tool | takes |
-|---|---|
-| `search_code` | `name` — free text, for when the exact name is not known |
-| `describe_code` | `qualified_name` |
-| `related_code` | `qualified_name`, `relation` ∈ direct_dependencies · direct_dependants · known_callers · implementations · related_tests |
-| `read_code` | `qualified_name` |
-| `flagged_signals` | `codes` (optional) |
-
-Names are resolved by the application against that atlas and no other: exact, unique, or
-refused. Never a close match, never the first of several, never a node from a rebuilt atlas.
-An ambiguous name is reported with its choices and settled by an optional `kind`. The model
-never sees an atlas node id.
-
-### Guards
-
-Four bounds, each with one job, and the reason an investigation stopped is recorded on it:
-
-| guard | value | bounds |
-|---|---|---|
-| `MAX_INVESTIGATION_LOOKUPS` | 12 | what may be explored — the primary budget |
-| `MAX_INVESTIGATION_TURNS` | 12 | a loop that will not terminate |
-| `MAX_INVESTIGATION_CHARACTERS` | 12,000 | an abnormal run, not a long one |
-| wall clock | the transport's | the outer operational guard |
-
-`MAX_INVESTIGATED_FINDINGS` (8) caps how many hinges one round investigates.
-
-One answer is bounded too, before the budget ever sees it: 25 rows a result, 2,500 characters
-a result, 80 lines from `read_code`, 10 signal codes a request. So the character budget above
-is a guard against an abnormal run rather than the thing that trims a normal one.
-
-`Termination` records which fired: `NATURAL_END`, `MODEL_CALL_LIMIT`, `LOOKUP_LIMIT`,
-`INVESTIGATION_SIZE_LIMIT`, `PROVIDER_ERROR`. `NATURAL_END` says the model stopped asking —
-it claims nothing about whether the search was sufficient. `None` means only that the reason
-was not recorded, which is true of reviews stored before the field existed and of nothing
-else; it is never read as a natural end.
+What it looked at is kept. Every tool call, its arguments and the exact answer become the
+`RecordedInvestigation` on the review, and the finding names it by content hash. It is not
+evidence: `Finding.evidence` is what the detector pinned, and nothing a judgement read is
+promoted into it.
 
 ## Clarification and rejudgement
 

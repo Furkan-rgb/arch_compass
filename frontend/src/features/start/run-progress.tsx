@@ -21,8 +21,6 @@ export const STAGE_LABELS: Record<string, string> = {
   retrieve_policy_set: "Retrieving the policies that bear on each candidate",
   judge_candidate: "Judging candidates",
   review_candidate: "Judging candidates",
-  investigate_hinges: "Checking what the repository can answer",
-  rejudge_investigated: "Judging again with what was found",
   generate_questions: "Asking what the repository cannot answer",
   write_waiting_synopsis: "Summarising what the review found",
   write_final_synopsis: "Summarising what the review found",

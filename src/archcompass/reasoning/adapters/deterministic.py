@@ -28,8 +28,6 @@ from archcompass.domain import (
     Finding,
     Question,
     RecordedInvestigation,
-    RepositoryAtlas,
-    RepositoryRef,
     Review,
     ReviewDelta,
     Termination,
@@ -227,59 +225,3 @@ class DeterministicAnswerer:
                 model_identity=DETERMINISTIC_MODEL_IDENTITY,
             ),
         )
-
-
-class DeterministicHingeInvestigator:
-    """Real lookups, a fixed conclusion.
-
-    The lookups are genuine — the same toolbox over the same atlas — because a transcript
-    nothing renders is a transcript nothing checks, and this is the chain every offline test,
-    browser run and local `make web` uses. What is stood in for is the model driving them:
-    the tools are called from a fixed script rather than chosen.
-
-    Nothing here reaches a verdict, because nothing in this pass does. `DeterministicJudge`
-    decides, once, when the record is put back to it.
-    """
-
-    def __init__(self, investigators: InvestigatorSource) -> None:
-        self._investigators = investigators
-
-    def supports_tools(self) -> bool:
-        return True
-
-    def investigate(
-        self,
-        finding: Finding,
-        case: ArchitectureCase,
-        *,
-        repository: RepositoryRef,
-        atlas: RepositoryAtlas,
-    ) -> RecordedInvestigation | None:
-        """Real lookups, no verdict — the same division the live chain now keeps.
-
-        `case` is unused and stays in the signature because the protocol has it: what a
-        person has answered bears on the *judgement* that follows this, and the deterministic
-        judge already reads it there. A stand-in that settled the hinge itself would be
-        modelling the shape this change removed.
-        """
-
-        del case
-        offered = self._investigators.for_review(repository, atlas)
-        investigator = offered.investigator
-        if investigator is not None:
-            names = [item.qualified_name for item in finding.candidate.participants]
-            if names:
-                investigator.call("describe_code", {"qualified_name": names[0]})
-            investigator.conclude(
-                "The deterministic provider looked, and reports what it was shown.",
-                Termination.NATURAL_END,
-            )
-        return recorded_investigation(
-            investigator,
-            candidate_id=str(finding.candidate.id),
-            withheld=offered.withheld,
-            atlas_fingerprint=repository.content_id,
-            model_identity=DETERMINISTIC_MODEL_IDENTITY,
-        )
-
-
