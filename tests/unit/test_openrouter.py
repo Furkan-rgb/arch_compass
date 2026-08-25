@@ -182,6 +182,59 @@ def test_the_route_is_required_to_support_what_was_asked_for() -> None:
     assert openrouter.request_body(1)["provider"] == {"require_parameters": True}
 
 
+def test_a_depth_is_sent_only_when_one_was_asked_for() -> None:
+    """`None` means the model's own default, and says nothing on the wire to mean it.
+
+    Every parameter in the body narrows the endpoints that can serve the request, because
+    `require_parameters` is a hard filter — so one sent to mean "no preference" would be
+    availability spent to say nothing.
+    """
+
+    assert "reasoning" not in openrouter.request_body(1)
+    assert "reasoning" not in openrouter.request_body(1, False)
+    assert openrouter.request_body(1, "medium")["reasoning"] == {"effort": "medium"}
+
+
+def test_temperature_is_not_sent_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    """It was pinned to 0 for a determinism this path does not have.
+
+    Measured over three runs of one candidate set on identical input: the same candidate
+    came back `material`, `cleared` and `held`. What the parameter did buy was a narrower
+    route — three of `google/gemini-3.5-flash-lite`'s seven endpoints declare it — and on a
+    reasoning-only model it bought a wall: none of `openai/gpt-5.6-luna-pro`'s five accept
+    it, so every request 404'd before a candidate was read.
+    """
+
+    from archcompass.reasoning.adapters.factory import build_chat_model
+    from archcompass.reasoning.model_catalog import reasoning_config
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "not-a-real-key")
+    config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", None)
+    model = build_chat_model(config)
+
+    assert "temperature" not in openrouter.request_body(1)
+    # `ChatOpenAI` sends its own field too, so the absence has to hold there as well.
+    assert getattr(model, "temperature", None) is None
+
+
+def test_a_model_that_cannot_reason_offers_only_its_own_default() -> None:
+    """The depths offered are the model's claim, not this provider's."""
+
+    reasoning = openrouter._judgeable(
+        {
+            "id": "vendor/thinks",
+            "supported_parameters": [*openrouter._REQUIRED_CAPABILITIES, "reasoning"],
+        }
+    )
+    plain = openrouter._judgeable(
+        {"id": "vendor/plain", "supported_parameters": list(openrouter._REQUIRED_CAPABILITIES)}
+    )
+
+    assert reasoning is not None and plain is not None
+    assert reasoning.thinking_modes == (None, "minimal", "low", "medium", "high")
+    assert plain.thinking_modes == (None,)
+
+
 class _Response:
     def __init__(self, status: int, body: Any) -> None:
         self.status_code = status

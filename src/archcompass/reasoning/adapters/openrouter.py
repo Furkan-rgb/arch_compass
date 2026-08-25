@@ -29,6 +29,7 @@ from langchain_core.embeddings import Embeddings
 from archcompass.domain.errors import ProviderError
 from archcompass.reasoning.ports import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.records import AvailableModel, ProbeResult
+from archcompass.records import THINKING_LEVELS, ThinkingMode
 
 BASE_URL: Final = "https://openrouter.ai/api/v1"
 API_KEY_ENV: Final = "OPENROUTER_API_KEY"
@@ -138,7 +139,7 @@ def http_client(timeout: float) -> httpx.Client:
     )
 
 
-def request_body(max_output_tokens: int) -> dict[str, Any]:
+def request_body(max_output_tokens: int, thinking: ThinkingMode = None) -> dict[str, Any]:
     """The parameters that go on the wire beside the messages, and why not through the field.
 
     Two things have to be true at once, and only this shape gets both.
@@ -161,12 +162,30 @@ def request_body(max_output_tokens: int) -> dict[str, Any]:
     So the ceiling is enforced twice over: the route is chosen for supporting it, and the
     route then applies it. Measured: `max_tokens=16` came back with 12 completion tokens and
     `finish_reason="length"`.
+
+    Which is also why nothing else is here. Every parameter in the body narrows the set of
+    endpoints that can serve the request, so one sent out of habit is availability spent for
+    nothing — and `temperature` was exactly that. It was pinned to 0 for a determinism this
+    path does not have: measured over three runs of one candidate set on identical input,
+    verdicts moved anyway (`material`, `cleared`, `held` for the same candidate). What it did
+    buy was a narrower route — three of `google/gemini-3.5-flash-lite`'s seven endpoints
+    declare it — and on a reasoning-only model it bought a wall: none of
+    `openai/gpt-5.6-luna-pro`'s five endpoints accept `temperature` at all, so every request
+    was a 404 before a candidate was ever read. It is not sent now, and the model's own
+    default stands.
+
+    `reasoning` is sent only when a depth was asked for. OpenRouter spells it as an effort
+    on both of the two shapes its endpoints declare, and this is the portable one; absent, a
+    model reasons however it reasons, which is what `None` has always meant here.
     """
 
-    return {
+    body: dict[str, Any] = {
         "max_tokens": max_output_tokens,
         "provider": {"require_parameters": True},
     }
+    if isinstance(thinking, str):
+        body["reasoning"] = {"effort": thinking}
+    return body
 
 
 def _catalogue(path: str, api_key: str) -> list[Mapping[str, object]]:
@@ -221,10 +240,12 @@ def _judgeable(entry: Mapping[str, object]) -> AvailableModel | None:
         label=name if isinstance(name, str) and name else identifier,
         input_token_limit=context if isinstance(context, int) else None,
         output_token_limit=output if isinstance(output, int) else None,
-        # One mode, and that is a claim about the request rather than about the models.
-        # `reasoning_effort` reaches 144 of them and would be a real second mode; offering
-        # it means deciding what ArchCompass does with a level, which is its own change.
-        thinking_modes=(None,),
+        # The depths this provider offers, where the model declares it reasons at all.
+        # `None` is always there and always means "the model's own default"; a level is sent
+        # as an effort and every one of the four is accepted.
+        thinking_modes=(
+            (None, *THINKING_LEVELS) if "reasoning" in capabilities else (None,)
+        ),
     )
 
 

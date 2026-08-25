@@ -90,10 +90,9 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
             api_key=SecretStr(
                 resolve_api_key(config.api_key_env, provider=config.provider)
             ),
-            temperature=0.0,
             timeout=config.timeout_seconds,
             max_retries=0,
-            extra_body=openrouter.request_body(config.max_output_tokens),
+            extra_body=openrouter.request_body(config.max_output_tokens, config.thinking),
             http_client=openrouter.http_client(config.timeout_seconds),
         )
     if config.provider == "ollama":
