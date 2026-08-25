@@ -8,6 +8,8 @@ from pathlib import Path
 
 from archcompass.analysis.adapters.graph import shortest_path
 from archcompass.analysis.atlas import (
+    DEPENDS_ON_EDGES,
+    IMPLEMENTS_EDGES,
     Atlas,
     AtlasEdge,
     AtlasMetricValue,
@@ -39,6 +41,17 @@ from archcompass.analysis.metrics import (
 )
 from archcompass.analysis.ports import AtlasFreshnessChecker, SourceReader
 from archcompass.domain.errors import AtlasQueryValidationError
+
+#: The relations `RelationQuery` accepts, in the order its enum states them. Named here so
+#: that an empty answer can point at a sibling relation without importing the tool layer that
+#: describes them to a model.
+_RELATION_KINDS = (
+    "direct_dependencies",
+    "direct_dependants",
+    "known_callers",
+    "implementations",
+    "related_tests",
+)
 
 
 class DeterministicAtlasQueryService:
@@ -211,7 +224,11 @@ class DeterministicAtlasQueryService:
             return AtlasQueryResult(
                 query=query,
                 node_ids=node_ids,
-                summary=f"{len(node_ids)} related nodes",
+                summary=(
+                    f"{len(node_ids)} related nodes"
+                    if node_ids
+                    else self._nothing_related(kind, nodes[query.node_id], candidates)
+                ),
                 node_summaries=self._summaries(
                     [nodes[node_id] for node_id in node_ids if node_id in nodes]
                 ),
@@ -445,13 +462,81 @@ class DeterministicAtlasQueryService:
             raise AtlasQueryValidationError(f"Unknown atlas node ID: {node_id}")
         return node
 
+    @classmethod
+    def _nothing_related(
+        cls, kind: str, node: AtlasNode, incident: list[AtlasEdge]
+    ) -> str:
+        """An empty relation answer that says what it looked for, and where the edges are.
+
+        `0 related nodes` is a claim about the repository, and for three of these relations
+        it was almost always a claim about the question instead. `calls` edges come from call
+        expressions and `tests` edges are only ever recorded beside one, so neither reaches an
+        abstraction — nobody calls a protocol. Asked `known_callers` and `related_tests` about
+        an abstraction 42 times across the stored investigations, this service answered `0
+        related nodes` every time, and a reader cannot tell that from "nothing uses it".
+
+        So the empty answer names the edge kind it searched for, and then names the sibling
+        relations that hold the edges this node actually has. Both halves are read off the
+        atlas at query time rather than from a table of what is possible: a table would be a
+        claim about the parser that goes stale the first time the parser changes, and this is
+        only ever a statement about the snapshot in hand.
+        """
+
+        wanted, reverse = cls._relation_filter(kind)
+        side = "target" if reverse else "source"
+        searched = ", ".join(sorted(item.value for item in wanted))
+        sentence = (
+            f"0 related nodes: no {searched} edge in this snapshot has "
+            f"{node.qualified_name} as its {side}."
+        )
+        present = {edge.edge_type for edge in incident}
+        elsewhere = sorted(
+            other
+            for other in _RELATION_KINDS
+            if other != kind
+            and cls._relation_filter(other)[1] == reverse
+            and cls._relation_filter(other)[0] & present
+        )
+        if not elsewhere:
+            return sentence
+        # Only the kinds some other relation would actually report. `contains` is incident to
+        # nearly everything and no relation exposes it, so naming it would send the reader
+        # after an edge they cannot ask for.
+        reportable = {
+            item
+            for other in elsewhere
+            for item in cls._relation_filter(other)[0] & present
+        }
+        holds = ", ".join(sorted(item.value for item in reportable))
+        count = sum(1 for edge in incident if edge.edge_type in reportable)
+        return (
+            f"{sentence} It is the {side} of {count} {holds} edge(s), which "
+            f"{' and '.join(repr(item) for item in elsewhere)} report."
+        )
+
     @staticmethod
     def _relation_filter(kind: str) -> tuple[set[EdgeType], bool]:
+        """Which edges answer one relation, and whether it is asked backwards.
+
+        `references` belongs in both dependency directions and was in neither. An `imports`
+        edge runs module to module and a `calls` edge runs callable to callable, so neither
+        can ever reach a class or an abstraction: on this repository, every one of the 63
+        abstractions had `direct_dependants` answer "nothing matched" while the candidate
+        beside it reported four dependants, because all 125 edges reaching an abstraction
+        were `references` and the filter excluded them. A judgement cannot read that as
+        anything but the count being wrong, and the recorded investigations show it did —
+        asking again, another way, until the budget ran out.
+
+        `implementations` gained `inherits` for the same reason: the sole-implementation
+        detector counts both, so an abstraction whose one implementor subclasses it was
+        reported as having one implementation by the candidate and none by the tool.
+        """
+
         mapping = {
-            "direct_dependencies": ({EdgeType.IMPORTS, EdgeType.CALLS}, False),
-            "direct_dependants": ({EdgeType.IMPORTS, EdgeType.CALLS}, True),
+            "direct_dependencies": (set(DEPENDS_ON_EDGES), False),
+            "direct_dependants": (set(DEPENDS_ON_EDGES), True),
             "known_callers": ({EdgeType.CALLS}, True),
-            "implementations": ({EdgeType.IMPLEMENTS}, True),
+            "implementations": (set(IMPLEMENTS_EDGES), True),
             "related_tests": ({EdgeType.TESTS}, True),
         }
         return mapping[kind]

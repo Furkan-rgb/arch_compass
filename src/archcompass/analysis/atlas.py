@@ -35,6 +35,30 @@ class EdgeType(StrEnum):
     CONFIGURES = "configures"
 
 
+#: The edges that mean "this depends on that", named once for everything that asks.
+#:
+#: One constant because two of them drifted. The sole-implementation detector counted
+#: `dependants_of_abstraction` over imports, references and calls; the `direct_dependants`
+#: relation the investigation toolbox offers filtered on imports and calls alone. Neither
+#: was wrong on its own terms and together they were a contradiction the review could not
+#: resolve: the candidate said an abstraction had four dependants and the tool that exists
+#: to name them answered that nothing matched, on all 63 abstractions in this repository.
+#:
+#: `references` is the one that was missing and the one that matters most here. An `imports`
+#: edge runs module to module and a `calls` edge runs callable to callable, so on an
+#: abstraction — a class — neither can ever have an endpoint, and every edge that reaches one
+#: is a reference.
+DEPENDS_ON_EDGES: frozenset[EdgeType] = frozenset(
+    {EdgeType.IMPORTS, EdgeType.CALLS, EdgeType.REFERENCES}
+)
+
+#: The edges that mean "this is an implementation of that". Counted by the detector and
+#: reported by the `implementations` relation, and for the same reason as above they are one
+#: constant: an abstraction whose only implementor subclasses it was reported as having one
+#: implementation by the candidate and none by the tool.
+IMPLEMENTS_EDGES: frozenset[EdgeType] = frozenset({EdgeType.IMPLEMENTS, EdgeType.INHERITS})
+
+
 class MetricNature(StrEnum):
     """How directly an atlas value represents repository structure."""
 
@@ -289,7 +313,9 @@ class FindingCandidate(BoundaryDTO):
     summary: str = Field(min_length=1)
     participants: list[FindingParticipant] = Field(min_length=1)
     measurements: list[FindingMeasurement] = Field(default_factory=list[FindingMeasurement])
-    #: Edges among the participants, so blast radius is visible without a second lookup.
+    #: Edges reaching or among the participants, so blast radius is visible without a second
+    #: lookup. Measured on this repository, a judgement that could not see them spent most of
+    #: its investigation budget asking who the count in `measurements` was counting.
     relationships: list[AtlasEdge] = Field(default_factory=list[AtlasEdge])
     #: What this detection method cannot see. Always populated: a detector that claims no
     #: limitations is claiming the static view is complete, which it never is.

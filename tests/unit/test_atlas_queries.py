@@ -27,6 +27,7 @@ from archcompass.analysis.atlas import (
     MetricProfile,
     NodeType,
     ObscuritySignal,
+    RelationQuery,
     ReviewContextQuery,
 )
 
@@ -256,3 +257,86 @@ def test_review_context_bounds_neighbours_per_anchor_deterministically() -> None
         "leaf2",
         "leaf5",
     ]
+
+
+def test_what_depends_on_an_abstraction_includes_what_only_references_it() -> None:
+    """The relation that could never answer about the thing it is most asked about.
+
+    `imports` runs module to module and `calls` runs callable to callable, so on an
+    abstraction — a class — neither can ever have an endpoint. Measured on ArchCompass's own
+    source, all 63 abstractions had every incoming edge be `references`, and this query
+    answered "nothing matched" for every one of them while the candidate beside it reported
+    four dependants. A judgement cannot read that as anything but the count being wrong.
+    """
+
+    atlas = _atlas(
+        [_node("port", NodeType.INTERFACE), _node("consumer", NodeType.METHOD)],
+        [_edge("e1", "consumer", "port", EdgeType.REFERENCES)],
+    )
+
+    result = _service().execute(
+        atlas, RelationQuery(kind="direct_dependants", node_id="port")
+    )
+
+    assert [summary.node_id for summary in result.node_summaries] == ["consumer"]
+
+
+def test_the_implementations_of_an_abstraction_include_what_subclasses_it() -> None:
+    """The detector counts both, so a query that counted one disagreed with the candidate."""
+
+    atlas = _atlas(
+        [_node("port", NodeType.INTERFACE), _node("child", NodeType.CLASS)],
+        [_edge("e1", "child", "port", EdgeType.INHERITS)],
+    )
+
+    result = _service().execute(
+        atlas, RelationQuery(kind="implementations", node_id="port")
+    )
+
+    assert [summary.node_id for summary in result.node_summaries] == ["child"]
+
+
+def test_the_measurement_and_the_relation_that_names_it_count_the_same_edges() -> None:
+    """The invariant that would have caught the defect, pinned where it can only be broken once.
+
+    `dependants_of_abstraction` is a number on the candidate and `direct_dependants` is the
+    relation an investigation calls to find out who those dependants are. They were computed
+    from two independently written edge sets, so the count said four and the relation said
+    nothing matched — and a judgement has no way to read that except as the count being
+    wrong. They are one constant now; this says so, so that splitting them again fails here
+    rather than in a review.
+    """
+
+    from archcompass.analysis.atlas import DEPENDS_ON_EDGES, IMPLEMENTS_EDGES
+
+    depends, reverse = _service()._relation_filter("direct_dependants")
+    assert depends == set(DEPENDS_ON_EDGES)
+    assert reverse
+
+    implements, reverse = _service()._relation_filter("implementations")
+    assert implements == set(IMPLEMENTS_EDGES)
+    assert reverse
+
+
+def test_an_empty_relation_says_what_it_looked_for_rather_than_reporting_absence() -> None:
+    """`0 related nodes` is a claim about the repository. Usually it was one about the question.
+
+    A `tests` edge is only ever recorded beside a `calls` edge, and nothing calls a protocol,
+    so this relation is empty on every abstraction there is. Asked about one 25 times across
+    the stored investigations, it answered `0 related nodes` every time — indistinguishable
+    from "nothing tests it", which is what the model reasonably took it for.
+    """
+
+    atlas = _atlas(
+        [_node("port", NodeType.INTERFACE), _node("consumer", NodeType.METHOD)],
+        [_edge("e1", "consumer", "port", EdgeType.REFERENCES)],
+    )
+
+    result = _service().execute(atlas, RelationQuery(kind="related_tests", node_id="port"))
+
+    assert result.node_ids == []
+    assert "no tests edge in this snapshot" in result.summary
+    # And it says where the edges this node does have are reported, so the next lookup is a
+    # better one rather than the same question asked another way.
+    assert "'direct_dependants'" in result.summary
+    assert "references" in result.summary
