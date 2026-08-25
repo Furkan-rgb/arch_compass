@@ -861,7 +861,7 @@ def _ollama_config(*, parallel: int) -> ReasoningModelConfig:
         model="qwen3.8:27b",
         base_url="http://localhost:11434",
         timeout_seconds=360.0,
-        context_window_tokens=49152,
+        context_window_tokens=65536,
         max_output_tokens=8192,
         max_parallel_requests=parallel,
     )

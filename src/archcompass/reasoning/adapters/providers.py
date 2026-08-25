@@ -139,18 +139,29 @@ OLLAMA_DESCRIPTOR = ProviderDescriptor(
         # that answers in eleven seconds inside the card had not finished in five minutes
         # outside it.
         #
-        # 48k is chosen from what this product actually sends, not from what a model can
+        # 64k is chosen from what this product actually sends, not from what a model can
         # take. A judgement prompt is the candidate plus twenty retrieved policies, and the
         # policies are most of it — which is why it barely moves with the size of the
         # repository: 19,200 tokens on the smallest bundled example, and 20,800 on the
-        # largest candidate of a real 16,000-line repository. 48k leaves room for that and
-        # for the 16k a thinking selection may spend answering, with a third of the window
-        # still spare. Below it a thinking run would overflow, and Ollama does not refuse an
-        # oversize prompt — it keeps the tail, so the first thing discarded is the contract
-        # at the top and the answer comes back fluent and unrecorded. Well above it the
-        # window stops fitting beside the weights.
-        context_window_tokens=49152,
-        # Both budgets come down with the window, because they are spent from it. A thinking
+        # largest candidate of a real 16,000-line repository. That leaves room for the 16k a
+        # thinking selection may spend answering, with the rest spare. Below it a thinking
+        # run would overflow, and Ollama does not refuse an oversize prompt — it keeps the
+        # tail, so the first thing discarded is the contract at the top and the answer comes
+        # back fluent and unrecorded.
+        #
+        # It was 48k, and the ceiling was raised once a judgement started using tools: a tool
+        # loop carries every answer it has already received, so its prompt grows through the
+        # run in a way a single structured call's never did. Measured over ten judgements on
+        # a 24 GB card with a 27B model at Q4: 64k held the whole loop with no spill, at a
+        # median of 44 seconds. 32k was indistinguishable on what the verdicts came to but
+        # produced the only run that had to be terminalised.
+        #
+        # 128k is where this stops working, and not gradually. The same ten judgements ran at
+        # 303 and 168 seconds for the first two before it was abandoned, with the card at
+        # 23.1 of 24.5 GB — the weights no longer fit beside the window and the difference is
+        # a judgement that takes seven times as long.
+        context_window_tokens=65536,
+        # Both budgets are spent from the window rather than added to it. A thinking
         # selection asking for the shared 32k would leave 16k for a prompt that needs 19k,
         # and the validator that forbids an output budget larger than the window would let
         # that through — it compares the two numbers, not their sum.
