@@ -43,6 +43,7 @@ from archcompass.reasoning.adapters.langchain import (
     LangChainArchitectureJudge,
     LangChainQuestionGenerator,
     LangChainReviewAnswerer,
+    PolicyBearingOutput,
     QuestionOutput,
     conversation_prompt,
     judgement_prompt,
@@ -50,6 +51,10 @@ from archcompass.reasoning.adapters.langchain import (
 )
 from archcompass.reasoning.adapters.selected import SelectedLangChainChatModel
 from archcompass.reasoning.records import JUDGE_PROMPT_IDENTITY, model_identity
+
+#: One citation, so a construction testing some *other* invariant satisfies the one every
+#: verdict carries. The tests that are about the citation itself say so in their own names.
+_CITED: Final = [PolicyBearingOutput(policy_id="policy-a", reasoning="It applies.")]
 
 
 class StructuredReply:
@@ -234,10 +239,14 @@ _VIOLATION: Final = {
     "reasoning": "Ownership could change the verdict.",
     "hinge": "the owning team",
     "recommended_response": "Move the module.",
+    # Cited, so what this violates is the cross-field rule it is named for and not the
+    # citation requirement underneath it.
+    "policy_bearings": [{"policy_id": "policy-a", "reasoning": "It applies."}],
 }
 _HONOURED: Final = {
     "verdict": "cleared",
     "reasoning": "The boundary hides a real variation.",
+    "policy_bearings": [{"policy_id": "policy-a", "reasoning": "It applies."}],
 }
 
 
@@ -684,7 +693,13 @@ def test_a_judgement_is_stamped_with_the_identity_the_delta_will_compare_it_agai
     candidate, case, policies = _input()
     judge = LangChainArchitectureJudge(
         StructuredModel(
-            {"verdict": "cleared", "reasoning": "The boundary earns its keep."}
+            {
+                "verdict": "cleared",
+                "reasoning": "The boundary earns its keep.",
+                "policy_bearings": [
+                    {"policy_id": "policy-a", "reasoning": "It applies."}
+                ],
+            }
         ),  # type: ignore[arg-type]
         model_identity=model_identity(_CONFIG),
     )
@@ -714,10 +729,13 @@ def test_a_held_verdict_must_name_the_fact_it_turns_on() -> None:
     from archcompass.reasoning.adapters.langchain import FindingOutput
 
     with pytest.raises(ValidationError, match="must name the fact"):
-        FindingOutput(verdict="held", reasoning="I cannot tell.")
+        FindingOutput(verdict="held", reasoning="I cannot tell.", policy_bearings=_CITED)
 
     settled = FindingOutput(
-        verdict="held", reasoning="I cannot tell.", hinge="Is a second one planned?"
+        verdict="held",
+        reasoning="I cannot tell.",
+        hinge="Is a second one planned?",
+        policy_bearings=_CITED,
     )
     assert settled.hinge
 
@@ -733,6 +751,7 @@ def test_a_verdict_that_answered_has_nothing_left_to_ask(verdict: str) -> None:
             verdict=verdict,  # type: ignore[arg-type]
             reasoning="Decided.",
             hinge="but also, is a second one planned?",
+            policy_bearings=_CITED,
         )
 
 
@@ -748,6 +767,7 @@ def test_only_a_material_finding_recommends_a_response(verdict: str) -> None:
             reasoning="Decided.",
             hinge="Is a second one planned?" if verdict == "held" else None,
             recommended_response="Collapse the port.",
+            policy_bearings=_CITED,
         )
 
 
@@ -766,6 +786,7 @@ def test_the_verdict_is_taken_from_the_model_rather_than_inferred() -> None:
             verdict=chosen,  # type: ignore[arg-type]
             reasoning="Because.",
             hinge="Is a second one planned?" if chosen == "held" else None,
+            policy_bearings=_CITED,
         )
         finding = finding_from_output(
             output, candidate, policies, model_identity="m", prompt_identity="p"
@@ -958,3 +979,50 @@ def test_switching_model_switches_the_slots_it_is_asked_for() -> None:
     for thread in threads:
         thread.join(timeout=10)
     assert not failures
+
+
+def test_a_verdict_must_cite_a_policy_rather_than_only_mention_one() -> None:
+    """A bearing is the record of why a verdict was reached, so a verdict carries one.
+
+    The field was optional and a local model left it empty on two thirds of its judgements
+    — while naming the policy inside `reasoning`, quoting the exception it turned on, and
+    weighing the measurement against its own stated limits. The reasoning was sound and the
+    record of it was dropped on the floor, because prose naming a policy is not a citation
+    and nothing was asking for one.
+
+    Required for all three verdicts, not only `material`: clearing a structure is a
+    judgement against a policy just as finding it material is, and it is the clearings a
+    reader is least able to reconstruct without one.
+    """
+
+    from archcompass.reasoning.adapters.langchain import FindingOutput
+
+    for verdict in ("material", "cleared", "held"):
+        with pytest.raises(ValidationError, match="policy_bearings"):
+            FindingOutput(
+                verdict=verdict,  # type: ignore[arg-type]
+                reasoning="Under [policy-a] the boundary earns its keep.",
+                hinge="Is a second one planned?" if verdict == "held" else None,
+            )
+
+
+def test_every_held_finding_is_asked_about() -> None:
+    """No ceiling on questions either, and this overflow was the worse of the two.
+
+    The cap read as a deferral — the hinges past it stayed held and the next round asked
+    them. But a review seals at `round >= 3`, so a hinge deferred twice is a hinge never
+    asked, and the finding it belonged to was sealed on a verdict reached without the answer
+    it turned on. A form nobody finishes is a smaller problem than a question nobody hears.
+    """
+
+    from archcompass.reasoning.adapters import langchain
+
+    assert not hasattr(langchain, "MAX_ASKED_HINGES")
+
+    source = Path(langchain.__file__).read_text(encoding="utf-8")
+    line = next(
+        item
+        for item in source.splitlines()
+        if "held = tuple(finding for finding in findings if finding.hinge)" in item
+    )
+    assert not line.rstrip().endswith("]"), "held findings are still being sliced"

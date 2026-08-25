@@ -219,14 +219,29 @@ class DataclassCandidateDetector:
             # Edge endpoints are atlas ids in the record and qualified names here. The
             # atlas is in hand at exactly this point and nowhere downstream, so resolving
             # them is free now and impossible later.
-            relationships=tuple(
-                Relationship(
-                    source=names.get(edge.source_id, edge.source_id),
-                    target=names.get(edge.target_id, edge.target_id),
-                    kind=edge.edge_type.value,
-                    resolved_by=edge.resolved_by,
-                )
-                for edge in item.relationships
+            relationships=(
+                *(
+                    Relationship(
+                        source=names.get(edge.source_id, edge.source_id),
+                        target=names.get(edge.target_id, edge.target_id),
+                        kind=edge.edge_type.value,
+                        resolved_by=edge.resolved_by,
+                    )
+                    for edge in item.relationships
+                ),
+                # Detector inferences land in the same tuple and keep their own
+                # `established_by`, which is what the reader is shown in place of a pass
+                # name. One list downstream, because a verdict weighs them together; two
+                # lists here, because only one of them is a resolution.
+                *(
+                    Relationship(
+                        source=names.get(relation.source_id, relation.source_id),
+                        target=names.get(relation.target_id, relation.target_id),
+                        kind=relation.kind,
+                        resolved_by=relation.established_by,
+                    )
+                    for relation in item.derived_relations
+                ),
             ),
             detection_rationale=(
                 "Detected deterministically from the repository atlas; participant "

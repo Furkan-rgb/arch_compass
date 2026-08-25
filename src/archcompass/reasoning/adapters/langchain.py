@@ -80,9 +80,17 @@ class FindingOutput(BaseModel):
 
     verdict: Literal["material", "cleared", "held"]
     reasoning: str = Field(min_length=1)
-    policy_bearings: list[PolicyBearingOutput] = Field(
-        default_factory=list[PolicyBearingOutput]
-    )
+    #: At least one, because a bearing is the record of why a verdict was reached and a
+    #: verdict without one cannot be read back — a reader is left with an assertion and no
+    #: way to check it against anything the corpus states.
+    #:
+    #: It was optional, and a local model left it empty on two thirds of its judgements
+    #: while naming the policy inside `reasoning`, quoting the exception it turned on, and
+    #: weighing the measurement against its own stated limits. The reasoning was right and
+    #: the record of it was thrown away, because prose naming a policy is not a citation
+    #: and nothing was asking for one. The same lesson as `verdict`: what the product needs
+    #: belongs in the schema, not in a hope about what the model will volunteer.
+    policy_bearings: list[PolicyBearingOutput] = Field(min_length=1)
     #: The single fact a held verdict turns on. Required by `held` and forbidden to the other
     #: two, so the verdict and the question cannot disagree about whether one was asked.
     hinge: str | None = None
@@ -437,6 +445,11 @@ JUDGEMENT_INSTRUCTION = (
     "Use only the supplied evidence and case. Each policy is listed under an identifier "
     "in brackets; cite one by copying that identifier exactly, and never by where it "
     "sits in the list.\n\n"
+    "Every verdict cites at least one of the policies below, in the structured citation "
+    "field, and a policy named inside your reasoning is not a citation — the reasoning is "
+    "prose and the citation is the record. This holds for all three verdicts: clearing a "
+    "structure is a judgement against a policy just as finding it material is, and a held "
+    "verdict turns on the policy whose exception you cannot settle.\n\n"
     "Choose exactly one verdict, and choose the one your reasoning argues for. 'material' "
     "means this structure costs more than it earns. 'cleared' means it does not. 'held' means "
     "your verdict turns on a fact the supplied evidence does not carry.\n\n"
@@ -540,6 +553,18 @@ def judgement_prompt(
     )
 
 
+#: The two resolvers that name an edge. Anything else in `resolved_by` came from a detector
+#: inferring a relation rather than from a pass resolving one, and says so in its own words —
+#: so it is printed as written instead of being called a pass it is not.
+_RESOLVING_PASSES = ("parse", "types")
+
+
+def _established_by(resolved_by: str) -> str:
+    if resolved_by in _RESOLVING_PASSES:
+        return f"the {resolved_by} pass"
+    return resolved_by
+
+
 def candidate_text(candidate: Candidate) -> str:
     """One candidate laid out as sections a model can address, rather than as a repr.
 
@@ -566,7 +591,7 @@ def candidate_text(candidate: Candidate) -> str:
             "relationships:\n"
             + "\n".join(
                 f"  - {item.source} --{item.kind}--> {item.target} "
-                f"(established by the {item.resolved_by} pass)"
+                f"(established by {_established_by(item.resolved_by)})"
                 for item in candidate.relationships
             )
         )
@@ -704,14 +729,6 @@ class LangChainArchitectureJudge:
         )
 
 
-#: How many held findings one round will ask about.
-#:
-#: Not the investigation cap wearing another name. That one bounds what tool loops cost;
-#: this one bounds what a person will sit down and answer. A review that comes back with
-#: nine questions in a form is a form nobody finishes, and the hinges past the cap are not
-#: lost — they stay held, and the next round asks them.
-MAX_ASKED_HINGES = 8
-
 
 QUESTION_INSTRUCTION = (
     "One finding below is held: a judgement stopped because it turns on a fact this "
@@ -789,7 +806,12 @@ class LangChainQuestionGenerator:
         round: int,
         excluded_equivalence_keys: frozenset[str],
     ) -> tuple[Question, ...]:
-        held = tuple(finding for finding in findings if finding.hinge)[:MAX_ASKED_HINGES]
+        # Every hinge, not the first eight of them. The cap was there because nine questions
+        # in a form is a form nobody finishes, and deferring the rest to the next round read
+        # as costless — but a review seals at round three, so a hinge deferred twice is a
+        # hinge never asked, and the finding it belonged to was sealed on a verdict reached
+        # without it. A question that had to be asked is worth the length of the form.
+        held = tuple(finding for finding in findings if finding.hinge)
         questions: list[Question] = []
         seen: set[str] = set()
         lost = 0

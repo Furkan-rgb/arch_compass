@@ -141,7 +141,11 @@ def test_a_candidate_states_what_it_measured_and_what_it_cannot_see() -> None:
     candidate = sole_implementation_candidates(nodes, edges)[0]
 
     measured = {item.name: item.value for item in candidate.measurements}
-    assert measured == {"implementations": 1, "dependants_of_abstraction": 2}
+    assert measured == {
+        "implementations": 1,
+        "test_doubles_offering_its_methods": 0,
+        "dependants_of_abstraction": 2,
+    }
     assert all(item.limitations for item in candidate.measurements)
     assert "deliberate at a port boundary" in candidate.limitations
 
@@ -186,3 +190,66 @@ def test_the_catalogue_runs_every_detector_over_one_atlas() -> None:
     assert [item.pattern for item in detect_finding_candidates(atlas)] == [
         FindingPattern.SOLE_IMPLEMENTATION
     ]
+
+
+def test_a_candidate_names_the_dependants_it_counted() -> None:
+    """A count nothing can resolve is a question, and the review paid to ask it.
+
+    `dependants_of_abstraction = 2` with nothing saying which two sent judgements looking:
+    measured over twelve investigations of this repository's own ports, `direct_dependants`
+    was the most-asked relation of all. The atlas holds those names at detection and
+    nowhere afterwards, so carrying them costs a lookup that has already been done.
+    """
+
+    nodes, edges = _graph(1)
+    nodes["caller"] = _node("caller", "Caller", NodeType.MODULE)
+    edges += [
+        _edge("caller", "port", EdgeType.IMPORTS),
+        _edge("caller", "port", EdgeType.REFERENCES),
+    ]
+
+    candidate = sole_implementation_candidates(nodes, edges)[0]
+
+    reaching = {
+        (edge.source_id, edge.edge_type)
+        for edge in candidate.relationships
+        if edge.edge_type is not EdgeType.IMPLEMENTS
+    }
+    assert reaching == {("caller", EdgeType.IMPORTS), ("caller", EdgeType.REFERENCES)}
+    measured = {item.name: item.value for item in candidate.measurements}
+    # The count and the names are the same fact told twice, so they cannot disagree.
+    assert measured["dependants_of_abstraction"] == len(reaching)
+
+
+def test_a_candidate_names_the_test_doubles_it_counted() -> None:
+    """The one exception the corpus grants a sole implementation, made checkable.
+
+    `test_doubles_offering_its_methods` is matched by method name, which is this detector's
+    own inference and not an edge — so unlike the dependants above, no lookup available to
+    an investigation can recover the classes behind the number. Carried as a relation that
+    says how it was established, because a reader has to be able to tell it from a
+    resolution.
+    """
+
+    nodes, edges = _graph(1)
+    nodes["read"] = _node("read", "read", NodeType.METHOD)
+    nodes["read"] = nodes["read"].model_copy(update={"parent_id": "port"})
+    nodes["double"] = _node("double", "FakePort", NodeType.CLASS)
+    nodes["double"] = nodes["double"].model_copy(
+        update={"path": "tests/test_port.py"}
+    )
+    nodes["double_read"] = _node("double_read", "read", NodeType.METHOD)
+    nodes["double_read"] = nodes["double_read"].model_copy(
+        update={"parent_id": "double", "path": "tests/test_port.py"}
+    )
+    nodes["suite"] = _node("suite", "test_port", NodeType.TEST_MODULE)
+    nodes["suite"] = nodes["suite"].model_copy(update={"path": "tests/test_port.py"})
+
+    candidate = sole_implementation_candidates(nodes, edges)[0]
+
+    assert [
+        (relation.source_id, relation.kind) for relation in candidate.derived_relations
+    ] == [("double", "offers-its-methods")]
+    assert candidate.derived_relations[0].established_by == "matching declared method names"
+    measured = {item.name: item.value for item in candidate.measurements}
+    assert measured["test_doubles_offering_its_methods"] == 1

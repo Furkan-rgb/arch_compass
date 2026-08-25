@@ -295,6 +295,28 @@ class FindingMeasurement(BoundaryDTO):
     limitations: str = ""
 
 
+class FindingRelation(BoundaryDTO):
+    """A relation a detector established itself, rather than one the parser resolved.
+
+    Separate from `AtlasEdge` because it is a weaker claim and the difference matters to a
+    verdict. An edge is a resolution: this name, in this file, binds to that node. A
+    relation here is a detector's own inference over parsed facts — "this test class offers
+    every method that abstraction declares" — which is true about the surfaces and is not
+    proof that the one stands in for the other.
+
+    Endpoints are node ids, like an edge's, so the same conversion resolves both to the
+    qualified names a reader sees. `established_by` names the rule that admitted it and is
+    open text rather than an enum: the vocabulary belongs to the detector that invented the
+    rule, and pinning it here would make the atlas the authority on inferences it does not
+    make.
+    """
+
+    source_id: str = Field(min_length=1)
+    target_id: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    established_by: str = Field(min_length=1)
+
+
 class FindingCandidate(BoundaryDTO):
     """A structural pattern that could make a policy relevant — never a violation.
 
@@ -317,6 +339,10 @@ class FindingCandidate(BoundaryDTO):
     #: lookup. Measured on this repository, a judgement that could not see them spent most of
     #: its investigation budget asking who the count in `measurements` was counting.
     relationships: list[AtlasEdge] = Field(default_factory=list[AtlasEdge])
+    #: The same, for relations the detector inferred rather than the parser resolved. A
+    #: second list rather than a widened `AtlasEdge`, because a reader and a model both have
+    #: to be able to tell a resolved edge from an inference over surfaces.
+    derived_relations: list[FindingRelation] = Field(default_factory=list[FindingRelation])
     #: What this detection method cannot see. Always populated: a detector that claims no
     #: limitations is claiming the static view is complete, which it never is.
     limitations: str = Field(min_length=1)

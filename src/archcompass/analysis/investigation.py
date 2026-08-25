@@ -326,11 +326,19 @@ class AtlasInvestigator:
                 name=_RELATED_CODE,
                 description=(
                     "Ask what stands in a given relationship to one part of this repository. "
-                    "'implementations' answers whether an abstraction has one implementation "
-                    "or several; 'direct_dependants' and 'known_callers' answer whether "
-                    "anything actually uses it; 'related_tests' answers whether it is tested; "
-                    "'direct_dependencies' answers what it reaches for. This is the tool that "
-                    "settles most hinges."
+                    "Each relation is one exact edge kind, and they are not "
+                    "interchangeable. 'implementations' — classes that implement or subclass "
+                    "an abstraction. 'direct_dependants' — everything that imports, calls or "
+                    "references it, which is the relation that answers what uses an "
+                    "abstraction. 'known_callers' — the narrower question of what invokes a "
+                    "callable or constructs a class; an abstraction is referenced rather than "
+                    "called, so this is not the way to ask what uses one. 'related_tests' — "
+                    "tests recorded against a concrete symbol a test calls; an abstraction is "
+                    "not called by its tests either. 'direct_dependencies' — what it reaches "
+                    "for. An empty answer names the edge kind it searched for and the "
+                    "relation that holds the edges the node does have, so read it rather than "
+                    "asking the same question another way. This is the tool that settles most "
+                    "hinges."
                 ),
                 parameters={
                     "type": "object",

@@ -309,3 +309,341 @@ def test_a_name_used_once_says_nothing_about_a_count(tmp_path: Path) -> None:
     )
 
     assert leaked.role == "Names 'qwen' from outside the package that owns it."
+
+
+def test_a_module_that_never_says_its_own_name_is_not_a_concept_that_leaked(
+    tmp_path: Path,
+) -> None:
+    """`delta.py` declaring only `RevisionCalculator` is a file named for its job.
+
+    The regression for the shape that made this detector's worst finding. A vendor arrives
+    attached to something — `qwen.py` declares `QwenSpeech` — so a use of the name
+    elsewhere is a use of *that*. A module named for what it computes declares nothing
+    carrying its name, and the only place the word appears is the filename; every domain
+    type that happens to contain the word then matched it, and the count read as a leak.
+
+    Here `RevisionCalculator` never says "delta", while the repository is full of the word
+    for unrelated reasons. Nothing has escaped, because nothing was ever named.
+    """
+
+    atlas = _atlas(
+        tmp_path / "repo",
+        {
+            "analysis/__init__.py": "",
+            "analysis/ports.py": (
+                "from typing import Protocol\n\n\n"
+                "class Recalculator(Protocol):\n"
+                "    def compute(self, before: int, after: int) -> int: ...\n"
+            ),
+            "analysis/delta.py": (
+                "class RevisionCalculator:\n"
+                "    def compute(self, before: int, after: int) -> int: return after\n"
+            ),
+            "web/__init__.py": "",
+            "web/pages.py": "def render(delta: int) -> str: return str(delta)\n",
+        },
+    )
+
+    assert _of(atlas, FindingPattern.SCATTERED_CONCEPT) == []
+
+
+def test_a_module_named_after_its_port_is_not_a_leak_when_the_endings_differ(
+    tmp_path: Path,
+) -> None:
+    """`retrieval.py` behind `PolicyRetriever` is the same word, spelled for its part of
+    speech.
+
+    The stem test used to ask whether one word contained the other, which is true of
+    `voice`/`voices` and false of `retrieval`/`retriever` — so a module named after exactly
+    the thing its port abstracts was reported, which is the finding this guard exists to
+    suppress. Two suffixes on one stem is the ordinary way a port and its subject are named.
+    """
+
+    atlas = _atlas(
+        tmp_path / "repo",
+        {
+            "policies/__init__.py": "",
+            "policies/ports.py": (
+                "from typing import Protocol\n\n\n"
+                "class PolicyRetriever(Protocol):\n"
+                "    def find(self, query: str, limit: int) -> list[str]: ...\n"
+            ),
+            "policies/retrieval.py": (
+                "class DenseRetrieval:\n"
+                "    def find(self, query: str, limit: int) -> list[str]: return []\n"
+            ),
+            "web/__init__.py": "",
+            "web/pages.py": "def render(retrieval: str) -> str: return retrieval\n",
+        },
+    )
+
+    assert _of(atlas, FindingPattern.SCATTERED_CONCEPT) == []
+
+
+def test_a_name_imported_across_several_lines_is_located_on_its_own_line(
+    tmp_path: Path,
+) -> None:
+    """The parenthesised import is the common one, and it was the one located wrongly.
+
+    An `ast.alias` was attributed to its statement, which is right for `from x import y`
+    and wrong for the wrapped form: the name sits several lines below `from x import (`,
+    and that opening line does not contain it. Evidence of a leak that does not contain the
+    leaked name is the defect `NamedMention` was added to end, reappearing one shape along.
+    """
+
+    root = tmp_path / "repo"
+    atlas = _atlas(
+        root,
+        {
+            "provider/__init__.py": "",
+            "provider/speech.py": PORT,
+            "provider/qwen.py": ADAPTER,
+            "web/__init__.py": "",
+            "web/pages.py": (
+                "from provider.speech import (\n"
+                "    SpeechProvider,\n"
+                "    QwenSpeech,\n"
+                ")\n"
+            ),
+        },
+    )
+
+    found = _of(atlas, FindingPattern.SCATTERED_CONCEPT)
+    leaked = next(
+        item for item in found[0].participants if item.qualified_name.endswith("web.pages")
+    )
+    assert leaked.location is not None
+
+    lines = (root / "web/pages.py").read_text(encoding="utf-8").splitlines()
+    assert "Qwen" in lines[leaked.location.start_line - 1]
+    assert leaked.location.start_line == 3
+
+
+def test_a_name_inside_a_long_literal_is_located_on_the_line_that_holds_it(
+    tmp_path: Path,
+) -> None:
+    """A prompt or a template opens with the assignment and closes far below it.
+
+    The literal's recorded line is where it opens, so a vendor named forty lines into a
+    prompt was reported at a line reading `PROMPT = ` and an opening quote. Which names the
+    literal contributes is unchanged — this is only about which of its lines each one is
+    said to be on.
+    """
+
+    root = tmp_path / "repo"
+    atlas = _atlas(
+        root,
+        {
+            "provider/__init__.py": "",
+            "provider/speech.py": PORT,
+            "provider/qwen.py": ADAPTER,
+            "web/__init__.py": "",
+            "web/pages.py": (
+                "BANNER = '''\n"
+                "Welcome to the library.\n"
+                "Every book here is narrated with Qwen3-TTS.\n"
+                "Pick a voice to begin.\n"
+                "'''\n"
+            ),
+        },
+    )
+
+    found = _of(atlas, FindingPattern.SCATTERED_CONCEPT)
+    leaked = next(
+        item for item in found[0].participants if item.qualified_name.endswith("web.pages")
+    )
+    assert leaked.location is not None
+
+    lines = (root / "web/pages.py").read_text(encoding="utf-8").splitlines()
+    named = lines[leaked.location.start_line - 1]
+    assert "Qwen" in named, f"the located line does not name the concept: {named!r}"
+    assert leaked.location.start_line == 3
+
+
+def test_a_module_whose_name_is_the_kind_of_thing_it_holds_is_not_a_leak(
+    tmp_path: Path,
+) -> None:
+    """`nodes.py` full of `*_node` functions carries its own name and owns nothing.
+
+    The second half of the same regression, and the one the first half missed. Requiring
+    the module to declare its own name was not enough: a file of `load_context_node` and
+    `select_rejudgements_node` does declare it — as the part of the name that says nothing.
+    So the word has to be read where it sits. A proper noun modifies (`QwenSpeech` is a
+    speech that is Qwen's); a category noun is what gets modified, and a repository is then
+    full of it for reasons that have nothing to do with this module.
+
+    Here `steps.py` holds `load_step` and `verify_step`, and a wholly unrelated `AtlasStep`
+    elsewhere matched every one of them.
+    """
+
+    atlas = _atlas(
+        tmp_path / "repo",
+        {
+            "pipeline/__init__.py": "",
+            "pipeline/ports.py": (
+                "from typing import Protocol\n\n\n"
+                "class Stage(Protocol):\n"
+                "    def run(self, payload: str, attempt: int) -> str: ...\n"
+            ),
+            "pipeline/steps.py": (
+                "class LoadStage:\n"
+                "    def run(self, payload: str, attempt: int) -> str: return payload\n\n\n"
+                "def load_step(payload: str) -> str: return payload\n\n\n"
+                "def verify_step(payload: str) -> str: return payload\n"
+            ),
+            "atlas/__init__.py": "",
+            "atlas/model.py": (
+                "class AtlasSteps:\n"
+                "    def walk(self, steps: int) -> int: return steps\n"
+            ),
+        },
+    )
+
+    assert _of(atlas, FindingPattern.SCATTERED_CONCEPT) == []
+
+
+def test_naming_a_concept_and_reaching_it_are_counted_apart(tmp_path: Path) -> None:
+    """The wiring that imports a backend and the page that spells its name are not the same.
+
+    Both were "a module naming it from outside", and one count held them. That count is the
+    only thing this pattern measures, so a judge reading it had to guess which kind of
+    module the number was made of — and a guess about that is the whole verdict: importing
+    an adapter is using a dependency, and writing its name into a string is the leak.
+
+    So the graph is carried beside the name. `app.wiring` imports the adapter and appears
+    in the relationships; `web.pages` only says the word, and is the difference between the
+    two counts.
+    """
+
+    atlas = _atlas(
+        tmp_path / "repo",
+        {
+            "provider/__init__.py": "",
+            "provider/speech.py": PORT,
+            "provider/qwen.py": ADAPTER,
+            "app/__init__.py": "",
+            "app/wiring.py": (
+                "from provider.qwen import QwenSpeech\n\n\n"
+                "def build() -> QwenSpeech: return QwenSpeech()\n"
+            ),
+            "web/__init__.py": "",
+            "web/pages.py": "TITLE = 'Narrated with Qwen3-TTS'\n",
+        },
+    )
+
+    found = _of(atlas, FindingPattern.SCATTERED_CONCEPT)
+    assert len(found) == 1
+    measured = {item.name: item.value for item in found[0].measurements}
+    assert measured["modules_naming_it_from_outside"] == 2
+    assert measured["of_those_that_reach_it"] == 1
+
+    # And the one that reaches it is named, so the judge reads placement rather than
+    # reconstructing it from a number.
+    reaching = {edge.source_id for edge in found[0].relationships}
+    assert reaching, "a module that imports the owner left no relationship behind"
+
+
+def test_a_constant_stated_only_by_tests_is_each_test_owning_its_own_setup(
+    tmp_path: Path,
+) -> None:
+    """Five tests fixing their own fixture path is not knowledge with no owner.
+
+    The sole-implementation detector already leaves tests out of its count and says so;
+    this one counted them, so a repository's own test suite arrived as its largest source
+    of duplicated knowledge. Giving those copies one owner would couple the tests to each
+    other, which is the opposite of what the finding would be asking for.
+
+    A copy shared with something that is not a test still counts, because a test holding a
+    value production owns is exactly the drift this pattern exists to catch.
+    """
+
+    atlas = _atlas(
+        tmp_path / "repo",
+        {
+            "tests/__init__.py": "",
+            "tests/test_alpha.py": "FIXTURE = 'cases/one'\n\n\ndef test_alpha() -> None: ...\n",
+            "tests/test_beta.py": "FIXTURE = 'cases/one'\n\n\ndef test_beta() -> None: ...\n",
+        },
+    )
+
+    assert _of(atlas, FindingPattern.DUPLICATED_KNOWLEDGE) == []
+
+    shared = _atlas(
+        tmp_path / "shared",
+        {
+            "app/__init__.py": "",
+            "app/settings.py": "FIXTURE = 'cases/one'\n",
+            "tests/__init__.py": "",
+            "tests/test_alpha.py": "FIXTURE = 'cases/one'\n\n\ndef test_alpha() -> None: ...\n",
+        },
+    )
+
+    found = _of(shared, FindingPattern.DUPLICATED_KNOWLEDGE)
+    assert len(found) == 1, "a value a test shares with production is still one fact twice"
+
+
+def test_a_port_substituted_in_tests_says_so_where_the_verdict_turns_on_it(
+    tmp_path: Path,
+) -> None:
+    """The corpus's own exception for a single implementation, and nothing measured it.
+
+    `delay-premature-abstraction` carves out "an interface that exists so effects can be
+    substituted in tests", and that is the justification a judge reaches for on almost every
+    one of these candidates. The candidate said nothing about it, so the verdict came from
+    somewhere other than the evidence.
+
+    It cannot be read off the implementation count: a test double conforms structurally and
+    inherits nothing, so the parse resolver emits no `implements` edge for it and the port
+    still reads as having exactly one. What can be read is the method surface, which is why
+    this is counted by name and says so in its limitations.
+    """
+
+    root = tmp_path / "repo"
+    atlas = _atlas(
+        root,
+        {
+            "provider/__init__.py": "",
+            "provider/speech.py": PORT,
+            "provider/qwen.py": ADAPTER,
+            "tests/__init__.py": "",
+            "tests/test_speech.py": (
+                "class RecordingSpeech:\n"
+                "    def speak(self, text: str, voice: str) -> bytes: return b''\n"
+                "    def close(self) -> None: return None\n\n\n"
+                "def test_it_records() -> None: ...\n"
+            ),
+        },
+    )
+
+    port = next(
+        item
+        for item in _of(atlas, FindingPattern.SOLE_IMPLEMENTATION)
+        if item.participants[0].qualified_name.endswith("SpeechProvider")
+    )
+    measured = {item.name: item.value for item in port.measurements}
+    assert measured["implementations"] == 1, "the double conforms without inheriting"
+    assert measured["test_doubles_offering_its_methods"] == 1
+
+    # A class offering only part of the surface is not standing in for it.
+    partial = _atlas(
+        tmp_path / "partial",
+        {
+            "provider/__init__.py": "",
+            "provider/speech.py": PORT,
+            "provider/qwen.py": ADAPTER,
+            "tests/__init__.py": "",
+            "tests/test_speech.py": (
+                "class HalfSpeech:\n"
+                "    def speak(self, text: str, voice: str) -> bytes: return b''\n\n\n"
+                "def test_it_records() -> None: ...\n"
+            ),
+        },
+    )
+    half = next(
+        item
+        for item in _of(partial, FindingPattern.SOLE_IMPLEMENTATION)
+        if item.participants[0].qualified_name.endswith("SpeechProvider")
+    )
+    assert {i.name: i.value for i in half.measurements}[
+        "test_doubles_offering_its_methods"
+    ] == 0
