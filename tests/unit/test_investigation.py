@@ -344,8 +344,8 @@ def test_describing_a_node_answers_with_what_it_is(tmp_path: Path) -> None:
 def test_related_code_answers_every_relation_it_offers(tmp_path: Path) -> None:
     """One assertion per kind, because a kind nothing exercises is a kind nothing checks.
 
-    The five are not variations on each other — they read different edges in different
-    directions, and a wiring mistake in one is invisible from the other four.
+    The three are not variations on each other — they read different edges in different
+    directions, and a wiring mistake in one is invisible from the other two.
     """
 
     investigator = _investigator(tmp_path)
@@ -357,19 +357,31 @@ def test_related_code_answers_every_relation_it_offers(tmp_path: Path) -> None:
 
     # Which node answers which relation is not arbitrary and is worth writing down, because
     # nothing in the tool's description says it: an import is a fact about a *module*, so
-    # dependencies are asked of the module, while a call is a fact about a *symbol*, so
-    # callers are asked of the class. A model that asks the wrong one gets an empty answer
-    # that reads exactly like "nothing depends on this".
+    # dependencies are asked of the module, while a reference is a fact about a *symbol*.
     assert "app.ports" in related("app.sinks", "direct_dependencies")
     assert "app.service" in related("app.sinks", "direct_dependants")
-    # Who calls it — the question a sole-implementation hinge usually turns on: whether
-    # anything actually uses the thing behind the abstraction.
-    assert "app.service.run" in related("app.sinks.FileSink", "known_callers")
-    # What implements the port. The other half of the same hinge: one implementation or
-    # several, which is a fact the repository has and a person need not be asked.
+    # What implements the port: one implementation or several, which is a fact the
+    # repository has and a person need not be asked.
     assert "app.sinks.FileSink" in related("app.ports.Sink", "implementations")
-    # Whether it is tested, which is what "is this deliberate" often comes down to.
-    assert "tests.test_sinks" in related("app.sinks", "related_tests")
+
+
+def test_a_relation_the_toolbox_no_longer_offers_is_refused_by_name(tmp_path: Path) -> None:
+    """`known_callers` and `related_tests` are still on the query service, not in the toolbox.
+
+    A `tests` edge is only ever recorded beside a `calls` edge, so neither reaches a
+    protocol — and a judgement is almost always about one. Asked 65 times across the stored
+    investigations they came back empty 78% of the time, which reads exactly like "nothing
+    uses this". The refusal names what is offered instead of answering emptily.
+    """
+
+    investigator = _investigator(tmp_path)
+
+    for gone in ("known_callers", "related_tests"):
+        answer = investigator.call(
+            "related_code", {"qualified_name": "app.sinks.FileSink", "relation": gone}
+        )
+        assert f"no relationship called {gone!r}" in answer
+        assert "direct_dependants" in answer
 
 
 def test_reading_code_answers_with_the_source_at_that_node(tmp_path: Path) -> None:

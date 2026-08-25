@@ -79,12 +79,20 @@ _RELATED_CODE = "related_code"
 _READ_CODE = "read_code"
 _FLAGGED_SIGNALS = "flagged_signals"
 
+#: The relations a judgement may ask for. Three of the five the atlas can answer, because
+#: the other two cannot answer about an abstraction at all and a judgement is almost always
+#: about one.
+#:
+#: `known_callers` is incoming `calls` and `related_tests` is incoming `tests`, and a `tests`
+#: edge is only ever recorded beside a `calls` edge — so neither can reach a protocol, which
+#: nobody calls. Over the stored investigations they were asked 65 times and came back empty
+#: 78% of the time, and on the node kinds where `known_callers` does answer it is a strict
+#: subset of `direct_dependants`. Both remain on `AtlasQueryService` for the atlas explorer,
+#: where the subject is a concrete class and the questions are the reader's own.
 _RELATION_KINDS = (
     "direct_dependencies",
     "direct_dependants",
-    "known_callers",
     "implementations",
-    "related_tests",
 )
 
 
@@ -330,11 +338,7 @@ class AtlasInvestigator:
                     "interchangeable. 'implementations' — classes that implement or subclass "
                     "an abstraction. 'direct_dependants' — everything that imports, calls or "
                     "references it, which is the relation that answers what uses an "
-                    "abstraction. 'known_callers' — the narrower question of what invokes a "
-                    "callable or constructs a class; an abstraction is referenced rather than "
-                    "called, so this is not the way to ask what uses one. 'related_tests' — "
-                    "tests recorded against a concrete symbol a test calls; an abstraction is "
-                    "not called by its tests either. 'direct_dependencies' — what it reaches "
+                    "abstraction. 'direct_dependencies' — what it reaches "
                     "for. An empty answer names the edge kind it searched for and the "
                     "relation that holds the edges the node does have, so read it rather than "
                     "asking the same question another way. This is the tool that settles most "
