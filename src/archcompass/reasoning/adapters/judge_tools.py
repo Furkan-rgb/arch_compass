@@ -143,7 +143,10 @@ def _policy_tool(corpus: Sequence[Policy], searched: list[Policy]) -> BaseTool:
         if not found:
             return "No policy in the corpus is about that."
         searched.extend(found)
-        return "\n\n".join(f"[{policy.id}] {policy.title}\n{policy.body}" for policy in found)
+        # The same shape the judgement prompt lists policies in, for the same reason.
+        return "\n\n".join(
+            f"Policy ID: {policy.id}\n{policy.title}\n{policy.body}" for policy in found
+        )
 
     return StructuredTool.from_function(
         func=search_policies,

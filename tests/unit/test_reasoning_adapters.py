@@ -226,11 +226,20 @@ def test_a_policy_citation_naming_nothing_is_dropped_rather_than_fatal() -> None
 
 
 def test_a_policy_is_offered_to_the_judge_under_its_identifier() -> None:
+    """Labelled and on its own line, because the citation check is exact.
+
+    It used to read `[policy-a] Delay abstraction`, and two model families cited
+    `[policy-a]` — brackets included — which the check refused every time. Nothing repairs a
+    near miss downstream, because a fuzzy match would make a wrong identifier look like a
+    typo, so the format has to leave no room for the question here.
+    """
+
     candidate, case, policies = _input()
 
     prompt = judgement_prompt(candidate, case, policies)
 
-    assert "[policy-a] Delay abstraction" in prompt
+    assert "Policy ID: policy-a\nDelay abstraction" in prompt
+    assert "[policy-a]" not in prompt
     assert "cite one by copying that identifier exactly" in prompt
 
 

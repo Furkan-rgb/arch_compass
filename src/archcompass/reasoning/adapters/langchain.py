@@ -561,7 +561,14 @@ def judgement_prompt(
             f"CANDIDATE\n{candidate_text(candidate)}",
             "POLICIES\n"
             + "\n\n".join(
-                f"[{policy.id}] {policy.title}\n{policy.body}"
+                # The id on its own line and labelled, because the citation check is exact
+                # and this is the string it wants back. Rendered as `[id] Title` it was read
+                # as part of the display: two model families cited
+                # `[delay-premature-abstraction]`, brackets included, and every one of those
+                # citations was refused. Nothing is repaired downstream — a fuzzy match would
+                # make a wrong id look like a near miss — so the format has to be unambiguous
+                # here instead.
+                f"Policy ID: {policy.id}\n{policy.title}\n{policy.body}"
                 for policy in policies.policies
             ),
             *((observations_text(investigation),) if investigation else ()),
