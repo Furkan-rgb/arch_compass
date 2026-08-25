@@ -240,7 +240,10 @@ def test_a_policy_is_offered_to_the_judge_under_its_identifier() -> None:
 
     assert "Policy ID: policy-a\nDelay abstraction" in prompt
     assert "[policy-a]" not in prompt
-    assert "cite one by copying that identifier exactly" in prompt
+    # How to cite is the schema's to say, not the prompt's — it is the text the model is
+    # reading at the moment it fills the field, and the only one a validator backs.
+    bearing = PolicyBearingOutput.model_json_schema()["properties"]["policy_id"]
+    assert "copied exactly as it appears after 'Policy ID:'" in bearing["description"]
 
 
 _VIOLATION: Final = {
@@ -1035,3 +1038,58 @@ def test_every_held_finding_is_asked_about() -> None:
         if "held = tuple(finding for finding in findings if finding.hinge)" in item
     )
     assert not line.rstrip().endswith("]"), "held findings are still being sliced"
+
+
+def test_the_output_schema_carries_its_own_rules() -> None:
+    """Every rule about filling this record is on the record.
+
+    An output rule stated only in the task message is one the model may no longer be reading
+    by the time it answers, and one no validator backs. Both of this schema's hard-won rules
+    — that the verdict is chosen rather than reconstructed from a boolean, and that a
+    citation is a field rather than a mention in prose — cost real judgements before they
+    moved here.
+    """
+
+    from archcompass.reasoning.adapters.langchain import FindingOutput
+
+    schema = FindingOutput.model_json_schema()
+    described = {
+        name: field.get("description", "")
+        for name, field in schema["properties"].items()
+    }
+
+    missing = sorted(name for name, text in described.items() if not text)
+    assert not missing, f"undescribed fields: {missing}"
+    assert "material" in described["verdict"] and "cleared" in described["verdict"]
+    assert "held" in described["verdict"]
+    assert "not a citation" in described["policy_bearings"]
+    assert "forbidden otherwise" in described["hinge"]
+    assert "'material'" in described["recommended_response"]
+    # And it stays a record of a judgement rather than advice about how to reach one.
+    for text in [schema["description"], *described.values()]:
+        assert "tool" not in text.lower(), (
+            f"investigation strategy leaked into the schema: {text[:80]}"
+        )
+
+
+def test_the_task_message_no_longer_repeats_what_the_schema_says() -> None:
+    """Said twice is said in two places that can disagree, and one of them already had.
+
+    The instruction told the model that policies were "listed under an identifier in
+    brackets" for some time after the rendering stopped using brackets.
+    """
+
+    from archcompass.reasoning.adapters.langchain import JUDGEMENT_INSTRUCTION
+
+    for owned_by_the_schema in (
+        "brackets",
+        "Choose exactly one verdict",
+        "structured citation field",
+        "Only a material finding may recommend",
+        "Return only the structured response",
+        "Do not return Markdown",
+    ):
+        assert owned_by_the_schema not in JUDGEMENT_INSTRUCTION
+    # What no schema can hold stays.
+    assert "Asking is a first-class outcome" in JUDGEMENT_INSTRUCTION
+    assert "worth their interruption" in JUDGEMENT_INSTRUCTION

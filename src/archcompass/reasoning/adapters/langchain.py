@@ -49,53 +49,83 @@ _log = logging.getLogger(__name__)
 
 
 class PolicyBearingOutput(BaseModel):
-    #: The identifier the policy was listed under, never its place in the list. See the
-    #: charter's rule on naming over indexing: a model may name something the
-    #: application holds, and may never index into the application's list. An ordinal
-    #: that is wrong but in range cites the wrong policy and nothing can tell.
-    policy_id: str = Field(min_length=1)
-    reasoning: str = Field(min_length=1)
+    """One policy this verdict rests on, and what it had to do with the verdict."""
+
+    # Naming over indexing, from the charter: a model may name something the application
+    # holds and may never index into the application's list, because an ordinal that is
+    # wrong but in range cites the wrong policy and nothing can tell.
+    policy_id: str = Field(
+        min_length=1,
+        description=(
+            "The identifier of a policy you were shown, copied exactly as it appears after "
+            "'Policy ID:'. Never its position in the list, and never a policy you were not "
+            "given."
+        ),
+    )
+    reasoning: str = Field(
+        min_length=1,
+        description="How this particular policy bears on this candidate, in a sentence or two.",
+    )
 
 
 class FindingOutput(BaseModel):
-    """One judgement, with the verdict said rather than inferred.
+    """One judgement of one detected structure: the verdict, why, and what it rests on.
 
-    `verdict` was `material: bool`, and the three-way outcome was reconstructed by the
-    application: held if a hinge came back, otherwise material or cleared off the bit. So the
-    model never actually chose a verdict — it set a flag and, separately, either wrote a hinge
-    or did not. Two things followed.
+    The fields carry their own meaning because this schema is what the model is handed, and
+    an output rule stated only in the prompt is a rule the schema cannot enforce and the
+    model may not still be reading by the time it answers. Two of these rules were learned
+    the hard way — `verdict` was a boolean the application turned into three outcomes, and
+    `policy_bearings` was optional — and both cost real judgements before they moved here.
 
-    A boolean carries less than a word during constrained generation, and it showed. Replaying
-    one investigation's exact lookups through both shapes, five times each: the boolean
-    answered `material` every time under reasoning that argued the policy's exception was
-    satisfied; the word answered `cleared` every time, from the same argument. The verdict and
-    the paragraph beside it are two fields no schema can reconcile, and the representation is
-    what decided whether they agreed.
-
-    And `held` was the hardest outcome to reach, being the only one that required volunteering
-    a field. Over thirty-five judgements the boolean chose it not once; the word chose it
-    fifteen times, each on reasoning that said in so many words that a policy's exception
-    might apply and the evidence could not say whether it did. Asking is a first-class outcome
-    of this product, and the old shape was quietly pricing it out.
+    Deliberately says nothing about how to investigate. What a judgement may look at and
+    when it must is the reasoning contract's business, not this record's.
     """
 
-    verdict: Literal["material", "cleared", "held"]
-    reasoning: str = Field(min_length=1)
-    #: At least one, because a bearing is the record of why a verdict was reached and a
-    #: verdict without one cannot be read back — a reader is left with an assertion and no
-    #: way to check it against anything the corpus states.
-    #:
-    #: It was optional, and a local model left it empty on two thirds of its judgements
-    #: while naming the policy inside `reasoning`, quoting the exception it turned on, and
-    #: weighing the measurement against its own stated limits. The reasoning was right and
-    #: the record of it was thrown away, because prose naming a policy is not a citation
-    #: and nothing was asking for one. The same lesson as `verdict`: what the product needs
-    #: belongs in the schema, not in a hope about what the model will volunteer.
-    policy_bearings: list[PolicyBearingOutput] = Field(min_length=1)
-    #: The single fact a held verdict turns on. Required by `held` and forbidden to the other
-    #: two, so the verdict and the question cannot disagree about whether one was asked.
-    hinge: str | None = None
-    recommended_response: str | None = None
+    verdict: Literal["material", "cleared", "held"] = Field(
+        description=(
+            "Exactly one, and the one your reasoning argues for. 'material': this structure "
+            "costs more than it earns. 'cleared': it does not. 'held': your verdict turns on "
+            "a fact you cannot get from the repository or the supplied case — what this team "
+            "decided, committed to, or already accepted."
+        )
+    )
+    reasoning: str = Field(
+        min_length=1,
+        description=(
+            "Your architectural reasoning for this verdict: what the structure costs, what it "
+            "earns, and which evidence decided it. Prose, and not a substitute for the "
+            "citations below."
+        ),
+    )
+    # At least one, because a bearing is the record of why a verdict was reached. It was
+    # optional, and a local model left it empty on two thirds of its judgements while naming
+    # the policy inside `reasoning` — the reasoning was right and the record of it was thrown
+    # away, because prose naming a policy is not a citation and nothing asked for one.
+    policy_bearings: list[PolicyBearingOutput] = Field(
+        min_length=1,
+        description=(
+            "Every policy this verdict actually rests on, by identifier. At least one, for "
+            "all three verdicts: clearing a structure is a judgement against a policy just as "
+            "finding it material is, and a held verdict turns on the policy whose exception "
+            "you could not settle. Naming a policy in `reasoning` is not a citation."
+        ),
+    )
+    hinge: str | None = Field(
+        default=None,
+        description=(
+            "Required when the verdict is 'held' and forbidden otherwise. The single fact "
+            "your verdict turns on, stated as one concise question for a person. It stops the "
+            "review and interrupts someone, so it must be worth that: not something the "
+            "supplied evidence already settles, and never a way to avoid committing."
+        ),
+    )
+    recommended_response: str | None = Field(
+        default=None,
+        description=(
+            "What to do about it, and only where the verdict is 'material'. A cleared finding "
+            "has nothing to recommend and a held one is still waiting on an answer."
+        ),
+    )
 
     @model_validator(mode="after")
     def the_verdict_carries_what_it_is_allowed_to(self) -> FindingOutput:
@@ -456,32 +486,27 @@ def structured_output[Output: BaseModel](
 # It is deliberately not an instruction to ask more often. A hinge on something the
 # evidence already settles is worse than no hinge at all: it stops a review to ask a person
 # a question the repository answered.
+#: What the judgement is for, and how to weigh asking against deciding.
+#:
+#: Deliberately no longer says how to fill the output. Verdict meanings, the citation rule,
+#: which fields each verdict may carry and "return only the structured response" were all
+#: stated here and are now on `FindingOutput`, where the model reads them as it answers and
+#: where the validator can actually enforce them. One of them had also gone stale: it told
+#: the model policies were "listed under an identifier in brackets" after the rendering
+#: stopped using brackets.
+#:
+#: What stays is the part no schema can hold — that asking is an outcome rather than a
+#: failure to reach one, and what makes a question worth interrupting somebody for.
 JUDGEMENT_INSTRUCTION = (
-    "Judge whether this detected structure costs more than it earns. "
-    "Use only the supplied evidence and case. Each policy is listed under an identifier "
-    "in brackets; cite one by copying that identifier exactly, and never by where it "
-    "sits in the list.\n\n"
-    "Every verdict cites at least one of the policies below, in the structured citation "
-    "field, and a policy named inside your reasoning is not a citation — the reasoning is "
-    "prose and the citation is the record. This holds for all three verdicts: clearing a "
-    "structure is a judgement against a policy just as finding it material is, and a held "
-    "verdict turns on the policy whose exception you cannot settle.\n\n"
-    "Choose exactly one verdict, and choose the one your reasoning argues for. 'material' "
-    "means this structure costs more than it earns. 'cleared' means it does not. 'held' means "
-    "your verdict turns on a fact the supplied evidence does not carry.\n\n"
+    "Judge whether this detected structure costs more than it earns. Use the supplied "
+    "evidence and case, and the repository where it can settle something they cannot.\n\n"
     "Asking is a first-class outcome here, not a failure to decide. A policy tells you what "
     "is usually true of architectures; it cannot tell you what this team decided, what they "
     "are about to change, or what they already accepted and why. Where your verdict would "
-    "turn on one of those, answer 'held' and state one concise hinge naming the single fact "
-    "you would need. A hinge stops the review and puts your question to a person, so it is "
-    "worth their interruption — do not hinge on something the supplied evidence already "
-    "settles, and do not hinge merely to avoid committing.\n\n"
-    "A held verdict carries a hinge and nothing else: no recommendation, because a judgement "
-    "waiting on an answer does not yet recommend anything. 'material' and 'cleared' carry no "
-    "hinge, because they are answers rather than questions. Only a material finding may "
-    "recommend a response. "
-    "Return only the structured response required by the supplied output schema. "
-    "Do not return Markdown or explanatory prose outside the structured response."
+    "turn on one of those, hold and name the single fact you would need.\n\n"
+    "A hinge stops the review and puts your question to a person, so it is worth their "
+    "interruption — do not hinge on something the supplied evidence already settles, and do "
+    "not hinge merely to avoid committing."
 )
 
 

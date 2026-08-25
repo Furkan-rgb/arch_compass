@@ -487,3 +487,25 @@ def test_a_local_runner_is_asked_for_one_judgement_at_a_time() -> None:
         "the descriptor's number has to reach the configuration the transport is built "
         "from, or the bound is a comment rather than a limit"
     )
+
+
+def test_a_model_carries_how_it_fared_rather_than_being_judged_differently() -> None:
+    """Qualification is a label on the row, never a branch in the judge.
+
+    Every model reaches the same `ArchitectureJudge` with the same tools, contract and
+    schema. What differs is how well it uses them, and that belongs where somebody choosing
+    a model can read it. A model nobody has measured is `unknown`, which is most of them and
+    is not a refusal.
+    """
+
+    from archcompass.reasoning.qualification import qualification
+
+    assert qualification("ollama", "qwen3.8:27b") == "qualified"
+    assert qualification("openrouter", "google/gemini-3.5-flash-lite") == "qualified"
+    assert qualification("openrouter", "openai/gpt-5.6-luna-pro") == "experimental"
+    assert qualification("openrouter", "openai/gpt-oss-120b") == "not_qualified"
+    # A routing variant is the same model reached another way, and inherits what was
+    # measured. An Ollama tag is not: it names which weights these are.
+    assert qualification("openrouter", "openai/gpt-oss-120b:exacto") == "not_qualified"
+    assert qualification("ollama", "gemma4:26b") == "unknown"
+    assert qualification("openrouter", "some/model-nobody-ran") == "unknown"

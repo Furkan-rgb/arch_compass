@@ -16,7 +16,7 @@ which is why a candidate is the product of the two.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import Field
 
@@ -102,6 +102,17 @@ class ProviderAvailability(BoundaryDTO):
     probed_at: datetime = Field(default_factory=utc_now)
 
 
+#: What is known about a model's fitness to judge, from having run it against the gate.
+#:
+#: `qualified` has held its invariants over repeated runs on a real repository.
+#: `experimental` reached sound verdicts but has not been shown to do so reliably, or leaves
+#: a repository-answerable premise unresolved often enough to matter.
+#: `not_qualified` failed the gate: unsupported claims, one verdict for everything, or output
+#: the contract could not use.
+#: `unknown` is every model nobody has measured, which is most of them.
+Qualification = Literal["qualified", "experimental", "not_qualified", "unknown"]
+
+
 class ModelCandidate(BoundaryDTO):
     """One model a provider currently offers, in one of the thinking modes it has.
 
@@ -120,6 +131,13 @@ class ModelCandidate(BoundaryDTO):
     input_token_limit: int | None = None
     output_token_limit: int | None = None
     is_selected: bool = False
+    #: How this model has fared on the judgement gate, where anybody has run it.
+    #:
+    #: A label on the row rather than a branch in the judge. Every model reaches the same
+    #: `ArchitectureJudge` with the same tools, prompt and schema — what differs is how well
+    #: it uses them, and that is something a person choosing a model should be able to read
+    #: rather than something the code should route around.
+    qualification: Qualification = "unknown"
 
 
 class ModelCatalog(BoundaryDTO):

@@ -18,6 +18,7 @@ from archcompass.reasoning.ports import (
     ProviderDescriptor,
     ReasoningModelSelectionRepository,
 )
+from archcompass.reasoning.qualification import qualification
 from archcompass.reasoning.records import (
     ModelCandidate,
     ModelCatalog,
@@ -164,6 +165,7 @@ class ModelCatalogService:
                         and (chosen.provider, chosen.model, chosen.thinking)
                         == (descriptor.name, offered.name, mode)
                     ),
+                    qualification=qualification(descriptor.name, offered.name),
                 )
                 for offered in result.models
                 for mode in offered.thinking_modes
