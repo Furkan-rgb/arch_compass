@@ -488,15 +488,29 @@ def structured_output[Output: BaseModel](
 # a question the repository answered.
 #: What the judgement is for, and how to weigh asking against deciding.
 #:
-#: Deliberately no longer says how to fill the output. Verdict meanings, the citation rule,
-#: which fields each verdict may carry and "return only the structured response" were all
-#: stated here and are now on `FindingOutput`, where the model reads them as it answers and
-#: where the validator can actually enforce them. One of them had also gone stale: it told
-#: the model policies were "listed under an identifier in brackets" after the rendering
-#: stopped using brackets.
+#: Deliberately no longer says how to *fill* the output. Verdict meanings, the citation rule
+#: and which fields each verdict may carry are on `FindingOutput`, where the model reads them
+#: as it answers and where the validator can actually enforce them. One of them had also gone
+#: stale: it told the model policies were "listed under an identifier in brackets" after the
+#: rendering stopped using brackets.
 #:
-#: What stays is the part no schema can hold — that asking is an outcome rather than a
-#: failure to reach one, and what makes a question worth interrupting somebody for.
+#: Two things moved out and had to come back, and both are worth recording because they look
+#: like duplication and are not.
+#:
+#: "Return only the structured response" is not a field semantic at all — it is about what
+#: surrounds the answer, and no field description can reach that. Without it a local model
+#: stopped honouring the schema entirely: three runs of one candidate, three `Invalid json
+#: output` failures and not one lookup, against three clean judgements with nine lookups each
+#: once it was restored.
+#:
+#: The cross-field rules are stated in both places on purpose. They are on the fields, where
+#: the validator backs them, and they are here, where the model is deciding which verdict to
+#: reach — and a rule about the relationship *between* fields has no single field to live on.
+#: Stated only on `recommended_response`, a hosted model attached a recommendation to held and
+#: cleared findings often enough to exhaust the one repair and fail the judgement outright.
+#:
+#: The rest of what stays is the part no schema can hold — that asking is an outcome rather
+#: than a failure to reach one, and what makes a question worth interrupting somebody for.
 JUDGEMENT_INSTRUCTION = (
     "Judge whether this detected structure costs more than it earns. Use the supplied "
     "evidence and case, and the repository where it can settle something they cannot.\n\n"
@@ -506,7 +520,10 @@ JUDGEMENT_INSTRUCTION = (
     "turn on one of those, hold and name the single fact you would need.\n\n"
     "A hinge stops the review and puts your question to a person, so it is worth their "
     "interruption — do not hinge on something the supplied evidence already settles, and do "
-    "not hinge merely to avoid committing."
+    "not hinge merely to avoid committing. A held verdict carries its hinge and nothing "
+    "else — a judgement waiting on an answer does not yet recommend anything — and only a "
+    "material finding recommends a response.\n\n"
+    "Return only the structured response, with no Markdown or prose around it."
 )
 
 

@@ -1085,11 +1085,15 @@ def test_the_task_message_no_longer_repeats_what_the_schema_says() -> None:
         "brackets",
         "Choose exactly one verdict",
         "structured citation field",
-        "Only a material finding may recommend",
-        "Return only the structured response",
-        "Do not return Markdown",
     ):
         assert owned_by_the_schema not in JUDGEMENT_INSTRUCTION
     # What no schema can hold stays.
     assert "Asking is a first-class outcome" in JUDGEMENT_INSTRUCTION
     assert "worth their interruption" in JUDGEMENT_INSTRUCTION
+    # And what surrounds the answer, which is not a field semantic and which no field
+    # description can reach. Removing it cost a local model every judgement on one candidate.
+    assert "Return only the structured response" in JUDGEMENT_INSTRUCTION
+    # And the rules *between* fields, which have no single field to live on. Stated only on
+    # `recommended_response`, a hosted model attached one to held and cleared findings often
+    # enough to exhaust the repair and fail the judgement.
+    assert "only a material finding recommends a response" in JUDGEMENT_INSTRUCTION
