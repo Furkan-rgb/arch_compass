@@ -123,8 +123,7 @@ class Termination(StrEnum):
 
     A state per way the loop can actually end, and no more: an enum with a case nothing
     reaches is a case nobody maintains, and one that names a limit the code does not enforce
-    reads as a promise — a wall-clock guard is wanted and is not written yet, so it is not
-    named here.
+    reads as a promise.
 
     `NATURAL_END` is deliberately not called `completed`: it says the model stopped asking,
     which is a fact about the loop, and carries no claim that the search was sufficient,
@@ -143,6 +142,13 @@ class Termination(StrEnum):
     INVESTIGATION_SIZE_LIMIT = "investigation_size_limit"
     #: The provider stopped answering, after the retries it is given.
     PROVIDER_ERROR = "provider_error"
+    #: The whole execution ran past the time one judgement may take.
+    WALL_CLOCK_LIMIT = "wall_clock_limit"
+    #: The same question was asked of the same tool a third time. The reviewed repository
+    #: does not change while it is being judged and every tool is read-only, so a third
+    #: identical answer cannot differ from the first two — this is a stuck loop, not a
+    #: search, and it is the shape a spent budget hides.
+    REPEATED_TOOL_CALL = "repeated_tool_call"
 
 
 @dataclass(frozen=True, slots=True)

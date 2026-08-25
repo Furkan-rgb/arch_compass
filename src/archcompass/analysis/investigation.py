@@ -49,7 +49,8 @@ from archcompass.analysis.atlas import (
     SourceExcerpt,
     SourceExcerptQuery,
 )
-from archcompass.analysis.ports import AtlasQueryService
+from archcompass.analysis.ports import AtlasFreshnessChecker, AtlasQueryService
+from archcompass.analysis.reviewed_source import AtlasReviewedSource
 from archcompass.domain import RepositoryAtlas, RepositoryRef, Termination
 from archcompass.domain.errors import ArchCompassError
 from archcompass.reasoning.ports import (
@@ -521,8 +522,11 @@ class AtlasInvestigator:
 class AtlasInvestigatorSource:
     """A toolbox over whichever atlas a review is holding, or the reason there is none."""
 
-    def __init__(self, queries: AtlasQueryService) -> None:
+    def __init__(
+        self, queries: AtlasQueryService, freshness: AtlasFreshnessChecker | None = None
+    ) -> None:
         self._queries = queries
+        self._freshness = freshness
 
     def for_review(
         self, repository: RepositoryRef, atlas: RepositoryAtlas
@@ -547,4 +551,15 @@ class AtlasInvestigatorSource:
                     "the repository again to restore lookups."
                 )
             )
-        return OfferedInvestigator(AtlasInvestigator(self._queries, analysed, repository))
+        return OfferedInvestigator(
+            AtlasInvestigator(self._queries, analysed, repository),
+            AtlasReviewedSource(
+                root=repository.path,
+                # The commit the atlas was built from. Absent on a repository with no git or
+                # no commit yet, and the source then falls back to the tree under the
+                # freshness guard rather than to nothing.
+                revision=repository.commit,
+                atlas=analysed,
+                freshness=self._freshness,
+            ),
+        )

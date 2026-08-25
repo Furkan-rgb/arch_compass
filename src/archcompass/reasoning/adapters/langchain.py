@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from typing import Final, Literal, cast
+from typing import Any, Final, Literal, cast
 
 from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import Runnable
 from openai import ContentFilterFinishReasonError, LengthFinishReasonError
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -244,14 +245,27 @@ def case_text(case: ArchitectureCase, *, judging: bool = True) -> str:
 _REPAIR_PREVIEW_CHARACTERS: Final = 2_000
 
 
+#: One request to a model: a single prompt, or a conversation that has already happened.
+#:
+#: The second shape exists for a judgement that used tools. Its answer has to be reached from
+#: the messages it has already exchanged, and flattening those into a string would lose which
+#: turn each result belonged to — which is the only thing making the transcript readable.
+type Request = str | list[BaseMessage]
+
+
 def _repair_prompt(
-    prompt: str, parsing_error: object, raw: object
-) -> str | None:
+    prompt: Request, parsing_error: object, raw: object
+) -> Request | None:
     """The original request, the answer that was refused, and why — or nothing.
 
     `None` when there is no parser complaint to quote, because then there is nothing to say
     that the first prompt did not already say, and asking again would be the same request
     twice.
+
+    A request is either one prompt or a conversation. A conversation gets the correction as
+    a further turn rather than glued onto the end of the last one: a judgement that has
+    already used tools carries its own tool messages, and concatenating text onto that would
+    put the correction inside somebody else's turn.
     """
 
     if parsing_error is None:
@@ -263,9 +277,8 @@ def _repair_prompt(
         if content
         else ""
     )
-    return (
-        prompt
-        + refused
+    correction = (
+        refused
         + "\n\nThat answer was refused: "
         + reason[:1_000]
         + "\n\nSome of the rules above are conditions between fields that the output "
@@ -273,6 +286,9 @@ def _repair_prompt(
         "instruction again and answer so that both hold. Return only the structured "
         "response."
     )
+    if isinstance(prompt, str):
+        return prompt + correction
+    return [*prompt, HumanMessage(correction.lstrip())]
 
 
 #: What "the model's answer was unusable" looks like, whichever transport produced it.
@@ -302,7 +318,7 @@ _UNUSABLE_OUTPUT: Final = (
 
 
 def _attempt(
-    structured: Runnable[str, object], prompt: str, *, subject: str
+    structured: Runnable[Any, object], prompt: Request, *, subject: str
 ) -> tuple[object, object, object]:
     """One structured call as `(parsed, parsing_error, raw)`, however the transport says it.
 
@@ -327,7 +343,7 @@ def _attempt(
 def structured_output[Output: BaseModel](
     model: BaseChatModel,
     schema: type[Output],
-    prompt: str,
+    prompt: Request,
     *,
     subject: str,
     model_identity: str | None = None,
@@ -350,7 +366,7 @@ def structured_output[Output: BaseModel](
     # It wraps the call and nothing else — a rate limit is a reason to wait and ask again,
     # and a response that arrives is not.
     structured = cast(
-        "Runnable[str, object]",
+        "Runnable[Any, object]",
         model.with_structured_output(schema, method="json_schema", include_raw=True),
     )
     output, parsing_error, raw = _attempt(structured, prompt, subject=subject)
