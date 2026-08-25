@@ -20,12 +20,22 @@ from archcompass.analysis.atlas import (
     AtlasVersion,
     EdgeType,
     FindingPattern,
+    MetricNature,
     NodeType,
 )
 from archcompass.analysis.detectors import (
     detect_finding_candidates,
     sole_implementation_candidates,
 )
+from archcompass.analysis.repository_facts import RepositoryFacts
+
+
+def _facts(
+    nodes: dict[str, AtlasNode], edges: list[AtlasEdge]
+) -> RepositoryFacts:
+    """The shared facts over exactly the graph a test built, and nothing wider."""
+
+    return RepositoryFacts.over(nodes, edges)
 
 
 def _node(
@@ -71,7 +81,7 @@ def _graph(implementor_count: int) -> tuple[dict[str, AtlasNode], list[AtlasEdge
 def test_an_abstraction_with_one_implementation_becomes_a_candidate() -> None:
     nodes, edges = _graph(1)
 
-    candidates = sole_implementation_candidates(nodes, edges)
+    candidates = sole_implementation_candidates(nodes, edges, _facts(nodes, edges))
 
     assert len(candidates) == 1
     candidate = candidates[0]
@@ -88,7 +98,7 @@ def test_an_abstraction_with_two_implementations_is_not_a_candidate() -> None:
 
     nodes, edges = _graph(2)
 
-    assert sole_implementation_candidates(nodes, edges) == []
+    assert sole_implementation_candidates(nodes, edges, _facts(nodes, edges)) == []
 
 
 def test_a_lone_subclass_of_a_plain_class_is_not_a_candidate() -> None:
@@ -103,7 +113,9 @@ def test_a_lone_subclass_of_a_plain_class_is_not_a_candidate() -> None:
         "child": _node("child", "Child", NodeType.CLASS, line=200),
     }
 
-    assert sole_implementation_candidates(nodes, [_edge("child", "base", EdgeType.INHERITS)]) == []
+    edges = [_edge("child", "base", EdgeType.INHERITS)]
+
+    assert sole_implementation_candidates(nodes, edges, _facts(nodes, edges)) == []
 
 
 def test_an_abstraction_extending_another_abstraction_is_not_an_implementation() -> None:
@@ -121,7 +133,9 @@ def test_an_abstraction_extending_another_abstraction_is_not_an_implementation()
         "wider": _node("wider", "WiderPort", NodeType.INTERFACE, line=200),
     }
 
-    assert sole_implementation_candidates(nodes, [_edge("wider", "port")]) == []
+    edges = [_edge("wider", "port")]
+
+    assert sole_implementation_candidates(nodes, edges, _facts(nodes, edges)) == []
 
 
 def test_a_candidate_states_what_it_measured_and_what_it_cannot_see() -> None:
@@ -138,12 +152,13 @@ def test_a_candidate_states_what_it_measured_and_what_it_cannot_see() -> None:
         _edge("caller", "port", EdgeType.CALLS),
     ]
 
-    candidate = sole_implementation_candidates(nodes, edges)[0]
+    candidate = sole_implementation_candidates(nodes, edges, _facts(nodes, edges))[0]
 
     measured = {item.name: item.value for item in candidate.measurements}
     assert measured == {
         "implementations": 1,
         "test_doubles_offering_its_methods": 0,
+        "test_references_to_abstraction": 0,
         "dependants_of_abstraction": 2,
     }
     assert all(item.limitations for item in candidate.measurements)
@@ -155,7 +170,7 @@ def test_a_candidate_carries_the_edges_between_its_participants() -> None:
 
     nodes, edges = _graph(1)
 
-    candidate = sole_implementation_candidates(nodes, edges)[0]
+    candidate = sole_implementation_candidates(nodes, edges, _facts(nodes, edges))[0]
 
     assert [(edge.source_id, edge.target_id) for edge in candidate.relationships] == [
         ("impl1", "port")
@@ -167,7 +182,9 @@ def test_an_implementation_missing_from_the_graph_is_not_counted() -> None:
 
     nodes = {"port": _node("port", "Port", NodeType.INTERFACE)}
 
-    assert sole_implementation_candidates(nodes, [_edge("absent", "port")]) == []
+    edges = [_edge("absent", "port")]
+
+    assert sole_implementation_candidates(nodes, edges, _facts(nodes, edges)) == []
 
 
 def test_the_catalogue_runs_every_detector_over_one_atlas() -> None:
@@ -208,7 +225,7 @@ def test_a_candidate_names_the_dependants_it_counted() -> None:
         _edge("caller", "port", EdgeType.REFERENCES),
     ]
 
-    candidate = sole_implementation_candidates(nodes, edges)[0]
+    candidate = sole_implementation_candidates(nodes, edges, _facts(nodes, edges))[0]
 
     reaching = {
         (edge.source_id, edge.edge_type)
@@ -245,7 +262,7 @@ def test_a_candidate_names_the_test_doubles_it_counted() -> None:
     nodes["suite"] = _node("suite", "test_port", NodeType.TEST_MODULE)
     nodes["suite"] = nodes["suite"].model_copy(update={"path": "tests/test_port.py"})
 
-    candidate = sole_implementation_candidates(nodes, edges)[0]
+    candidate = sole_implementation_candidates(nodes, edges, _facts(nodes, edges))[0]
 
     assert [
         (relation.source_id, relation.kind) for relation in candidate.derived_relations
@@ -253,3 +270,46 @@ def test_a_candidate_names_the_test_doubles_it_counted() -> None:
     assert candidate.derived_relations[0].established_by == "matching declared method names"
     measured = {item.name: item.value for item in candidate.measurements}
     assert measured["test_doubles_offering_its_methods"] == 1
+
+
+def test_a_candidate_says_whether_any_test_names_the_abstraction_at_all() -> None:
+    """A resolved edge, beside the name match, because they answer different questions.
+
+    `test_doubles_offering_its_methods` matches method names and says so, which leaves a
+    zero arguable: a double may be a function, a lambda, a mock built at run time. A model
+    judging this repository read exactly that limitation and cleared a port on the strength
+    of a substitution nobody had observed, reasoning that a neighbouring port was
+    substituted so this one probably was too.
+
+    This one is not arguable in the same way. It counts edges the parser resolved from
+    inside test modules into this abstraction, so zero means no test names it — not that
+    none was matched. It is still not proof of substitution, and it does not claim to be:
+    a test may name an abstraction to assert about it.
+    """
+
+    nodes, edges = _graph(1)
+    nodes["suite"] = _node("suite", "test_port", NodeType.TEST_MODULE)
+    nodes["suite"] = nodes["suite"].model_copy(update={"path": "tests/test_port.py"})
+    nodes["case"] = _node("case", "test_saves", NodeType.TEST_FUNCTION)
+    nodes["case"] = nodes["case"].model_copy(
+        update={"parent_id": "suite", "path": "tests/test_port.py"}
+    )
+    nodes["caller"] = _node("caller", "Caller", NodeType.MODULE)
+    edges += [
+        _edge("case", "port", EdgeType.REFERENCES),
+        _edge("caller", "port", EdgeType.REFERENCES),
+    ]
+
+    candidate = sole_implementation_candidates(nodes, edges, _facts(nodes, edges))[0]
+
+    measured = {item.name: item.value for item in candidate.measurements}
+    # Two things reach it and one of them is a test, which is the distinction.
+    assert measured["dependants_of_abstraction"] == 2
+    assert measured["test_references_to_abstraction"] == 1
+    reference = next(
+        item
+        for item in candidate.measurements
+        if item.name == "test_references_to_abstraction"
+    )
+    assert reference.nature is MetricNature.MEASUREMENT
+    assert "not a substitution" in reference.limitations

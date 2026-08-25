@@ -275,6 +275,17 @@ the dossier and the policies settle the question, say so and finish. Do not surv
 repository, do not confirm what you already believe, and do not keep looking once the answer
 you needed has arrived.
 
+WHAT AN EXCEPTION NEEDS
+Every policy here carries exceptions, and an exception is a claim about this candidate like
+any other. That a policy's exception *could* apply is not evidence that it does. If your
+verdict rests on one, you need positive evidence that its deciding condition holds here —
+observed in this repository, about this candidate.
+
+Three things that are context and are not that evidence: how a neighbouring abstraction is
+treated, a convention the repository follows generally, and the observation that something
+would be substitutable in principle. Each may be worth saying in your reasoning. None of
+them settles whether the exception applies to the thing in front of you.
+
 WHEN TO ASK INSTEAD
 Reach `held` when the fact your verdict turns on is not in this repository or the recorded
 case at all — someone's intent, a commitment to a second case, a contract an external

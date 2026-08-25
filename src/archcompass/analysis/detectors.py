@@ -22,8 +22,6 @@ import re
 from collections import defaultdict
 
 from archcompass.analysis.atlas import (
-    DEPENDS_ON_EDGES,
-    IMPLEMENTS_EDGES,
     Atlas,
     AtlasEdge,
     AtlasNode,
@@ -39,6 +37,7 @@ from archcompass.analysis.atlas import (
     NodeType,
     SourceLocation,
 )
+from archcompass.analysis.repository_facts import RepositoryFacts
 
 #: What counting implementations from a static parse cannot establish. Stated on every
 #: candidate: a detector claiming no limitations claims the static view is complete.
@@ -65,16 +64,20 @@ def detect_finding_candidates(atlas: Atlas) -> list[FindingCandidate]:
     """
 
     nodes = {node.atlas_id: node for node in atlas.nodes}
+    # Derived once and handed down. Three detectors used to ask the same questions of the
+    # same graph separately, and the answers drifted — see `repository_facts`.
+    facts = RepositoryFacts.over(nodes, atlas.edges)
     return [
-        *sole_implementation_candidates(nodes, atlas.edges),
-        *duplicated_knowledge_candidates(nodes, atlas.module_facts),
-        *scattered_concept_candidates(nodes, atlas.edges, atlas.module_facts),
+        *sole_implementation_candidates(nodes, atlas.edges, facts),
+        *duplicated_knowledge_candidates(nodes, atlas.module_facts, facts),
+        *scattered_concept_candidates(nodes, atlas.edges, atlas.module_facts, facts),
     ]
 
 
 def sole_implementation_candidates(
     nodes: dict[str, AtlasNode],
     edges: list[AtlasEdge],
+    facts: RepositoryFacts,
 ) -> list[FindingCandidate]:
     """Abstractions with exactly one implementation behind them.
 
@@ -89,23 +92,10 @@ def sole_implementation_candidates(
     the failure it exists to correct.
     """
 
-    implementations: dict[str, list[str]] = defaultdict(list)
-    for edge in edges:
-        if edge.edge_type in IMPLEMENTS_EDGES:
-            implementations[edge.target_id].append(edge.source_id)
-
-    # Kept as the edges themselves rather than a running total. The count alone is what a
-    # judgement was given before, and on this repository it sent investigation after names
-    # the atlas already held: `dependants_of_abstraction = 4` with nothing saying which four.
-    dependants: dict[str, list[AtlasEdge]] = defaultdict(list)
-    for edge in edges:
-        if edge.edge_type in DEPENDS_ON_EDGES:
-            dependants[edge.target_id].append(edge)
-
-    doubles = _test_doubles(nodes)
+    doubles = _test_doubles(nodes, facts)
 
     candidates: list[FindingCandidate] = []
-    for interface_id, implementor_ids in sorted(implementations.items()):
+    for interface_id, implementor_ids in sorted(facts.implementations.items()):
         interface = nodes.get(interface_id)
         if interface is None or interface.node_type is not NodeType.INTERFACE:
             continue
@@ -139,8 +129,9 @@ def sole_implementation_candidates(
                 role="The only implementation of it in this repository.",
             ),
         ]
-        reaching = dependants.get(interface_id, [])
+        reaching = facts.reaches(interface_id)
         offered = _offering(interface, nodes, doubles)
+        from_tests = facts.from_tests(interface_id)
         # Conformance first and then everything that reaches the abstraction, so the shape
         # reads in the order the verdict needs it: what implements this, then what would have
         # to change with it.
@@ -187,10 +178,33 @@ def sole_implementation_candidates(
                             "Matched by method name only, so a class offering the right "
                             "names is not proof it stands in for this abstraction — an "
                             "abstraction declaring one common method may be matched by a "
-                            "double written for something else. Test doubles that are not "
-                            "classes at all — a function, a lambda, a mock built at run "
-                            "time — cannot be seen this way, so zero is not evidence that "
-                            "nothing substitutes it."
+                            "double written for something else. What this method sees is "
+                            "classes: a double that is a function, a lambda or a mock built "
+                            "at run time is outside it. Zero therefore means none was "
+                            "observed by this method, which is what it says and no more — "
+                            "read it beside the resolved test references below rather than "
+                            "as licence to assume an unobserved one."
+                        ),
+                    ),
+                    FindingMeasurement(
+                        name="test_references_to_abstraction",
+                        value=float(len(from_tests)),
+                        unit="references",
+                        nature=MetricNature.MEASUREMENT,
+                        definition=(
+                            "Resolved imports, references and calls into this abstraction "
+                            "whose source is inside a test module. Unlike the count above "
+                            "this is an edge the parser resolved rather than a match on "
+                            "method names, and it is about this abstraction rather than "
+                            "about anything shaped like it."
+                        ),
+                        limitations=(
+                            "A reference is not a substitution: a test naming an abstraction "
+                            "may be asserting about it rather than standing in for it, and "
+                            "this counts either the same. Zero is what this analysis "
+                            "observed — no test module in this snapshot names this "
+                            "abstraction at all — and it is a fact about the snapshot rather "
+                            "than a claim about every way a test could reach it."
                         ),
                     ),
                     FindingMeasurement(
@@ -242,7 +256,9 @@ _SCATTERED_CONCEPT_LIMITS = (
 )
 
 
-def _test_doubles(nodes: dict[str, AtlasNode]) -> list[tuple[str, frozenset[str]]]:
+def _test_doubles(
+    nodes: dict[str, AtlasNode], facts: RepositoryFacts
+) -> list[tuple[str, frozenset[str]]]:
     """The method surface of every class declared in a test module.
 
     Computed once for the repository rather than per candidate: it is a fact about the test
@@ -269,14 +285,11 @@ def _test_doubles(nodes: dict[str, AtlasNode]) -> list[tuple[str, frozenset[str]
             continue
         children[node.parent_id].add(node.symbol_name)
 
-    test_paths = {
-        node.path for node in nodes.values() if node.node_type is NodeType.TEST_MODULE
-    }
     return [
         (node.atlas_id, frozenset(children[node.atlas_id]))
         for node in nodes.values()
         if node.node_type is NodeType.CLASS
-        and node.path in test_paths
+        and node.atlas_id in facts.test_owned
         and children[node.atlas_id]
     ]
 
@@ -313,6 +326,7 @@ def _offering(
 def duplicated_knowledge_candidates(
     nodes: dict[str, AtlasNode],
     module_facts: list[ModuleFacts],
+    facts: RepositoryFacts,
 ) -> list[FindingCandidate]:
     """One constant stated in several modules, with no module owning it.
 
@@ -346,7 +360,7 @@ def duplicated_knowledge_candidates(
         # supposed to happen.
         if len({module.node_id for module, _ in statements}) < 2:
             continue
-        if all(_is_test_module(module, nodes) for module, _ in statements):
+        if all(module.node_id in facts.test_owned for module, _ in statements):
             continue
         ordered = sorted(statements, key=lambda item: item[0].path)
         fingerprints = {constant.value_fingerprint for _, constant in ordered}
@@ -410,22 +424,11 @@ def duplicated_knowledge_candidates(
     return candidates
 
 
-def _is_test_module(module: ModuleFacts, nodes: dict[str, AtlasNode]) -> bool:
-    """Whether this module is one the analyser classified as a test.
-
-    Asked of the atlas rather than of the path, so it is the same answer the rest of the
-    analysis already gives — a repository that keeps its tests somewhere unexpected is
-    classified once, in the parser, and not again by a guess about directory names here.
-    """
-
-    node = nodes.get(module.node_id)
-    return node is not None and node.node_type is NodeType.TEST_MODULE
-
-
 def scattered_concept_candidates(
     nodes: dict[str, AtlasNode],
     edges: list[AtlasEdge],
     module_facts: list[ModuleFacts],
+    facts: RepositoryFacts,
 ) -> list[FindingCandidate]:
     """A concept that has an owner, named in modules that go around it.
 
@@ -509,6 +512,7 @@ def scattered_concept_candidates(
         if not outside:
             continue
         reaching = [module for module in outside if reach.get((module.path, path))]
+        from_tests = [module for module in outside if module.node_id in facts.test_owned]
         candidates.append(
             FindingCandidate(
                 pattern=FindingPattern.SCATTERED_CONCEPT,
@@ -542,6 +546,24 @@ def scattered_concept_candidates(
                             "literals contain the owning module's name."
                         ),
                         limitations=_SCATTERED_CONCEPT_LIMITS,
+                    ),
+                    FindingMeasurement(
+                        name="of_those_that_are_tests",
+                        value=float(len(from_tests)),
+                        unit="modules",
+                        nature=MetricNature.MEASUREMENT,
+                        definition=(
+                            "Of the modules above, those in the test suite. A vendor's name "
+                            "written into twenty test modules and five production ones is a "
+                            "different fact from the same name in twenty-five production "
+                            "modules, and the count above cannot tell them apart."
+                        ),
+                        limitations=(
+                            "A test naming a backend may be exercising the seam that keeps "
+                            "it contained, or may be reaching around it exactly as "
+                            "production code would. Which of the two it is cannot be seen "
+                            "by counting."
+                        ),
                     ),
                     FindingMeasurement(
                         name="of_those_that_reach_it",
