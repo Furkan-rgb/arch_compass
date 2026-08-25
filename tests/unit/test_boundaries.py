@@ -253,9 +253,14 @@ def test_langchain_and_provider_sdks_stay_in_reasoning_and_policy_adapters() -> 
     `langchain_core` is deliberately absent from the list: it is LangGraph's own package,
     and `workflow/service.py` types the graph's config with `RunnableConfig` from it. That
     is the orchestration library, already confined by the guard above, not a provider SDK.
+
+    `deepagents` is on the list. It is an agent harness rather than a provider, but it is the
+    same kind of thing as `langchain` — a vendor whose types would otherwise spread through
+    the packages that are supposed to be stated in our own terms. Only the filesystem
+    middleware and its backend protocol are used, and both are adapted in one file.
     """
 
-    vendors = ("langchain", "google", "ollama", "openai")
+    vendors = ("langchain", "google", "ollama", "openai", "deepagents")
     allowed_roots = (
         SOURCE_ROOT / "reasoning" / "adapters",
         SOURCE_ROOT / "policies" / "adapters",

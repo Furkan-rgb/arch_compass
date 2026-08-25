@@ -286,6 +286,59 @@ class SourceInvestigator(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class SourceMatch:
+    """One line of the reviewed source that matched a search."""
+
+    path: str
+    line: int
+    text: str
+
+
+class ReviewedSource(Protocol):
+    """The repository as it stood at the revision a review was judged from.
+
+    Four read-only operations and no writes, because a judgement reads. It is stated here
+    rather than in `analysis` for the same reason `SourceInvestigator` is: the thing that
+    consumes it is a model-facing adapter, and a port pointing the other way would turn the
+    one import direction between these two packages around.
+
+    Every operation answers about ONE snapshot. Where the revision is recorded and git can
+    serve it, that is the answer, and it keeps answering however far the checkout has moved
+    on — which is what makes a recorded lookup reproducible rather than merely once-true.
+    Where it cannot, the working tree is read, and only after the atlas it belongs to has
+    been confirmed current: a tree can change while a judgement is still using it, so the
+    check belongs immediately before each read rather than once when the source was opened.
+
+    `StaleAtlasError` where that check fails. Never a reading from a newer tree against an
+    older atlas, because the line numbers and the names in the candidate belong to the
+    revision and to no other.
+    """
+
+    def list_directory(self, path: str) -> tuple[str, ...]:
+        """The entries directly under `path`, or an empty tuple where there are none."""
+        ...
+
+    def read_file(self, path: str, *, offset: int, limit: int) -> str:
+        """`limit` lines of one file from `offset`, or "" where the file is not in it."""
+        ...
+
+    def find_paths(self, pattern: str, *, within: str | None, limit: int) -> tuple[str, ...]:
+        """Paths matching a glob, in a stable order, at most `limit` of them."""
+        ...
+
+    def search_lines(
+        self,
+        pattern: str,
+        *,
+        within: str | None,
+        name_pattern: str | None,
+        limit: int,
+    ) -> tuple[SourceMatch, ...]:
+        """Lines matching a pattern, narrowed by subtree and file name, at most `limit`."""
+        ...
+
+
 @dataclass(frozen=True)
 class OfferedInvestigator:
     """A toolbox, or the application's own sentence about why there is none.
