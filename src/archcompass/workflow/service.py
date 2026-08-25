@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Callable, Mapping, Sized
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Mapping, Sequence, Sized
+from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass, replace
 from typing import Protocol, cast
 
@@ -29,6 +29,7 @@ from archcompass.domain._support import new_id, stable_id, utc_now
 from archcompass.domain.errors import (
     NothingToReviewError,
     ReviewNotCancellableError,
+    ReviewNotFoundError,
     ReviewSupersededError,
 )
 from archcompass.persistence.executions import ExecutionRecord
@@ -91,6 +92,13 @@ _JUDGING_STAGES = frozenset({"judge_candidate"})
 #: whose policies have been retrieved.
 _RETRIEVAL_STAGE = "retrieve_policy_set"
 
+#: The subgraphs whose nodes are stages of the review, rather than the insides of one.
+#:
+#: One, and it is the candidate loop: `review_candidate` is a graph on purpose, so that a
+#: reader can see a candidate being retrieved for and then judged. Everything else that runs
+#: under this graph is a node's own business — see `_is_review_update`.
+_REVIEW_SUBGRAPHS = frozenset({"review_candidate"})
+
 #: The nodes that file a snapshot, and therefore the only updates whose review is on disk.
 #:
 #: `compose_final_review` and `compose_waiting_review` also put a `Review` in the state, and
@@ -125,6 +133,24 @@ class _JudgingProgress:
     def observe(self, stage: str, update: Mapping[str, object] | None) -> bool:
         """Take in one graph update. True where the counts moved and are worth reporting."""
 
+        # Retrieval is counted as well as judging, because it is most of the wait and none
+        # of it used to show. A candidate's turn is retrieve-then-judge, and only the second
+        # half moved a number — so a reader watched "Judging candidate 1 of 50" for as long
+        # as the retrieval took, which is a sentence that is not true yet about a count that
+        # is not moving. One update per candidate arrives from this stage, so counting them
+        # is counting candidates rather than inventing a percentage.
+        #
+        # Counted on the stage arriving and never on what it carries, which is the whole
+        # reason it counted nothing at all. The per-candidate subgraph is compiled with an
+        # output schema of `retrievals` and `findings`, and `updates` filters every node's
+        # write through it: `retrieve_policy_set` writes `retrieval`, which is not in that
+        # schema, so what arrives is `{"retrieve_policy_set": None}` — the stage, and no
+        # payload. Reading the payload first meant the `update is None` guard below returned
+        # before this line was ever reached, and the count sat at zero through every review
+        # while the stage it counts arrived forty-six times.
+        if stage == _RETRIEVAL_STAGE:
+            self.retrieved = min(self.retrieved + 1, self.to_judge)
+            return True
         if update is None:
             return False
         selected = update.get("selected_candidates")
@@ -132,15 +158,6 @@ class _JudgingProgress:
             self.to_judge = len(selected)
             self.judged = 0
             self.retrieved = 0
-            return True
-        # Retrieval is counted as well as judging, because it is most of the wait and none
-        # of it used to show. A candidate's turn is retrieve-then-judge, and only the second
-        # half moved a number — so a reader watched "Judging candidate 1 of 50" for as long
-        # as the retrieval took, which is a sentence that is not true yet about a count that
-        # is not moving. One update per candidate arrives from this stage, so counting them
-        # is counting candidates rather than inventing a percentage.
-        if stage == _RETRIEVAL_STAGE:
-            self.retrieved = min(self.retrieved + 1, self.to_judge)
             return True
         if stage not in _JUDGING_STAGES:
             return False
@@ -295,20 +312,25 @@ class ReviewWorkflowService:
                     stream_mode=["updates"],
                     subgraphs=True,
                 ):
-                    _, payload = self._streamed(raw)
-                    stage, update = self._progress_update(payload)
-                    report(stage)
-                    if judging.observe(stage, update):
-                        self._runner.report_judgements(
-                            thread_id,
-                            judged=judging.judged,
-                            to_judge=judging.to_judge,
-                            retrieved=judging.retrieved,
-                        )
-                    review = update.get("review") if update is not None else None
-                    if stage in _RECORDING_STAGES and isinstance(review, Review):
-                        bound = self._bind(thread_id, review)
-                        self._runner.bind_review(thread_id, bound.id)
+                    namespace, _, payload = self._streamed(raw)
+                    # Reported only where the update is the review's own. The cancellation
+                    # check below is left outside that, and is the better for it: a hinge
+                    # investigation is minutes of turns inside one node, and its updates are
+                    # now the only thing offering to stop during them.
+                    if self._is_review_update(namespace):
+                        stage, update = self._progress_update(payload)
+                        report(stage)
+                        if judging.observe(stage, update):
+                            self._runner.report_judgements(
+                                thread_id,
+                                judged=judging.judged,
+                                to_judge=judging.to_judge,
+                                retrieved=judging.retrieved,
+                            )
+                        review = update.get("review") if update is not None else None
+                        if stage in _RECORDING_STAGES and isinstance(review, Review):
+                            bound = self._bind(thread_id, review)
+                            self._runner.bind_review(thread_id, bound.id)
                     # Between stages, never inside one: the node that just returned wrote a
                     # checkpoint, so the graph stops at a boundary rather than half way
                     # through a step.
@@ -471,6 +493,20 @@ class ReviewWorkflowService:
                 f"Review {review_id} is {waiting.status.value}, not awaiting answers"
             )
         thread_id = self._executions.thread_for_review(review_id)
+        # The execution's word, and it is the half this had been missing while its docstring
+        # said otherwise. A snapshot is immutable, so the two checks around it can both pass
+        # over a round that has already been answered: `waiting.status` says
+        # `awaiting_answers` for ever, and `current_review_id` still names this snapshot for
+        # the whole of the rejudgement, because the next one is not filed until the end of it.
+        # So a second tab holding the pre-answer page could cancel a review that was being
+        # judged — writing `cancelled` over `running` and then `_release` deleting, out from
+        # under the streaming driver, the checkpoints it was reading. The run died mid-flight
+        # with no error anywhere and nothing to resume.
+        if self._executions.status(thread_id) != ReviewStatus.AWAITING_ANSWERS.value:
+            raise ReviewNotCancellableError(
+                f"Review {review_id} is not waiting for an answer any more — the round was "
+                "taken and is being judged. Read it again before stopping it."
+            )
         current_id = self._executions.current_review_id(thread_id)
         if current_id is not None and current_id != review_id:
             raise ReviewSupersededError(
@@ -526,6 +562,75 @@ class ReviewWorkflowService:
         """
 
         return self._reviews.sequence_of(review_id)
+
+    def is_answerable(self, review_id: str) -> bool:
+        """Whether this snapshot is the round still waiting, rather than one that was.
+
+        A review is immutable, so a snapshot that asked a question says `awaiting_answers`
+        for ever — that is right as a record and wrong as a state. Whether anybody can still
+        answer it is a fact about the execution: the round has to be open, and this snapshot
+        has to be the one it is open on.
+
+        Both halves are already checked where it matters — `_resume_command` refuses a
+        submission written against a superseded snapshot, and `cancel` refuses to stop a
+        round nobody is looking at — but neither of them could be asked in advance, so a
+        client had only the snapshot's own status to decide what to offer. It offered an
+        answer form for a round that had already been answered and was being judged, and a
+        person filling it in got a no-op. This is the same two facts, asked before rather
+        than after, so the control is not drawn in the first place.
+
+        False rather than an error where the execution has gone: a review outlives the row
+        that produced it, and a reader of an old one is owed the review rather than a 404
+        about an alias table.
+        """
+
+        with suppress(ReviewNotFoundError):
+            thread_id = self._executions.thread_for_review(review_id)
+            if self._executions.status(thread_id) != ReviewStatus.AWAITING_ANSWERS.value:
+                return False
+            current = self._executions.current_review_id(thread_id)
+            # `None` is the execution having filed nothing yet, which cannot be a
+            # superseding snapshot — so it does not contradict this one.
+            return current is None or current == review_id
+        return False
+
+    def superseding_review_of(self, review_id: str) -> str | None:
+        """The snapshot that replaced this one, or `None` where this is the current one.
+
+        A revision is recorded once per round it waits in and once more when it finishes, so
+        one review can be three records under one sequence. The listing keeps the newest —
+        one entry per revision — which is right, and which leaves every earlier snapshot
+        reachable only by the URL somebody is already holding. Reading one of those, a person
+        saw a review still waiting on a question they had answered an hour before, under a
+        report composed before their answers existed. Everything on the page was true about
+        the moment it was recorded and none of it was true now, and the page had nothing to
+        say about the difference.
+
+        The execution knows which snapshot it currently stands on, and that is the answer for
+        a run mid-flight and for one that has finished alike. `None` where the two agree, so
+        the current record of a revision never claims to have been replaced.
+        """
+
+        with suppress(ReviewNotFoundError):
+            thread_id = self._executions.thread_for_review(review_id)
+            current = self._executions.current_review_id(thread_id)
+            return None if current is None or current == review_id else current
+        return None
+
+    def status_of(self, review_id: str) -> str | None:
+        """The stored status of one snapshot, without decoding it into a caller's hands.
+
+        Its one use is saying what became of a snapshot that replaced another, and the id
+        alone cannot support a true sentence there. A waiting snapshot is superseded by two
+        different acts — its round was answered, or somebody stopped the review — and both
+        leave it saying `awaiting_answers` with a successor beside it. Told only that a
+        successor exists, a surface has to guess, and it guessed "answered": a reader who had
+        pressed *Stop this review* was told their question had since been answered.
+        """
+
+        with suppress(ReviewNotFoundError):
+            return self._reviews.get(review_id).status.value
+        return None
 
     def list(
         self, *, case_id: str | None = None, limit: int = 100
@@ -825,22 +930,53 @@ class ReviewWorkflowService:
         return recorded
 
     @staticmethod
-    def _streamed(raw: object) -> tuple[str, object]:
-        """One streamed item as `(mode, payload)`, however the graph wrapped it.
+    def _streamed(raw: object) -> tuple[tuple[str, ...], str, object]:
+        """One streamed item as `(namespace, mode, payload)`, however the graph wrapped it.
 
         Asking for more than one stream mode changes the shape of every item — `(namespace,
         mode, payload)` rather than `(namespace, payload)` — so the unwrapping is here and
         the loop reads modes rather than guessing from the payload. An item that arrives in
-        neither shape is treated as an update, which is what it was before this existed.
+        neither shape is treated as an update at the top level, which is what it was before
+        this existed.
+
+        The namespace is carried out rather than dropped because it is the only thing that
+        says whose graph an update came from, and not every graph running under this one is
+        ours: see `_is_review_update`.
         """
 
         if isinstance(raw, tuple):
             parts = cast("tuple[object, ...]", raw)
             if len(parts) == 3:
-                return str(parts[1]), parts[2]
+                first = parts[0]
+                namespace = (
+                    tuple(str(item) for item in cast("Sequence[object]", first))
+                    if isinstance(first, (tuple, list))
+                    else ()
+                )
+                return namespace, str(parts[1]), parts[2]
             if len(parts) == 2:
-                return "updates", parts[1]
-        return "updates", cast("object", raw)
+                return (), "updates", parts[1]
+        return (), "updates", cast("object", raw)
+
+    @staticmethod
+    def _is_review_update(namespace: tuple[str, ...]) -> bool:
+        """Whether this update came from a graph the review publishes stages for.
+
+        `subgraphs=True` reports every graph running underneath this one, and one of them is
+        not ours. `investigate_hinges` runs a `create_agent` tool loop, which is itself a
+        compiled graph and inherits this run's config — so its internals arrived in the
+        stage list as stages: `model`, `tools` and `ModelCallLimitMiddleware.before_model`,
+        forty-nine turns of them, which a reader saw as a progress page that had stopped
+        being about their review. They are not stages of anything a person asked for. They
+        are what one stage is made of, and that stage is already reported.
+
+        So the rule is by namespace rather than by name: the review's own graphs are this
+        one and the per-candidate subgraph, and anything nested inside a node belongs to
+        that node. A second published subgraph would be a second entry here — deliberately,
+        because publishing a graph's insides as progress is a decision rather than a default.
+        """
+
+        return all(item.split(":", 1)[0] in _REVIEW_SUBGRAPHS for item in namespace)
 
     @staticmethod
     def _progress_update(raw: object) -> tuple[str, Mapping[str, object] | None]:

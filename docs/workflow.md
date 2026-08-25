@@ -52,6 +52,18 @@ private orchestration loop. Retrieval and judgement are separate nodes in a visi
 candidate subgraph, so a reader can see that a candidate is judged against policies chosen
 for it rather than against the whole corpus.
 
+Every selected candidate is dispatched at once, and how many of them reach a model at once is
+a separate question with a separate answer. The graph is as wide as the review; the provider
+is as wide as it says it is, through `ProviderDefaults.max_parallel_requests`, and the gate
+that spends that number lives in `SelectedLangChainChatModel`. The two are apart on purpose.
+A bound in the graph would be a bound on the fan-out — which is a description of the work,
+and the same on every provider — and it would sit in the executor LangGraph also runs its
+checkpoint writes through, where a width of one can deadlock. A bound at the transport is a
+statement about who is listening, which is what actually varies: a hosted API answers in
+parallel, and a local runner with one slot queues everything past the first request until
+their deadlines run out. See "What bounds a review, and what does not" in
+[operations.md](operations.md) for what that cost when nothing said it.
+
 ## Judging a candidate
 
 `retrieve_policy_set` selects policies for one candidate — see
@@ -174,6 +186,34 @@ behind.
 one — same case, earlier answers unchanged, at least one new answer — and selects every
 candidate. An answer is about intent, and intent bears on all of them rather than only on the
 ones whose question mentioned it.
+
+A snapshot's `status` says what was true when it was recorded, and a client deciding whether
+to offer an answer form needs what is true now. Those are different questions on an immutable
+record: the copy that asked says `awaiting_answers` for ever, so a page reading it kept the
+form up after the round had been answered and was being judged, and submitting it did nothing
+— `_resume_command` refuses a submission written against a superseded snapshot, and `cancel`
+refuses to stop a round nobody is looking at. `ReviewResponse.answerable` is those same two
+checks asked in advance: the round is open, and this snapshot is the one it is open on. The
+rail follows the same rule from the other side — one entry per revision, so a run continuing
+a revision is that revision's row saying what it is doing rather than a second row under its
+number.
+
+`ReviewResponse.superseded_by` is the other half of it, and `answerable` cannot carry it: a
+finished review and a superseded snapshot both answer `false` to "can this be answered" while
+needing opposite things said about them — one is the review, the other is history with a
+successor to read. It is the execution's current snapshot wherever that is not this one,
+which is the right answer for a run mid-flight and for one that has finished alike.
+`superseded_by_status` travels with it and is a fact about the *review* rather than about the
+round the record asked: it is the status of the record the execution now stands on, so for
+round one of a review cancelled at round two it says `cancelled` about a round that was
+answered. Anything talking about a round has to say where to look rather than infer from it.
+
+Every answer records the case revision it was recorded on, stamped by `ArchitectureCase.with_answers`
+rather than supplied — a caller building an `Answer` from a question and a submission cannot
+know which revision is open. With `Question.round` it addresses a round exactly: a review
+keeps one revision however many rounds it asks, so `round` is unique inside a review and
+repeats across the life of a case, and grouping a case's history on it alone would fold two
+different conversations into one.
 
 At most **two** interrupts: `round >= 3` seals. `MAX_ASKED_HINGES` (8) caps how many held
 findings a round asks about, which is a different number from the eight it investigates and

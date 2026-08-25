@@ -51,7 +51,7 @@ export function Drawer({
         className={cn(
           "relative flex max-h-full flex-col border-rule bg-surface shadow-float",
           side === "right" && "ml-auto h-full w-full max-w-[26rem] animate-slide-left border-l",
-          side === "left" && "mr-auto h-full w-full max-w-[20rem] animate-slide-left border-r",
+          side === "left" && "mr-auto h-full w-full max-w-[20rem] animate-slide-right border-r",
           side === "bottom" &&
             "mt-auto max-h-[85vh] w-full animate-slide-up rounded-t-xl border-t pb-[env(safe-area-inset-bottom)]",
           className,

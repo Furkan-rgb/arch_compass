@@ -156,5 +156,19 @@ OLLAMA_DESCRIPTOR = ProviderDescriptor(
         # that through — it compares the two numbers, not their sum.
         max_output_tokens=8192,
         max_output_tokens_thinking=16384,
+        # One, because a local runner has one slot. Ollama starts `llama-server` with
+        # `-np 1` for a model this size, so it answers one request and queues the rest —
+        # and a queued request is not idle, it is spending the 360 seconds it was given.
+        #
+        # Measured on this repository at 46 candidates: a judgement is a 13,000-token prompt
+        # and about 900 tokens of answer, which the card does in a little over 30 seconds.
+        # Sent all at once, the tenth request in the queue is served at 300 seconds and the
+        # eleventh past the deadline — so the review reported nine judged, stopped moving,
+        # and had thirty-six timeouts waiting for it. Sent one at a time, the same 46
+        # judgements are the same half hour of GPU work and every one of them lands.
+        #
+        # Raise it only alongside `OLLAMA_NUM_PARALLEL`: the number that matters is how many
+        # the runner serves at once, and asking for more than that only rebuilds the queue.
+        max_parallel_requests=1,
     ),
 )

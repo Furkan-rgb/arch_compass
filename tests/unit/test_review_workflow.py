@@ -32,7 +32,7 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.domain._support import new_id, utc_now
-from archcompass.domain.errors import ProviderError
+from archcompass.domain.errors import ProviderError, ReviewNotCancellableError
 from archcompass.persistence.executions import SQLiteReviewExecutionRepository
 from archcompass.persistence.reviews import SQLiteCoreReviewRepository
 from archcompass.policies.ports import DensePolicyMatch
@@ -293,7 +293,12 @@ def test_graph_interrupts_and_resumes_through_explicit_nodes(tmp_path: Path) -> 
         ReviewStatus.AWAITING_ANSWERS,
         ReviewStatus.COMPLETED,
     ]
-    assert completed["review"].case.answers == (answer,)
+    # Stamped with the revision the graph opened for this review, which is the whole of what
+    # `case_revision` is for: a round is addressed by which revision asked and which of its
+    # rounds, and `round` alone repeats across a case's life.
+    assert completed["review"].case.answers == (
+        replace(answer, case_revision=completed["review"].case.revision),
+    )
 
 
 class TwoRoundQuestions:
@@ -498,6 +503,82 @@ def test_graph_exposes_capability_sequence_and_candidate_fanout(tmp_path: Path) 
     assert "investigate_hinges" in rendered
     assert "generate_questions" in rendered
     assert "select_candidates_for_rejudgement" in rendered
+
+
+def test_a_round_being_judged_cannot_be_cancelled_out_from_under_itself(
+    tmp_path: Path,
+) -> None:
+    """The guard `cancel`'s own docstring claimed and did not have.
+
+    Both of its checks pass over a round that has already been answered but is still being
+    judged. The snapshot is immutable, so it says `awaiting_answers` for ever; and
+    `current_review_id` still names *that* snapshot for the whole of the rejudgement, because
+    the next one is not filed until the end of it. So a second tab still holding the
+    pre-answer page could stop a review that was mid-flight — writing `cancelled` over
+    `running`, and then `_release` deleting the checkpoints the streaming driver was reading,
+    out from under it. The run died with no error recorded anywhere and nothing to resume.
+
+    The interleaving is built rather than raced. `resume_background` marks the execution
+    `running` and only then starts the thread, so setting that status by hand is exactly the
+    window a second tab presses the button in — and it is the one state neither of the old
+    checks could see.
+    """
+
+    repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+    database = tmp_path / "cancel.sqlite3"
+
+    def connect() -> sqlite3.Connection:
+        return sqlite3.connect(database)
+
+    reviews = SQLiteCoreReviewRepository(connect)
+    executions = SQLiteReviewExecutionRepository(connect)
+    graph = build_review_graph(
+        ReviewWorkflowCapabilities(
+            context=Context(repository, case),
+            analyzer=Analyzer(),
+            detector=Detector(),
+            revisions=Revisions(),
+            initial_candidates=Initial(),
+            corpus=Corpus(),
+            retriever=DensePolicyRetriever(Index(), top_k=8),
+            judge=Judge(),
+            questions=Questions(),
+            cases=Cases(),
+            composer=Composer(),
+            recorder=reviews,
+        ),
+        checkpointer=InMemorySaver(),
+    )
+    service = ReviewWorkflowService(
+        graph, reviews=reviews, recorder=reviews, executions=executions
+    )
+
+    waiting = service.start(
+        repository_id=repository.id,
+        branch_id=repository.branch_id,
+        case_id=case.id,
+    )
+    assert waiting.status is ReviewStatus.AWAITING_ANSWERS
+    thread_id = executions.thread_for_review(waiting.id)
+
+    # While it is genuinely waiting, stopping it is how a round ends.
+    assert service.is_answerable(waiting.id) is True
+
+    # The window: answers taken, thread running, no later snapshot filed yet. Both of the
+    # facts the old checks read still point at this review.
+    executions.resume(thread_id)
+    assert executions.status(thread_id) == "running"
+    assert executions.current_review_id(thread_id) == waiting.id
+    assert reviews.get(waiting.id).status is ReviewStatus.AWAITING_ANSWERS
+
+    with pytest.raises(ReviewNotCancellableError, match="being judged"):
+        service.cancel(waiting.id)
+
+    # And nothing was written: the execution is still the one the driver is running.
+    assert executions.status(thread_id) == "running"
+    assert executions.current_review_id(thread_id) == waiting.id
+    assert service.is_answerable(waiting.id) is False
 
 
 def test_workflow_service_resumes_idempotently_and_records_omissions_as_skips(

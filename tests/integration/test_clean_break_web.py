@@ -317,3 +317,115 @@ def test_a_run_carries_the_folders_it_was_started_without(runtime: Runtime) -> N
             "tests",
         ]
         _quiet()
+
+
+def test_an_answered_snapshot_stops_offering_to_be_answered(runtime: Runtime) -> None:
+    """The fact a client could not read, and drew an answer form for want of.
+
+    A review is immutable, so the snapshot that asked a question says `awaiting_answers` for
+    ever. That is right as a record and wrong as a state, and it was the only thing a client
+    had: the review page read it, kept the clarification form on screen after the round had
+    been answered, and submitting it did nothing — the server refuses a submission written
+    against a superseded snapshot, which is the correct answer to a request that should
+    never have been offered.
+
+    `answerable` is the other fact, and the assertion below is the whole of it: one review,
+    two reads, the status identical and the affordance gone.
+    """
+
+    repository = str(Path("examples/cases/warehouse-sync/repository").resolve())
+    with TestClient(create_app(runtime)) as client:
+        started = client.post("/api/repositories/start", json={"root_path": repository})
+        run_id = client.post(
+            "/api/reviews/runs",
+            json={
+                "case_id": started.json()["case_id"],
+                "repository_root": repository,
+            },
+        ).json()["run_id"]
+        waiting_id = _settled(client, run_id)["review_id"]
+        assert isinstance(waiting_id, str)
+
+        waiting = client.get(f"/api/reviews/{waiting_id}").json()
+        assert waiting["status"] == "awaiting_answers"
+        assert waiting["answerable"] is True
+
+        answered = client.post(
+            f"/api/reviews/{waiting_id}/answers/runs",
+            json={"answers": [], "stop": True},
+        )
+        assert answered.status_code == 202, answered.text
+        _settled(client, answered.json()["run_id"])
+
+        superseded = client.get(f"/api/reviews/{waiting_id}").json()
+        # Immutable: it still says what it said, and it is still the same snapshot.
+        assert superseded["status"] == "awaiting_answers"
+        assert superseded["round"] == waiting["round"]
+        assert superseded["questions"] == waiting["questions"]
+        # And it is no longer the round anybody can answer.
+        assert superseded["answerable"] is False
+        # It also says what replaced it, which `answerable` cannot: a finished review and a
+        # superseded snapshot both answer `false` to "can this be answered" while needing
+        # opposite things said about them. Without this a reader holding an old URL was shown
+        # a review waiting on a question answered an hour before, under a report composed
+        # before the answers existed, with nothing on the page pointing anywhere.
+        current_id = superseded["superseded_by"]
+        assert current_id and current_id != waiting_id
+        current = client.get(f"/api/reviews/{current_id}").json()
+        assert current["sequence"] == superseded["sequence"]
+        assert current["status"] == "completed"
+        # The current record of a revision never claims to have been replaced.
+        assert current["superseded_by"] is None
+        assert waiting["superseded_by"] is None
+
+        # The listing agrees with the read, because the workbench uses one and the reviews
+        # page uses the other and a form on one screen and not the other is the same bug.
+        # It holds one entry per revision rather than per snapshot, so the superseded one is
+        # not in it at all — what has to be true is that nothing left in it still offers.
+        listed = client.get("/api/reviews").json()
+        assert listed and not [item["id"] for item in listed if item["answerable"]]
+    _quiet()
+
+
+def test_a_successor_that_cannot_be_read_is_not_advertised(runtime: Runtime) -> None:
+    """A link is only worth publishing if it leads somewhere.
+
+    `delete` removes a snapshot and leaves the execution's `current_review_id` naming it, so
+    the id outlives the record. Published on its own that is a successor answering 404, under
+    a banner inviting somebody to go and read it — and `superseded_by_status` would be null
+    beside it, which is the shape that says the record is gone. Being able to say what became
+    of a snapshot is the same question as being able to open it, so the two travel together.
+    """
+
+    repository = str(Path("examples/cases/warehouse-sync/repository").resolve())
+    with TestClient(create_app(runtime)) as client:
+        started = client.post("/api/repositories/start", json={"root_path": repository})
+        run_id = client.post(
+            "/api/reviews/runs",
+            json={
+                "case_id": started.json()["case_id"],
+                "repository_root": repository,
+            },
+        ).json()["run_id"]
+        waiting_id = _settled(client, run_id)["review_id"]
+        assert isinstance(waiting_id, str)
+
+        answered = client.post(
+            f"/api/reviews/{waiting_id}/answers/runs",
+            json={"answers": [], "stop": True},
+        )
+        assert answered.status_code == 202, answered.text
+        _settled(client, answered.json()["run_id"])
+
+        superseded = client.get(f"/api/reviews/{waiting_id}").json()
+        successor = superseded["superseded_by"]
+        assert successor and superseded["superseded_by_status"]
+        assert client.get(f"/api/reviews/{successor}").status_code == 200
+
+        assert client.delete(f"/api/reviews/{successor}").status_code == 204
+
+        # The id survives in the execution row; the record does not, so neither is published.
+        orphaned = client.get(f"/api/reviews/{waiting_id}").json()
+        assert orphaned["superseded_by"] is None
+        assert orphaned["superseded_by_status"] is None
+    _quiet()

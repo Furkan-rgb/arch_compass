@@ -19,6 +19,7 @@ from archcompass.domain import (
     RecordedInvestigation,
     RepositoryRef,
     Review,
+    ReviewStatus,
     Termination,
 )
 from archcompass.domain.errors import ReviewHasNoReportError
@@ -222,6 +223,12 @@ class AnswerResponse(APIModel):
     value: str | None
     actor: str
     answered_at: str
+    #: Which case revision this answer was recorded on — the review that asked it, said the
+    #: only way a case can say it. With `question.round` it addresses a round exactly: round
+    #: is unique inside a review and repeats across a case's life, because a review keeps one
+    #: revision however many rounds it asks. Zero on an answer recorded before this was
+    #: stamped, which a reader groups under the case rather than under a round.
+    case_revision: int = 0
 
 
 class CaseResponse(APIModel):
@@ -436,9 +443,56 @@ class ReviewResponse(APIModel):
     started_at: str
     finished_at: str | None
     failure: str | None
+    #: Whether this snapshot is the round still waiting for an answer, rather than one that
+    #: was answered and superseded.
+    #:
+    #: `status` cannot say this and should not be asked to. A review is immutable, so a
+    #: snapshot that asked says `awaiting_answers` for ever — a true statement about the
+    #: moment it was recorded, and not a statement about now. A client reading it as one drew
+    #: an answer form on a round that had already been answered and was being judged, and
+    #: submitting it did nothing: the server refuses a submission written against a
+    #: superseded snapshot, which is the right answer to a request that should never have
+    #: been offered.
+    #:
+    #: So this is the execution's answer to the same question, and the two facts behind it
+    #: are the two `_resume_command` checks: the round is open, and this snapshot is the one
+    #: it is open on. False on every review that is not waiting at all, which is most of
+    #: them.
+    answerable: bool = False
+    #: The snapshot that replaced this one, where this is not the newest of its revision.
+    #:
+    #: A review is immutable and a revision is recorded once per round, so review 2 can be
+    #: three records: the round it first asked in, the round it asked again in, and the one
+    #: it finished as. Only the last is in the listing — that is one entry per revision, and
+    #: it is right — which leaves the earlier two reachable by their own URLs and by nothing
+    #: else. A reader holding one of those URLs was shown a review waiting on a question that
+    #: had been answered hours ago, with a report composed before the answers existed, and
+    #: nothing on the page said so or pointed anywhere.
+    #:
+    #: `answerable` cannot carry this. It says whether the round is open, and both a
+    #: superseded snapshot and a finished review answer `false` to that while needing
+    #: opposite things said about them: one is history with a successor to read, the other is
+    #: the review itself.
+    superseded_by: str | None = None
+    #: What became of that snapshot: `completed`, `cancelled`, `failed`, or `awaiting_answers`
+    #: where the review went on to ask again.
+    #:
+    #: Carried beside the id because the id alone cannot support a true sentence. A waiting
+    #: snapshot is superseded by two different acts — its round was answered, or somebody
+    #: stopped the review — and both leave it saying `awaiting_answers` with a successor. A
+    #: surface told only that a successor exists has to guess, and it guessed "answered",
+    #: which told a reader who had stopped the review that their question had been answered.
+    superseded_by_status: str | None = None
 
     @classmethod
-    def from_domain(cls, review: Review) -> ReviewResponse:
+    def from_domain(
+        cls,
+        review: Review,
+        *,
+        answerable: bool = False,
+        superseded_by: str | None = None,
+        superseded_by_status: str | None = None,
+    ) -> ReviewResponse:
         repository = _repository(review.repository)
         questions = {
             item.id: QuestionResponse(
@@ -469,6 +523,9 @@ class ReviewResponse(APIModel):
             sequence=review.sequence,
             round=review.round,
             status=review.status.value,
+            answerable=answerable,
+            superseded_by=superseded_by,
+            superseded_by_status=superseded_by_status,
             previous_review_id=review.previous_review_id,
             repository=repository,
             atlas=AtlasResponse(
@@ -491,6 +548,7 @@ class ReviewResponse(APIModel):
                         value=item.value,
                         actor=item.actor,
                         answered_at=item.answered_at.isoformat(),
+                        case_revision=item.case_revision,
                     )
                     for item in review.case.answers
                 ],
@@ -664,6 +722,35 @@ def _submitted(request: ReviewAnswersRequest) -> tuple[SubmittedAnswer, ...]:
     )
 
 
+def _projected(runtime: Runtime, review: Review) -> ReviewResponse:
+    """One review as a client reads it, including whether it can still be answered.
+
+    The status is checked first and it is not a redundant guard: `is_answerable` reads two
+    rows, a listing is a hundred reviews, and all but one of them are settled. Asking the
+    execution store about a completed review from last week to be told "no" is a hundred
+    lookups to reach the answer its own status already gave.
+    """
+
+    workflow = runtime.review_workflow_service
+    # Asked once and passed on rather than resolved twice: a listing is a hundred rows, and
+    # the successor's status is a read of the successor rather than of this review.
+    superseding = workflow.superseding_review_of(review.id)
+    # Advertised only where it can actually be read. `delete` removes a snapshot and leaves the
+    # execution's `current_review_id` naming it, so the id survives its record: published on its
+    # own it was a successor that answered 404, under a banner inviting somebody to go and read
+    # it. Being able to say what became of it is the same question as being able to open it.
+    superseding_status = workflow.status_of(superseding) if superseding else None
+    return ReviewResponse.from_domain(
+        review,
+        answerable=(
+            review.status is ReviewStatus.AWAITING_ANSWERS
+            and workflow.is_answerable(review.id)
+        ),
+        superseded_by=superseding if superseding_status else None,
+        superseded_by_status=superseding_status,
+    )
+
+
 def routes() -> APIRouter:
     router = APIRouter()
 
@@ -682,7 +769,7 @@ def routes() -> APIRouter:
             case_revision=request.case_revision,
             ci=request.ci,
         )
-        return ReviewResponse.from_domain(review)
+        return _projected(runtime, review)
 
     def _describe_run(run_id: str, runtime: Runtime) -> ReviewRunResponse:
         """A run as the revision it will be: its lineage, and the number it will carry.
@@ -791,7 +878,7 @@ def routes() -> APIRouter:
             _submitted(request),
             stop=request.stop,
         )
-        return ReviewResponse.from_domain(review)
+        return _projected(runtime, review)
 
     @router.post(
         "/api/reviews/{review_id}/answers/runs",
@@ -876,13 +963,13 @@ def routes() -> APIRouter:
                 for item in runtime.review_workflow_service.list_summaries(limit=limit)
             ]
         return [
-            ReviewResponse.from_domain(item)
+            _projected(runtime, item)
             for item in runtime.review_workflow_service.list(limit=limit)
         ]
 
     @router.get("/api/reviews/{review_id}", responses=problem_responses(404, 422))
     def get_review(runtime: RuntimeDep, review_id: str) -> ReviewResponse:
-        return ReviewResponse.from_domain(runtime.review_workflow_service.get(review_id))
+        return _projected(runtime, runtime.review_workflow_service.get(review_id))
 
     @router.get(
         "/api/reviews/{review_id}/report",
@@ -899,7 +986,7 @@ def routes() -> APIRouter:
         "/api/reviews/{review_id}/cancel", responses=problem_responses(404, 409, 422)
     )
     def cancel_review(runtime: RuntimeDep, review_id: str) -> ReviewResponse:
-        return ReviewResponse.from_domain(runtime.review_workflow_service.cancel(review_id))
+        return _projected(runtime, runtime.review_workflow_service.cancel(review_id))
 
     @router.delete(
         "/api/reviews/{review_id}", status_code=204, responses=problem_responses(404, 409)

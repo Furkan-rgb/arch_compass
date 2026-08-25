@@ -8,7 +8,7 @@ import pytest
 
 from archcompass.domain.errors import ReviewStillRunningError
 from archcompass.workflow.runs import _TERMINAL_HISTORY, ReviewRunner
-from archcompass.workflow.service import _JudgingProgress
+from archcompass.workflow.service import ReviewWorkflowService, _JudgingProgress
 
 
 def test_a_run_is_addressable_before_it_has_finished() -> None:
@@ -158,9 +158,16 @@ def test_the_candidate_loop_is_counted_because_a_stage_list_cannot_count_it() ->
     # is most of the wait: while only judging moved a number, the line read "Judging
     # candidate 1 of 50" from the moment the round selected — a claim about a candidate
     # nothing had looked at, on a count that then sat still for as long as retrieval took.
-    assert progress.observe("retrieve_policy_set", {"retrieval": object()})
+    #
+    # `None` rather than the node's own return, because `None` is what arrives. The
+    # per-candidate subgraph declares an output schema of `retrievals` and `findings`, and
+    # `updates` filters each node's write through it — `retrieve_policy_set` writes
+    # `retrieval`, which is not in that schema, so the stage arrives carrying nothing. This
+    # test used to hand it `{"retrieval": ...}`, a shape the graph has never produced, and
+    # passed while every real review reported nothing retrieved.
+    assert progress.observe("retrieve_policy_set", None)
     assert (progress.retrieved, progress.judged) == (1, 0)
-    assert progress.observe("retrieve_policy_set", {"retrieval": object()})
+    assert progress.observe("retrieve_policy_set", None)
     assert (progress.retrieved, progress.judged) == (2, 0)
 
     assert progress.observe("judge_candidate", {"findings": {"a": object()}})
@@ -168,7 +175,7 @@ def test_the_candidate_loop_is_counted_because_a_stage_list_cannot_count_it() ->
 
     # Neither half runs past the selection it belongs to, however many updates arrive.
     for _ in range(5):
-        progress.observe("retrieve_policy_set", {"retrieval": object()})
+        progress.observe("retrieve_policy_set", None)
     assert progress.retrieved == 3
 
     # A second round counts its own selection rather than continuing the first's, and both
@@ -482,3 +489,52 @@ def test_a_run_whose_terminal_state_could_not_be_recorded_is_not_evicted() -> No
     # Kept, because nothing recorded that it ended.
     assert runner.state("unrecorded") is not None
     assert "unrecorded" not in runner._terminal
+
+
+def test_the_stage_list_is_this_review_and_not_every_graph_under_it() -> None:
+    """`subgraphs=True` reports everything running underneath, and one of them is not ours.
+
+    `investigate_hinges` runs a `create_agent` tool loop. That is a compiled graph, it
+    inherits the run's config, and so its internals arrived as stages: forty-nine turns of
+    `model`, `tools` and `ModelCallLimitMiddleware.before_model` on top of a review's own
+    twenty-odd steps. A reader watching a review saw a progress page that had stopped being
+    about their review — and none of those rows is a thing anybody asked for, they are what
+    one row is made of.
+
+    The candidate subgraph is the opposite case and has to keep working: it is a graph
+    precisely so that retrieval and judgement are visible per candidate.
+    """
+
+    top_level = ReviewWorkflowService._is_review_update(())
+    candidate = ReviewWorkflowService._is_review_update(("review_candidate:2f1a",))
+    agent = ReviewWorkflowService._is_review_update(("investigate_hinges:9c04",))
+    nested = ReviewWorkflowService._is_review_update(("review_candidate:2f1a", "tools:1"))
+
+    assert (top_level, candidate) == (True, True)
+    assert (agent, nested) == (False, False)
+
+
+def test_a_streamed_item_is_unwrapped_whatever_shape_it_arrives_in() -> None:
+    """The namespace is carried out, because it is the only thing that says whose graph it is."""
+
+    asked_for_two_modes = ReviewWorkflowService._streamed(
+        (("review_candidate:2f1a",), "updates", {"judge_candidate": {"findings": {}}})
+    )
+    assert asked_for_two_modes == (
+        ("review_candidate:2f1a",),
+        "updates",
+        {"judge_candidate": {"findings": {}}},
+    )
+
+    # The shapes a graph asked for one mode, or for none, answers with. Both are top-level:
+    # an item that does not say where it came from came from here.
+    assert ReviewWorkflowService._streamed(((), {"load_context": {}})) == (
+        (),
+        "updates",
+        {"load_context": {}},
+    )
+    assert ReviewWorkflowService._streamed({"load_context": {}}) == (
+        (),
+        "updates",
+        {"load_context": {}},
+    )

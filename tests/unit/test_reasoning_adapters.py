@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,6 +48,7 @@ from archcompass.reasoning.adapters.langchain import (
     judgement_prompt,
     question_prompt,
 )
+from archcompass.reasoning.adapters.selected import SelectedLangChainChatModel
 from archcompass.reasoning.records import JUDGE_PROMPT_IDENTITY, model_identity
 
 
@@ -830,3 +832,129 @@ def test_every_client_on_the_review_path_has_a_deadline() -> None:
         "an embedding is a forward pass, not a model thinking; it should not be allowed "
         "the budget a judgement gets"
     )
+
+
+def _ollama_config(*, parallel: int) -> ReasoningModelConfig:
+    return ReasoningModelConfig(
+        provider="ollama",
+        model="qwen3.8:27b",
+        base_url="http://localhost:11434",
+        timeout_seconds=360.0,
+        context_window_tokens=49152,
+        max_output_tokens=8192,
+        max_parallel_requests=parallel,
+    )
+
+
+class _Selection:
+    """A workspace's model choice, which a test can change between calls like a person can."""
+
+    def __init__(self, config: ReasoningModelConfig) -> None:
+        self.config = config
+
+    def current(self) -> ReasoningModelConfig | None:
+        return self.config
+
+
+def test_a_single_slot_provider_is_asked_for_one_judgement_at_a_time() -> None:
+    """The bound that stops a fan-out from becoming a queue somebody's deadline expires in.
+
+    A review dispatches every selected candidate at once — forty-six is an ordinary number
+    on a real repository — and each branch is one request. Against a local runner with one
+    slot that is not forty-six judgements in parallel, it is one judgement and forty-five
+    requests waiting their turn on a clock that started when they were sent. Measured at
+    about thirty-five seconds a judgement against a 360-second deadline, everything past the
+    tenth is unreachable: the observed run reported nine judged, stopped moving, and had
+    thirty-six timeouts queued behind it.
+    """
+
+    selected = SelectedLangChainChatModel(_Selection(_ollama_config(parallel=1)))
+    holding = threading.Event()
+    release = threading.Event()
+    second_entered = threading.Event()
+
+    def first() -> None:
+        with selected.in_use():
+            holding.set()
+            release.wait(timeout=5)
+
+    def second() -> None:
+        with selected.in_use():
+            second_entered.set()
+
+    one = threading.Thread(target=first)
+    one.start()
+    assert holding.wait(timeout=5)
+
+    two = threading.Thread(target=second)
+    two.start()
+    # The whole of the fix: while one caller has the slot, the next one waits rather than
+    # sending a request the provider will not look at for another five minutes.
+    assert not second_entered.wait(timeout=0.25)
+
+    release.set()
+    # And waits rather than never arriving: the slot is handed on, not withheld.
+    assert second_entered.wait(timeout=5)
+    one.join(timeout=5)
+    two.join(timeout=5)
+
+
+def test_a_provider_that_answers_in_parallel_is_not_narrowed_to_one() -> None:
+    """The number is the provider's, not a blanket serialisation of the review.
+
+    Four callers must be inside at once for the barrier to release; a gate that admitted one
+    would leave it broken. Otherwise the fix for a local runner would have quietly turned a
+    hosted review — where the fan-out is the point — into a single file.
+    """
+
+    selected = SelectedLangChainChatModel(_Selection(_ollama_config(parallel=4)))
+    together = threading.Barrier(4)
+    failures: list[BaseException] = []
+
+    def use() -> None:
+        try:
+            with selected.in_use():
+                together.wait(timeout=5)
+        except BaseException as error:
+            failures.append(error)
+
+    threads = [threading.Thread(target=use) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert not failures
+
+
+def test_switching_model_switches_the_slots_it_is_asked_for() -> None:
+    """A workspace that moves off the local runner must not keep its single slot.
+
+    The selection changes while the process runs — it is a `PUT` away — so the gate is a
+    property of the transport in force rather than of the object that hands transports out.
+    """
+
+    selection = _Selection(_ollama_config(parallel=1))
+    selected = SelectedLangChainChatModel(selection)
+    with selected.in_use() as (first_model, _):
+        pass
+
+    selection.config = _ollama_config(parallel=4).model_copy(
+        update={"model": "gemma4:26b-mlx"}
+    )
+    together = threading.Barrier(4)
+    failures: list[BaseException] = []
+
+    def use() -> None:
+        try:
+            with selected.in_use() as (model, _):
+                assert model is not first_model
+                together.wait(timeout=5)
+        except BaseException as error:
+            failures.append(error)
+
+    threads = [threading.Thread(target=use) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert not failures

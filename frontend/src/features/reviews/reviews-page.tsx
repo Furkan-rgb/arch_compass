@@ -20,7 +20,7 @@ import {
   statusOf,
   verdictOf,
 } from "../../lib/format";
-import { needsAttention, orderedFindings } from "../review/docket-rules";
+import { awaitsAnswers, needsAttention, orderedFindings } from "../review/docket-rules";
 import { StatusBadge } from "../../ui/badge";
 import { Button, ButtonLink, ToggleButton } from "../../ui/button";
 import { SearchInput } from "../../ui/field";
@@ -154,7 +154,7 @@ function wantingOf(reviews: Review[], decisions: Map<string, Map<string, Decisio
       review.repository.branch ? ` · ${review.repository.branch}` : ""
     } · review ${review.sequence}`;
     const open: Wanting[] =
-      review.status === "awaiting_answers" && review.questions.length
+      awaitsAnswers(review)
         ? [
             {
               key: `${review.id}:clarification`,

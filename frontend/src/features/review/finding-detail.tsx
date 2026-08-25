@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import type { Finding, RetrievalProvenance, Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { humanise, plural, shortId, verdictOf } from "../../lib/format";
+import { awaitsAnswers } from "./docket-rules";
 import { InvestigationTranscript, investigationSummary } from "./investigation";
 import { Tag } from "../../ui/badge";
 import { Button, CopyButton } from "../../ui/button";
@@ -222,20 +223,51 @@ function Disclosure({
  * The re-judgement scope is the backend's, not a guess: `select_rejudgements_node` returns
  * every candidate, because an answer is about intent and intent bears on all of them.
  */
-function hingeFootnote(status: string, answerable: boolean, asked: boolean): string {
-  if (status === "cancelled") {
+function hingeFootnote(review: Review, asked: boolean): string {
+  if (review.status === "cancelled") {
     return asked
       ? "This round was cancelled before the question was answered."
       : "This round was cancelled with the uncertainty unresolved.";
   }
-  if (status === "failed") {
-    return "This review did not finish, so the uncertainty was never put to anyone.";
+  if (review.status === "failed") {
+    // A review can fail *after* a round has been asked and answered — `revise_case` puts the
+    // answers on the case, and a raise anywhere downstream files a failed snapshot carrying
+    // them. `round` is the fact that separates the two, because it advances only inside
+    // `revise_case`: past one, a round was asked and taken before this stopped, and saying
+    // the uncertainty was never put to anyone contradicted the answer count in the same line.
+    return review.round > 1
+      ? "This review did not finish. It had already asked a round, and been answered, before it stopped."
+      : "This review did not finish, so the uncertainty was never put to anyone.";
   }
-  if (answerable) {
-    return "Answering completes this review's case revision and judges every candidate again.";
+  if (awaitsAnswers(review)) {
+    return asked
+      ? "Answering completes this review's case revision and judges every candidate again."
+      : "No question was asked about this candidate. Answering the open round judges it again with the rest.";
   }
-  if (status === "awaiting_answers") {
-    return "No question was asked about this candidate. Answering the open round judges it again with the rest.";
+  // Answered, and the two states after that. A snapshot is immutable, so `status` says
+  // `awaiting_answers` for ever once it has asked — which is why the branch below used to
+  // read off it and tell a reader of a superseded record that no question had been asked
+  // about a candidate whose question was rendered directly above, and offer them a round the
+  // server would refuse. What separates the two is whether a later snapshot exists yet.
+  if (review.superseded_by) {
+    // What became of *this round* is not on this record, and cannot be read off what became
+    // of the review. A waiting snapshot is superseded by two different acts — its round was
+    // answered, or somebody stopped the review — and `superseded_by_status` is the status of
+    // the record the execution now stands on, which for round one of a review cancelled at
+    // round two says `cancelled` about a round that was answered. Both guesses have been made
+    // here and both were wrong for somebody; this says where the answer is instead.
+    return asked
+      ? "This was asked here; what became of it is on the record that replaced this one."
+      : "No question was asked about this candidate in this round, and the review has moved on from this record.";
+  }
+  if (review.status === "awaiting_answers") {
+    // Closed, not answered. The absence of a successor was read as "answered and being
+    // judged", which holds only for `cancel(review_id)`; concluding with remaining
+    // uncertainty, stopping the run, and a killed process all end the round with nothing
+    // bound — the last two permanently. See the sibling comment in `standingOf`.
+    return asked
+      ? "This was asked here, and the round it belongs to is closed."
+      : "No question was asked about this candidate, and the round it belongs to is closed.";
   }
   return "No open question covers this. The round was concluded with the uncertainty preserved.";
 }
@@ -286,7 +318,7 @@ export function FindingBody({
   const openQuestion = review.questions.find((question) =>
     question.candidate_ids.includes(finding.candidate.id),
   );
-  const waitingOn = review.status === "awaiting_answers" ? openQuestion : undefined;
+  const waitingOn = awaitsAnswers(review) ? openQuestion : undefined;
 
   // What the machine actually produced, as the attribution for its own column: how many
   // things it counted and how many excerpts it pinned.
@@ -341,7 +373,7 @@ export function FindingBody({
                   ) : null}
                 </Notice>
                 <Footnote>
-                  {hingeFootnote(review.status, Boolean(waitingOn), Boolean(openQuestion))}{" "}
+                  {hingeFootnote(review, Boolean(openQuestion))}{" "}
                   {plural(answered.length, "answer")} recorded so far.
                 </Footnote>
               </div>

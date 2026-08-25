@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { api, type ReviewRun } from "../../api";
@@ -7,10 +7,9 @@ import { useIsTabletUp } from "../../lib/media";
 import { Button, ButtonLink } from "../../ui/button";
 import { Mono } from "../../ui/meta";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
-import { useToast } from "../../ui/toast";
 import { ErrorNotice, Spinner } from "../../ui/states";
 import { RevisionRail, lineageOf } from "../review/revision-rail";
-import { RunProgress, useReviewRun } from "./run-progress";
+import { NotifyWhenDone, RunProgress, useReviewRun } from "./run-progress";
 
 /**
  * What the browser tab says while a review is being made.
@@ -243,48 +242,5 @@ export function RunPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-/**
- * One notification when the review lands, asked for and never assumed.
- *
- * A review is minutes long and this page says as much, which makes going and doing something
- * else the ordinary case — and then nothing told anybody it had finished. The browser's own
- * permission prompt is the wrong thing to spend on arrival, though: a page that asks before
- * the reader has any reason to want one is the pattern every browser now buries. So the offer
- * is a control, the prompt is the reader pressing it, and a refusal is remembered by the
- * browser rather than asked again here.
- *
- * Absent entirely where the browser has no `Notification` — which is also the path jsdom
- * takes, so no test has to stub one.
- */
-function NotifyWhenDone({ done, headline }: { done: boolean; headline: string | null }) {
-  const toast = useToast();
-  const [armed, setArmed] = useState(false);
-  const fired = useRef(false);
-
-  useEffect(() => {
-    if (!armed || !done || fired.current || !headline) return;
-    fired.current = true;
-    new Notification("ArchCompass", { body: headline });
-  }, [armed, done, headline]);
-
-  if (typeof Notification === "undefined" || done) return null;
-  if (armed) {
-    return <span className="text-xs text-ink-3">You will be told when it is done.</span>;
-  }
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={async () => {
-        const permission = await Notification.requestPermission();
-        if (permission === "granted") setArmed(true);
-        else toast.warn("This browser is set not to show notifications from this page.");
-      }}
-    >
-      Tell me when it is done
-    </Button>
   );
 }

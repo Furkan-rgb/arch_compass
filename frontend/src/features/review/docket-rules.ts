@@ -16,6 +16,28 @@ import { verdictRank } from "../../lib/format";
 export type QueueFilter = "attention" | "settled" | "all";
 
 /**
+ * Whether this review is a round somebody can still answer.
+ *
+ * Here rather than at each of the six places that asked, for the reason `needsAttention` is
+ * here: they are one rule, and two of them disagreeing puts a form on a page whose own
+ * header says there is nothing to do.
+ *
+ * `status` alone was that rule and it is not enough. A review is immutable, so a snapshot
+ * that asked a question says `awaiting_answers` for ever — true about the moment it was
+ * recorded, and not about now. Answer the round and the work moves on; the snapshot does
+ * not, so the page kept offering the form. Submitting it did nothing, because the server
+ * refuses a submission written against a superseded snapshot — which is the right answer to
+ * a request that should never have been offered.
+ *
+ * `answerable` is the server's answer to exactly this: the round is open, and this snapshot
+ * is the one it is open on. Optional in the schema, so an older payload reads as `false` —
+ * which errs towards not drawing a control rather than towards drawing a dead one.
+ */
+export function awaitsAnswers(review: Review): boolean {
+  return Boolean(review.answerable) && review.questions.length > 0;
+}
+
+/**
  * What the team has decided about each candidate on this branch, by candidate.
  *
  * Read through the same query key the decision bar writes through, so recording a decision

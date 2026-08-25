@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,13 @@ def test_case_revision_is_immutable_and_records_an_answer() -> None:
 
     assert original.answers == ()
     assert revised.revision == original.revision + 1
-    assert revised.answers == (answer,)
+    # Recorded as given, and stamped with the revision it was recorded on. The caller cannot
+    # supply that number — `_resume_command` builds an answer from a question and a
+    # submission, and neither knows which revision is open — so the case stamps it, and this
+    # is the assertion that says the stamp is the case's and not the caller's.
+    assert revised.answers == (replace(answer, case_revision=revised.revision),)
+    assert revised.answers[0].case_revision == 2
+    assert answer.case_revision == 0
     assert question.candidate_ids == ("candidate_a", "candidate_b")
 
 

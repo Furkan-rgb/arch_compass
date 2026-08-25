@@ -72,7 +72,20 @@ export function RevisionRail({
   className?: string;
 }) {
   const entries = [...reviews].sort((left, right) => left.sequence - right.sequence);
-  const total = entries.length + (pending ? 1 : 0);
+  /**
+   * The run, only where it is a revision this lineage has not recorded yet.
+   *
+   * A run that answers a clarification round carries on under the sequence its waiting
+   * snapshot already occupies, so appending it unconditionally listed review 2 twice — once
+   * as the snapshot that asked and once as the work now judging — which is the entry this
+   * component's contract says never to add. Where the sequence is already here, the run is
+   * not another entry: it is what this one is doing, and it says so on that row.
+   */
+  const continuing = pending
+    ? (entries.find((review) => review.sequence === pending.sequence) ?? null)
+    : null;
+  const appended = pending && !continuing ? pending : null;
+  const total = entries.length + (appended ? 1 : 0);
 
   return (
     <div className={cn("px-3 py-3", className)}>
@@ -83,11 +96,14 @@ export function RevisionRail({
           : entries.length === 1
             ? "One immutable revision"
             : `${entries.length} immutable revisions`}
-        {pending ? (total === 1 ? ", being made now" : ", and one being made") : ""}
+        {appended ? (total === 1 ? ", being made now" : ", and one being made") : ""}
       </p>
       <Timeline>
         {entries.map((review) => {
-          const active = review.id === currentReviewId;
+          // The run's row, where this is the revision being continued: read while it is
+          // being made, and the badge is what it is doing rather than what it last was.
+          const live = continuing?.id === review.id ? pending : null;
+          const active = review.id === currentReviewId || (live ? pendingCurrent : false);
           const status = statusOf(review.status);
           return (
             <TimelineItem key={review.id} current={active}>
@@ -95,40 +111,52 @@ export function RevisionRail({
                 to={`/reviews/${review.id}`}
                 active={active}
                 sequence={review.sequence}
-                detail={[
+                detail={
+                  live
+                    ? live.stage
+                      ? stageLabel(live.stage)
+                      : "starting"
+                    : [
                   `Case rev ${caseOf(review).revision}`,
                   // Only past the first, and only because one revision can be recorded
                   // several times: a review that asked, was answered and asked again is
                   // still this entry, and the round is what says which of its snapshots
                   // is being read.
                   review.round > 1 ? `round ${review.round}` : "",
-                  relativeTime(review.started_at),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+                        relativeTime(review.started_at),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                }
                 badge={
-                  <Label
-                    className={cn(
-                      "shrink-0",
-                      status.tone === "neutral" ? "text-ink-3" : TONE_TEXT[status.tone],
-                    )}
-                  >
-                    <Mark shape={status.glyph} className="mr-1" />
-                    {status.label}
-                  </Label>
+                  live ? (
+                    <Label className="flex shrink-0 items-center gap-1">
+                      <Spinner label="" /> In progress
+                    </Label>
+                  ) : (
+                    <Label
+                      className={cn(
+                        "shrink-0",
+                        status.tone === "neutral" ? "text-ink-3" : TONE_TEXT[status.tone],
+                      )}
+                    >
+                      <Mark shape={status.glyph} className="mr-1" />
+                      {status.label}
+                    </Label>
+                  )
                 }
               />
             </TimelineItem>
           );
         })}
 
-        {pending ? (
+        {appended ? (
           <TimelineItem current={pendingCurrent}>
             <RailEntry
-              to={`/runs/${pending.run_id}`}
+              to={`/runs/${appended.run_id}`}
               active={pendingCurrent}
-              sequence={pending.sequence ?? entries.length + 1}
-              detail={pending.stage ? stageLabel(pending.stage) : "starting"}
+              sequence={appended.sequence ?? entries.length + 1}
+              detail={appended.stage ? stageLabel(appended.stage) : "starting"}
               badge={
                 <Label className="flex shrink-0 items-center gap-1">
                   <Spinner label="" /> In progress

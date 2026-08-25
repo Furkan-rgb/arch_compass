@@ -370,10 +370,50 @@ describe("the review workbench", () => {
         false,
       ),
     );
-    // And the page follows the work rather than waiting on it.
+    // And the page stays where it is. It used to navigate to the run's own address, which
+    // swapped the heading, the findings and the surface for a progress list and discarded
+    // the scroll position, the open finding and the filter on the way — for a review the
+    // reader was already on, being rejudged.
     await waitFor(() =>
-      expect(screen.getByTestId("path")).toHaveTextContent("/runs/thread-9"),
+      expect(screen.getByTestId("path")).toHaveTextContent("/reviews/review-1"),
     );
+  });
+
+  it("keeps the round on screen as the record of what was just answered", async () => {
+    // The item that had just been worked on used to leave the screen entirely: the page
+    // navigated away, and nothing said the answers had landed or what they had set going.
+    // The round stays, as the record of what was said and the work it started.
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "answerRun").mockResolvedValue(runFixture());
+    // The refetch a client makes after answering: the round has been taken, so the snapshot
+    // is no longer the one anybody can answer, and the run is in flight against the lineage.
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([
+      runFixture({
+        branch_id: review.repository.branch_id,
+        case_id: review.case.id,
+        sequence: review.sequence,
+        candidates_to_judge: 46,
+        candidates_judged: 4,
+      }),
+    ]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Skip explicitly" }));
+    vi.spyOn(api, "review").mockResolvedValue({ ...review, answerable: false });
+    fireEvent.click(screen.getByRole("button", { name: "Save and rejudge" }));
+
+    expect(await screen.findByText(/Round 1 answered/)).toBeInTheDocument();
+    // What it set going, said where the button was pressed rather than on a page you have to
+    // scroll to: this is the moment half an hour of model work is committed to.
+    expect(await screen.findByText(/Judging 46 candidates again/)).toBeInTheDocument();
+    expect(screen.getByText(/you can close it/)).toBeInTheDocument();
+    // And the form is gone with the round it belonged to.
+    expect(
+      screen.queryByRole("button", { name: "Save and rejudge" }),
+    ).not.toBeInTheDocument();
   });
 
   it("stacks the round, and opens the next question when one is answered", async () => {
@@ -1451,6 +1491,503 @@ describe("the review workbench", () => {
     expect(within(pending).getByText("In progress")).toBeInTheDocument();
   });
 
+  it("keeps a revision to one row while the run continuing it is in flight", async () => {
+    // Answering a clarification carries on under the sequence the waiting snapshot already
+    // occupies. Appended unconditionally, that listed review 1 twice — once as the snapshot
+    // that asked, once as the work now judging — which is the entry this rail's contract
+    // says never to add. It is one revision doing something, and the row says what.
+    const review = reviewFixture({ answerable: false });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([
+      runFixture({
+        branch_id: review.repository.branch_id,
+        case_id: review.case.id,
+        sequence: review.sequence,
+        stage: "judge_candidate",
+      }),
+    ]);
+
+    render(wrap(<ReviewPage />));
+
+    await screen.findByText("Review lineage");
+    const rows = screen.getAllByRole("link", {
+      name: new RegExp(`Review ${review.sequence}`),
+    });
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0]).getByText("In progress")).toBeInTheDocument();
+    // To the review, not to the run: the snapshot is still readable, and it is the run's
+    // own progress that is now shown beneath the rail rather than on another page.
+    expect(rows[0]).toHaveAttribute("href", `/reviews/${review.id}`);
+    expect(await screen.findByLabelText("Review progress")).toBeInTheDocument();
+  });
+
+  it("stops offering the form once the round it belongs to has been answered", async () => {
+    // A review is immutable, so this snapshot says `awaiting_answers` for ever — and that is
+    // the only thing the page used to have. It kept the form up after the round had been
+    // answered and was being judged, and submitting it did nothing, because the server
+    // refuses a submission written against a superseded snapshot.
+    const review = reviewFixture({ answerable: false });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    // The record is intact: the question it asked is still on it.
+    expect(review.status).toBe("awaiting_answers");
+    expect(review.questions).toHaveLength(1);
+    // What is gone is the offer to answer it.
+    await screen.findByText("Review lineage");
+    expect(screen.queryByText("1 question wants an answer")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Save and rejudge|Answer/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not read another review's run as this round having been answered", async () => {
+    // `pendingRun` matches the lineage — branch and case — which is what the rail wants and
+    // not what the round wants. A second review of the same repository continues the branch's
+    // newest case, so its run matched every completed review on that branch: the docket drew
+    // "Round 1 answered" over an empty list on a review that had never asked anything, and
+    // took the docket's opening row with it.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([
+      runFixture({
+        branch_id: review.repository.branch_id,
+        case_id: review.case.id,
+        sequence: review.sequence + 1,
+      }),
+    ]);
+
+    render(wrap(<ReviewPage />));
+
+    await screen.findByText("Review lineage");
+    expect(screen.queryByText(/answered$/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Every candidate is being judged again/),
+    ).not.toBeInTheDocument();
+    // And the docket still opens on the thing that wants a person, which the fabricated card
+    // had taken.
+    expect(
+      await screen.findByText("The provider abstraction carries one implementation"),
+    ).toBeInTheDocument();
+  });
+
+  it("does not read another review's run as this one, even when this one asked", async () => {
+    // The sibling of the test above, and the half it could not hold. A completed review can
+    // still carry the questions it asked: `_after_case_revision` seals a `stop_requested`
+    // round without passing through `generate_questions`, and `_after_questions` seals at the
+    // round ceiling and in CI, so the questions travel into the final draft. On such a review
+    // the "did it ask anything" clause is satisfied, and only the sequence tells this
+    // review's rejudgement from a second review of the same repository.
+    const review = reviewFixture({ status: "completed", answerable: false });
+    expect(review.questions).toHaveLength(1);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([
+      runFixture({
+        branch_id: review.repository.branch_id,
+        case_id: review.case.id,
+        sequence: review.sequence + 1,
+      }),
+    ]);
+
+    render(wrap(<ReviewPage />));
+
+    await screen.findByText("Review lineage");
+    expect(screen.queryByText(/Round 1 answered/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Every candidate is being judged again/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not call a round you just answered one that was never answered", async () => {
+    // A waiting snapshot is filed before `revise_case` writes the round's answers to the
+    // case, so it can never hold the answers to its own questions. Reading their absence as
+    // "never answered" said the opposite of what happened, on the record a reader is looking
+    // at for the whole of the rejudgement they just started.
+    const review = reviewFixture({ answerable: false, superseded_by: null });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    fireEvent.click(await screen.findByRole("tab", { name: /Rounds/ }));
+
+    expect(screen.queryByText(/never answered/)).not.toBeInTheDocument();
+    // And no claim that it was answered, or that anything is being judged. Three endings
+    // leave exactly this shape — sealing without rejudging, stopping the run, and a killed
+    // process — and two of them are permanent. Closed is all this record can support.
+    expect(await screen.findByText(/This round is closed/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/being judged again/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not tell somebody who stopped a review that it was answered", async () => {
+    // Cancelling files a second snapshot and binds it, so the record a reader goes back to is
+    // superseded with nothing ever answered. Told only that a successor exists, both surfaces
+    // guessed "answered" — to the one person who knows it was not.
+    const review = reviewFixture({
+      answerable: false,
+      superseded_by: "review-9",
+      superseded_by_status: "cancelled",
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    await docket();
+    const row = rows().find((item) => item.dataset.candidate === "candidate-1");
+    if (row?.getAttribute("aria-expanded") === "false") fireEvent.click(row);
+    // Neither surface may claim it was answered. Neither may claim it was stopped either:
+    // `superseded_by_status` is what became of the *review*, and for round one of a review
+    // cancelled at round two it says `cancelled` over an answer that was given. What is
+    // knowable from this record is where to look.
+    expect(screen.queryByText(/has since been answered/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/what became of it is on the record that replaced this one/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Rounds/ }));
+    expect(screen.queryByText(/never answered/)).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/What became of it is on the record that replaced this one/),
+    ).toBeInTheDocument();
+  });
+
+  it("does not draw a round it has the answers to as still open", async () => {
+    // `review.questions` is not "the open round" — it is whatever the snapshot was carrying.
+    // Concluding with remaining uncertainty seals without passing through
+    // `generate_questions`, so the review keeps the round it has just answered, and taking
+    // that as open drew the same round twice: once with the answers, once beneath it with
+    // every question marked "Asked, and never answered."
+    const review = reviewFixture({ status: "completed", answerable: false });
+    const asked = review.questions[0];
+    review.case.revision = 2;
+    review.case.answers = [
+      {
+        question: asked,
+        status: "answered",
+        value: "The domain owns it",
+        actor: "furkan",
+        answered_at: "2026-01-02T00:00:00Z",
+        case_revision: 2,
+      },
+    ];
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Rounds/ }));
+
+    expect(await screen.findByText("The domain owns it")).toBeInTheDocument();
+    expect(screen.queryByText(/Asked, and never answered/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/^Round 1/)).toHaveLength(1);
+    expect(screen.getByText(/One round of questions/)).toBeInTheDocument();
+  });
+
+  it("reads back a round answered entirely by skipping as skipped", async () => {
+    // A skip is an answer — the deliberate kind, and what "Conclude with remaining
+    // uncertainty" produces for every question at once — and it carries no text. Asking
+    // "did anybody type something" to decide whether the round is readable meant an all-skip
+    // round reported itself unreadable and called every deliberate skip "Answered".
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "answerRun").mockResolvedValue(runFixture());
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([
+      runFixture({
+        branch_id: review.repository.branch_id,
+        case_id: review.case.id,
+        sequence: review.sequence,
+      }),
+    ]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Skip explicitly" }));
+    vi.spyOn(api, "review").mockResolvedValue({ ...review, answerable: false });
+    fireEvent.click(screen.getByRole("button", { name: "Save and rejudge" }));
+
+    expect(await screen.findByText(/Round 1 answered/)).toBeInTheDocument();
+    expect(await screen.findByText("Recorded as skipped")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Recorded on this review's case revision/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("lists every round of questions with what was said to each", async () => {
+    // The whole clarification history had no surface at all. Answers were on the review, each
+    // carrying the question it replies to, and the only place that rendered them was the
+    // per-candidate judgement drawer — which shows the ones bearing on the candidate you have
+    // open. Everywhere else they were a count, so a reviewer asked twice could not see what
+    // the first round asked, what they had said, or that this was a second round.
+    const review = reviewFixture();
+    const asked = review.questions[0];
+    review.case.revision = 2;
+    review.case.answers = [
+      {
+        question: { ...asked, id: "question-r1a", text: "Who owns persistence?", round: 1 },
+        status: "answered",
+        value: "The domain owns it and adapters implement its ports",
+        actor: "furkan",
+        answered_at: "2026-01-02T00:00:00Z",
+        case_revision: 2,
+      },
+      {
+        question: { ...asked, id: "question-r1b", text: "Is a second store planned?", round: 1 },
+        status: "skipped",
+        value: null,
+        actor: "furkan",
+        answered_at: "2026-01-02T00:00:00Z",
+        case_revision: 2,
+      },
+    ];
+    review.questions = [{ ...asked, id: "question-r2", text: "Which layer owns retries?", round: 2 }];
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Rounds/ }));
+
+    // Round 1, closed, with both of its answers — including the skip, which is a decision and
+    // not an absence.
+    expect(await screen.findByText("Round 1 · case revision 2")).toBeInTheDocument();
+    expect(
+      screen.getByText("The domain owns it and adapters implement its ports"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Recorded as skipped/)).toBeInTheDocument();
+    // And round 2, which is where this reviewer is now, said as a round rather than as an
+    // unexplained second form.
+    // No revision on the open round: it has not opened one. `revise_case` opens a review's
+    // revision when it records an answer, so until then `review.case.revision` is still the
+    // number of the review before it — printed here it headed the open round with a label
+    // identical to a group already on screen.
+    expect(screen.getByText("Round 2")).toBeInTheDocument();
+    expect(screen.getByText("Which layer owns retries?")).toBeInTheDocument();
+    // The ceiling, which lived only in the charter: a review asks at most twice.
+    expect(screen.getByText(/at most twice/)).toBeInTheDocument();
+  });
+
+  it("does not say a review is judging again when concluding it judged nothing", async () => {
+    // "Conclude with remaining uncertainty" seals: `_after_case_revision` routes a
+    // `stop_requested` round to `seal_case`, so `select_candidates_for_rejudgement` never
+    // runs and not one candidate is judged again. The run is listed all the same, so the card
+    // said every candidate was being judged directly above a progress panel correctly reading
+    // "Writing this review's case revision" — two sentences about one run, one of them false.
+    const review = reviewFixture({ answerable: false });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([
+      runFixture({
+        branch_id: review.repository.branch_id,
+        case_id: review.case.id,
+        sequence: review.sequence,
+        // What a sealing run reports: `_after_case_revision` sends a stopped round straight
+        // to `seal_case`, so no candidate is selected and none of the judging stages is ever
+        // entered.
+        candidates_to_judge: 0,
+        candidates_judged: 0,
+        stage: "seal_case",
+        stages: ["load_context", "await_answers", "revise_case", "seal_case"],
+      }),
+    ]);
+
+    render(wrap(<ReviewPage />));
+
+    expect(await screen.findByText(/Round 1 answered/)).toBeInTheDocument();
+    expect(screen.queryByText(/being judged again/)).not.toBeInTheDocument();
+    // `/Judging .* again/` was too loose: it let "Judging again." through, which is exactly
+    // the assumed sentence this test exists to forbid.
+    expect(screen.queryByText(/Judging/)).not.toBeInTheDocument();
+    // It says what the run says it is doing — as does the rail entry beside it, which is the
+    // agreement that was missing: the note and the progress panel used to contradict.
+    expect(
+      (await screen.findAllByText(/Writing this review's case revision/)).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("says what became of a review without claiming what it is doing now", async () => {
+    // A snapshot that asked says `awaiting_answers` for ever, so reading the successor's
+    // status as a present state — "is waiting on that round" — is the same mistake one level
+    // along: it is true only until that round is answered, and false for ever after.
+    const review = reviewFixture({
+      answerable: false,
+      superseded_by: "review-9",
+      superseded_by_status: "awaiting_answers",
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    expect(await screen.findByText(/asked again since/)).toBeInTheDocument();
+    expect(screen.queryByText(/is waiting on that round/)).not.toBeInTheDocument();
+  });
+
+  it("does not tell a review that failed after being answered that nobody was asked", async () => {
+    // A review can fail *after* a round has been asked and answered: `revise_case` puts the
+    // answers on the case, and a raise anywhere downstream files a failed snapshot carrying
+    // them. The footnote read off `status` alone and said the uncertainty was never put to
+    // anyone, in the same line as the answer count that contradicts it.
+    const review = reviewFixture({
+      status: "failed",
+      failure: "The provider stopped",
+      round: 2,
+      answerable: false,
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    await docket();
+    const row = rows().find((item) => item.dataset.candidate === "candidate-1");
+    if (row?.getAttribute("aria-expanded") === "false") fireEvent.click(row);
+
+    expect(screen.queryByText(/never put to anyone/)).not.toBeInTheDocument();
+    expect(screen.getByText(/had already asked a round/)).toBeInTheDocument();
+  });
+
+  it("does not claim a review settled everything while it is still holding a hinge", async () => {
+    // A question generator that cannot phrase a hinge degrades to no questions at all, and
+    // `_after_questions` seals on that — so a review completes with held findings and nothing
+    // asked. `docs/known-defects.md` carries this exact case; the empty state was asserting
+    // its opposite, a few pixels under a head counting the held candidate.
+    const review = reviewFixture({ status: "completed", questions: [], answerable: false });
+    review.case.answers = [];
+    expect(review.findings.some((finding) => finding.hinge)).toBe(true);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    fireEvent.click(await screen.findByRole("tab", { name: /Rounds/ }));
+
+    expect(
+      screen.queryByText(/settled every candidate on the evidence/),
+    ).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/uncertainty that never became a question/),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the answered round on the keyboard walk it is still listed on", async () => {
+    // The card is rendered on `waiting || rejudging` and the docket opens it in both, but the
+    // walk listed it only while waiting. With the round answered, `indexOf("clarification")`
+    // was -1, so ArrowUp took the nothing-is-open branch and jumped to the bottom of the list.
+    const review = reviewFixture({ answerable: false });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([
+      runFixture({
+        branch_id: review.repository.branch_id,
+        case_id: review.case.id,
+        sequence: review.sequence,
+      }),
+    ]);
+
+    render(wrap(<ReviewPage />));
+    expect(await screen.findByText(/Round 1 answered/)).toBeInTheDocument();
+
+    // Upward is the direction that showed it. The round is the open row, so there is nothing
+    // above it and `k` should do nothing. Unlisted, `indexOf` answered -1, the walk read that
+    // as "nothing is open", and the cursor jumped to the last finding on the docket.
+    fireEvent.keyDown(document, { key: "k" });
+    expect(rows().map((row) => row.getAttribute("aria-expanded"))).not.toContain("true");
+
+    // And downward still steps off it onto the first finding.
+    fireEvent.keyDown(document, { key: "j" });
+    expect(rows()[0].getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("does not tell a failed review it settled everything on the evidence", async () => {
+    // `_record_failure` files its snapshot with no questions, so a failed review reaches the
+    // empty state. It asked nothing because it stopped, not because nothing needed asking.
+    const review = reviewFixture({
+      status: "failed",
+      failure: "The provider stopped",
+      questions: [],
+      answerable: false,
+    });
+    review.case.answers = [];
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    fireEvent.click(await screen.findByRole("tab", { name: /Rounds/ }));
+
+    expect(await screen.findByText(/Nothing has been asked/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/settled every candidate on the evidence/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("presents the rounds as the case's history, not as this review's", async () => {
+    // A case carries its answers forward across revisions — a second review of the same
+    // repository continues the branch's newest case — so this list holds rounds that belong
+    // to the reviews that asked them. Calling it "every round this review has been through"
+    // put "3 rounds" directly above its own sentence saying a review asks at most twice, with
+    // the list on screen contradicting it.
+    const review = reviewFixture();
+    const asked = review.questions[0];
+    review.case.revision = 1;
+    review.case.answers = [
+      {
+        question: { ...asked, id: "q-r1-a", text: "Who owned it before?", round: 1 },
+        status: "answered",
+        value: "The domain did",
+        actor: "furkan",
+        answered_at: "2026-01-01T00:00:00Z",
+        case_revision: 1,
+      },
+      {
+        question: { ...asked, id: "q-r2-a", text: "And the retries?", round: 2 },
+        status: "answered",
+        value: "The adapter owns them",
+        actor: "furkan",
+        answered_at: "2026-01-01T00:00:00Z",
+        case_revision: 1,
+      },
+    ];
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    fireEvent.click(await screen.findByRole("tab", { name: /Rounds/ }));
+
+    // Three rounds on one case, and the sentence beside the count no longer contradicts it.
+    expect(await screen.findByText(/3 rounds of questions on this case/)).toBeInTheDocument();
+    expect(screen.getByText(/A review asks at most twice/)).toBeInTheDocument();
+    // And the open round does not repeat a header already on screen: it has opened no
+    // revision, so it is labelled by its round alone.
+    expect(screen.getAllByText("Round 1 · case revision 1")).toHaveLength(1);
+    expect(screen.getByText("Round 1")).toBeInTheDocument();
+  });
+
+  it("says when a snapshot has been replaced, and points at the one that replaced it", async () => {
+    // A revision is recorded once per round it waits in and once more when it finishes, and
+    // the listing keeps only the newest. That left the earlier records reachable by a URL
+    // somebody was holding and by nothing else: a review waiting on questions answered an
+    // hour before, over a report composed before the answers existed, with nothing saying so.
+    const review = reviewFixture({ answerable: false, superseded_by: "review-9" });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    expect(
+      await screen.findByText(/This is an earlier record of review 1/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/its report are all that moment/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Read the current record/ })).toHaveAttribute(
+      "href",
+      "/reviews/review-9",
+    );
+  });
+
   it("leaves the rail alone when the run in flight belongs to another case", async () => {
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
@@ -1837,6 +2374,30 @@ describe("the review workbench", () => {
 
     expect(screen.queryByText(/round was concluded/)).not.toBeInTheDocument();
     expect(screen.getByText(/cancelled before the question was answered/)).toBeInTheDocument();
+  });
+
+  it("does not tell a superseded record that nothing was asked about this candidate", async () => {
+    // The footnote branched on `status`, and a snapshot is immutable — so a record that had
+    // asked said `awaiting_answers` for ever. On a superseded one it therefore claimed no
+    // question had been asked about a candidate whose question is rendered directly above it,
+    // and offered to answer a round `_resume_command` refuses. Both clauses false at once,
+    // which is the exact failure this footnote was written to stop making.
+    const review = reviewFixture({ answerable: false, superseded_by: "review-9" });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    await docket();
+    const row = rows().find((item) => item.dataset.candidate === "candidate-1");
+    if (row?.getAttribute("aria-expanded") === "false") fireEvent.click(row);
+
+    expect(screen.queryByText(/No question was asked about this candidate/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/round was concluded/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/what became of it is on the record that replaced this one/),
+    ).toBeInTheDocument();
+    // And no offer to answer a round the server would refuse.
+    expect(screen.queryByRole("button", { name: /Answer the open question/ })).not.toBeInTheDocument();
   });
 
   it("says a failed review never put the question, rather than that it decided not to", async () => {

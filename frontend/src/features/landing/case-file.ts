@@ -357,13 +357,16 @@ ops.backfill           imports  adapters.db.Store`,
 /**
  * The review the section shows: three candidates, one of each verdict, one still waiting on
  * a person. `status` is `awaiting_answers` because the held one has an open question against
- * it, which is what makes the surface show the question rather than a settled record.
+ * it, and `answerable` because the round is open now rather than merely having been open
+ * when the snapshot was taken — together they are what makes the surface show the question
+ * rather than a settled record.
  */
 export const CASE_FILE: Review = {
   id: "review-4",
   sequence: 4,
   round: 1,
   status: "awaiting_answers",
+  answerable: true,
   previous_review_id: "review-3",
   repository: REPOSITORY,
   atlas: {

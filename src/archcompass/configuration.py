@@ -114,6 +114,10 @@ class ReasoningModelConfig(BoundaryDTO):
     timeout_seconds: float = Field(gt=0)
     context_window_tokens: int = Field(default=32768, ge=512)
     max_output_tokens: int = Field(default=16384, ge=512, le=65536)
+    #: How many requests this provider is asked for at once — the bound on the candidate
+    #: fan-out, which is otherwise as wide as the review has candidates. A property of the
+    #: provider rather than of the review: see `ProviderDefaults.max_parallel_requests`.
+    max_parallel_requests: int = Field(default=8, ge=1)
     #: Whether the model reasons before answering: `true` to require it, `false` to
     #: forbid it, absent to leave the model to its own default. Every stage here asks for
     #: one judgement about supplied evidence, so this is a property of the chosen model

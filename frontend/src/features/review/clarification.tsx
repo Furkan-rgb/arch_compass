@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { api, type Question, type Review } from "../../api";
 import { cn } from "../../lib/cn";
@@ -238,7 +237,6 @@ export function ClarificationRound({
    */
   bare?: boolean;
 }) {
-  const navigate = useNavigate();
   const client = useQueryClient();
   const { values, setValues, skipped, setSkipped, own, setOwn } = answers;
   // Null until the reviewer moves it themselves. The round opens on the first row that wants
@@ -269,18 +267,31 @@ export function ClarificationRound({
     null;
 
   /**
-   * Answering starts a run, and the page follows it there.
+   * Answering starts a run, and the page stays where it is to watch it.
    *
    * This used to be one POST that held the whole rejudgement open — every extant candidate
    * judged again, minutes of model work — and returned the finished review. That made the
    * browser tab the thing keeping the work alive: a reload, a closed laptop or a sixty-second
    * proxy timeout left a person unable to tell whether their answers had been recorded at
    * all. `api.ts` records that this exact failure was already fixed for the initial review,
-   * and the clarification path still had it.
+   * and the clarification path still had it. So it answers with a run.
    *
-   * So it answers with a run, and `/runs/{id}` is somewhere to come back to. The run page
-   * hands over to the review the moment one is composed, which is the same hand-over the
-   * first review already uses.
+   * What it no longer does is navigate to that run's own page. The review being rejudged is
+   * the review this reader is on — the run is a state of it, not another object — and going
+   * to `/runs/{id}` swapped the heading, the findings and the surface for a progress list,
+   * discarding the scroll position, the open finding and the filter on the way. The run's
+   * progress is on this page now, and `/runs/{id}` is still a real address for anybody who
+   * lands on it.
+   *
+   * The invalidations are the other half of why pressing this used to do nothing visible for
+   * seconds. `["review", id]` is the review on screen, whose `answerable` has just become
+   * false; nothing invalidated it, so the form stayed live over a round that had been taken.
+   * `["review-runs"]` is what draws the progress. Neither is awaited: the 202 already said
+   * the answers were accepted, and the acknowledgement belongs on the next frame rather than
+   * behind a refetch. It used to await `["reviews"]` as well — the full listing, every review
+   * with all its findings and its whole atlas — which is megabytes between the press and any
+   * sign of it. Nothing here needs it: `useRunsBecomeReviews` refreshes the listings when a
+   * run turns into a review, which is when they actually change.
    */
   const resume = useMutation({
     mutationFn: (stop: boolean) =>
@@ -297,14 +308,9 @@ export function ClarificationRound({
         }),
         stop,
       ),
-    onSuccess: async (run) => {
-      // The run is listed under the branch and case this review belongs to, so both listings
-      // that draw a lineage have a new entry to draw.
-      await Promise.all([
-        client.invalidateQueries({ queryKey: ["review-runs"] }),
-        client.invalidateQueries({ queryKey: ["reviews"] }),
-      ]);
-      navigate(`/runs/${run.run_id}`);
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["review", review.id] });
+      void client.invalidateQueries({ queryKey: ["review-runs"] });
     },
   });
 

@@ -89,6 +89,24 @@ class ProviderDefaults:
     #: from the same allowance on both providers, so a stage needs noticeably more headroom
     #: here than the response JSON alone would suggest.
     max_output_tokens_thinking: int = 32768
+    #: How many judgements this provider will be asked for at once.
+    #:
+    #: A review fans every selected candidate out at once — forty-six branches on this
+    #: repository — and each branch is one request. That is a description of the work, not
+    #: of what a provider can take, and nothing used to stand between the two: the requests
+    #: were all sent, and whoever was on the other end decided what to do with them.
+    #:
+    #: A hosted API answers them in parallel and the fan-out is the point. A local runner
+    #: has one slot and answers them one at a time, so the other forty-five sit in its queue
+    #: spending a deadline that started when they were sent rather than when they were
+    #: served — and a queue deeper than `timeout_seconds` divided by the time one judgement
+    #: takes cannot drain before the tail of it times out. That is not a slow review, it is
+    #: a review that fails after paying for most of itself; see `OLLAMA_DESCRIPTOR`.
+    #:
+    #: Eight rather than unbounded for the hosted default, because a burst of forty-six is
+    #: not something a rate limit reads kindly either.
+    max_parallel_requests: int = 8
+
     def resolved_base_url(self) -> str | None:
         """The endpoint to use now, letting the environment move a self-hosted provider.
 

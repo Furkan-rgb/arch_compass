@@ -100,6 +100,10 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
     sequence: 1,
     round: 1,
     status: "awaiting_answers",
+    // The round is open *now*, which is a different fact from the status and is why it is
+    // stated separately: a snapshot that asked says `awaiting_answers` for ever, and a
+    // fixture carrying only that describes a superseded round as a live one.
+    answerable: true,
     previous_review_id: null,
     repository,
     atlas: {

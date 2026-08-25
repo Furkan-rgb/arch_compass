@@ -19,18 +19,21 @@ import { Drawer } from "../../ui/drawer";
 import { TONE_TEXT } from "../../ui/meta";
 import { Mark } from "../../ui/mark";
 import { Label } from "../../ui/panel";
-import { ErrorNotice, LoadingPanel } from "../../ui/states";
+import { ErrorNotice, LoadingPanel, Notice } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
 import {
   type QueueFilter,
+  awaitsAnswers,
   needsAttention,
   orderedFindings,
   useStandingDecisions,
 } from "./docket-rules";
 import { AtlasSurface } from "./atlas-surface";
 import { useRoundAnswers } from "./clarification";
+import { ClarificationsSurface } from "./clarifications-surface";
 import { ContextRail } from "./context-rail";
 import { Docket } from "./docket";
+import { RunProgress, useRejudgementNotice } from "../start/run-progress";
 import { RevisionRail, lineageOf } from "./revision-rail";
 import { AskSurface, DeltaSurface } from "./surfaces";
 
@@ -54,6 +57,7 @@ const ReportSurface = lazy(() =>
  */
 const SURFACES = [
   { id: "docket", label: "Docket" },
+  { id: "rounds", label: "Rounds" },
   { id: "atlas", label: "Atlas" },
   { id: "delta", label: "Delta" },
   { id: "report", label: "Report" },
@@ -110,7 +114,7 @@ function ReviewCounts({
   const outstanding = findings.filter((finding) =>
     needsAttention(finding, decisions.get(finding.candidate.id)),
   ).length;
-  const waiting = review.status === "awaiting_answers" && review.questions.length > 0;
+  const waiting = awaitsAnswers(review);
   // The open clarification wants a person as much as any candidate does, and the docket lists
   // it as the first item, so the head counts it as one. Two totals of the same list that
   // disagree on one screen are worse than one total nobody reads.
@@ -181,6 +185,69 @@ function ReviewCounts({
  * What identifies a review is the repository, the branch and the commit it read — not the
  * phrase "Architecture review", which used to be set at 30px above every one of them.
  */
+/**
+ * Said at the top of a page every part of which is about a moment that has passed.
+ *
+ * A revision is recorded once per round it waits in and once more when it finishes, so review
+ * 2 can be three records under one number. The listing keeps the newest of them — one entry
+ * per revision, which is right — and that leaves the earlier records reachable by the URL
+ * somebody is already holding and by nothing else. Reading one, a person saw a review waiting
+ * on questions they had answered an hour before, a docket of verdicts that had since moved,
+ * and a report composed before their answers existed. Every word of it was true about the
+ * moment it was recorded; none of it was true now, and nothing on the page said which.
+ *
+ * The report is named because that is where it was first noticed, and because it is the one
+ * surface here that reads like a document rather than like a live view — a document with no
+ * date on it is one a reader assumes is current.
+ */
+/**
+ * What became of the review since this record was taken.
+ *
+ * The status of the record the execution now stands on, which is a fact about the *review*
+ * and is said here for that reason and nowhere else. Two surfaces read it as a fact about the
+ * round this record asked and both said something false with it: for round one of a review
+ * that was cancelled at round two it says `cancelled`, over an answer that was given.
+ */
+function supersededSince(review: Review): string {
+  const sequence = review.sequence;
+  switch (review.superseded_by_status) {
+    case "completed":
+      return `Review ${sequence} has finished since.`;
+    case "cancelled":
+      return `Review ${sequence} was stopped since.`;
+    case "failed":
+      return `Review ${sequence} did not finish.`;
+    case "awaiting_answers":
+      // What it did, not what it is doing. A snapshot that asked says `awaiting_answers` for
+      // ever, including while its own round is being judged and after its run has died — so
+      // "is waiting on that round" is the present-tense claim this whole page stopped making.
+      return `Review ${sequence} asked again since.`;
+    default:
+      return `Review ${sequence} has moved on since.`;
+  }
+}
+
+function SupersededNotice({ review }: { review: Review }) {
+  return (
+    <div className="mx-auto w-full max-w-[76rem] px-4 pt-4 sm:px-6">
+      <Notice tone="working">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <p className="min-w-0 text-[13px] leading-6 text-ink-2">
+            <span className="font-semibold text-ink">
+              This is an earlier record of review {review.sequence}
+            </span>{" "}
+            — round {review.round}, as it stood when it was recorded. Its findings, its
+            questions and its report are all that moment. {supersededSince(review)}
+          </p>
+          <ButtonLink to={`/reviews/${review.superseded_by}`} variant="secondary">
+            Read the current record
+          </ButtonLink>
+        </div>
+      </Notice>
+    </div>
+  );
+}
+
 function ReviewHead({
   review,
   findings,
@@ -195,7 +262,7 @@ function ReviewHead({
   /** A cancellation that did not go through, which used to be reported nowhere at all. */
   failure?: unknown;
 }) {
-  const waiting = review.status === "awaiting_answers" && review.questions.length > 0;
+  const waiting = awaitsAnswers(review);
   return (
     <header className="border-b border-rule bg-surface">
       <div className="mx-auto w-full max-w-[76rem] px-4 py-3 sm:px-6">
@@ -356,8 +423,15 @@ export function ReviewPage() {
   const cancel = useMutation({
     mutationFn: () => api.cancel(reviewId),
     onSuccess: async (next) => {
+      // `["review"]` as well, and by prefix. `["reviews"]` does not reach `["review", id]`,
+      // which holds the snapshot this cancellation just superseded and is `staleTime:
+      // Infinity` — so its `answerable` and `superseded_by` were never refetched, and a
+      // reader who came back to it was still offered the form and the Cancel button for a
+      // round the server would refuse. Those two fields are the first mutable things on an
+      // otherwise immutable record, which is why nothing had needed to invalidate it before.
       await Promise.all([
         client.invalidateQueries({ queryKey: ["reviews"] }),
+        client.invalidateQueries({ queryKey: ["review"] }),
       ]);
       navigate(`/reviews/${next.id}`);
     },
@@ -413,6 +487,43 @@ export function ReviewPage() {
   );
 
   /**
+   * The run making a revision of this lineage, if one is in flight.
+   *
+   * Declared above `defaultOpen` because that memo reads it — both in its body and in its
+   * dependency list, which is evaluated the moment the memo is reached. Thirty lines further
+   * down it was a temporal dead zone, and the render threw.
+   */
+  const pendingRun =
+    (value &&
+      (runs.data ?? []).find(
+        (run) => run.branch_id === value.repository.branch_id && run.case_id === value.case.id,
+      )) ||
+    null;
+
+  /**
+   * The run that is *this revision* being judged again, which is a narrower thing.
+   *
+   * `pendingRun` matches on branch and case, which is right for the lineage rail — any run of
+   * this lineage is an entry in it. It is wrong for the round. A second review of the same
+   * repository continues the branch's newest case, so its run matches every completed review
+   * on that branch: the docket drew a card headed "Round 1 answered" over an empty list, on a
+   * review that had never asked anything, and `defaultOpen` handed the docket to it so the
+   * first finding wanting a person no longer opened.
+   *
+   * Two conditions, and each rules out a different half of that. The run has to be making
+   * *this* number — a new review takes the next one — and this review has to have asked
+   * something, because a round that was never put cannot have been answered.
+   */
+  const rejudging =
+    pendingRun && value && pendingRun.sequence === value.sequence && value.questions.length
+      ? pendingRun
+      : null;
+
+  // Armed here rather than in the card that renders its button, because the card unmounts the
+  // instant the run leaves the listing — which is the instant the notification is owed.
+  const rejudgementNotice = useRejudgementNotice(rejudging, runs.data);
+
+  /**
    * Which item the docket opens on: the clarification when one is waiting, otherwise the
    * first thing that needs a human.
    *
@@ -431,12 +542,14 @@ export function ReviewPage() {
    */
   const defaultOpen = useMemo<string | null>(() => {
     if (!value) return null;
-    if (value.status === "awaiting_answers" && value.questions.length) return "clarification";
+    // The round it has just been answered in, too: it is still the item that was last worked
+    // on, and it now holds the record of what was said and what that started.
+    if (awaitsAnswers(value) || rejudging) return "clarification";
     const first = findings.find((finding) =>
       needsAttention(finding, decisions.get(finding.candidate.id)),
     );
     return first ? first.candidate.id : null;
-  }, [value, findings, decisions]);
+  }, [value, findings, decisions, rejudging]);
 
   const open = openId === undefined ? defaultOpen : openId;
 
@@ -463,13 +576,6 @@ export function ReviewPage() {
   useEffect(() => {
     setSettledHere((kept) => (kept.length ? [] : kept));
   }, [filter]);
-
-  const pendingRun =
-    (value &&
-      (runs.data ?? []).find(
-        (run) => run.branch_id === value.repository.branch_id && run.case_id === value.case.id,
-      )) ||
-    null;
 
   /**
    * The finding a link named, opened once and never written back.
@@ -569,6 +675,8 @@ export function ReviewPage() {
         failure={cancel.error}
       />
 
+      {value.superseded_by ? <SupersededNotice review={value} /> : null}
+
       {/* Pinned under the topbar, because this strip is the only thing on the page that says
           which of the five documents is on screen and the only way to reach the other four.
           A real docket is dozens of rows long: scrolled to the fortieth, everything that
@@ -607,6 +715,8 @@ export function ReviewPage() {
           // that are missing, which is a different thing from not knowing yet.
           lineage={trajectory}
           answers={answers}
+          rejudging={rejudging}
+          rejudgementNotice={rejudgementNotice}
           filter={filter}
           onFilterChange={setFilter}
           openId={open}
@@ -639,10 +749,32 @@ export function ReviewPage() {
             ) : (
               <RevisionRail reviews={lineage} currentReviewId={value.id} pending={pendingRun} />
             )}
+            {/* The work in flight, read here rather than only on its own address.
+                `RunProgress` was written for two placements and only ever got one, which was
+                survivable while a run was always a revision the rail could link to. It is not
+                any more: a run continuing this revision is now that revision's own row, so
+                without this the only way to watch a round you had just answered was to
+                already know the run's URL. */}
+            {pendingRun ? (
+              <div className="mt-3 border-t border-rule px-3 pt-3">
+                <RunProgress state={pendingRun} />
+              </div>
+            ) : null}
           </div>
         </div>
       </TabPanel>
 
+      <TabPanel
+        id="rounds"
+        active={surface}
+        className="mx-auto w-full max-w-[76rem] p-4 sm:p-6"
+      >
+        {/* Beside the docket rather than inside the drawer, because "what have I been asked
+            and what did I say" is a question about the review, not about one candidate. It
+            was answerable only per candidate, in the judgement context drawer, and nowhere
+            said that a second round was a second round. */}
+        <ClarificationsSurface review={value} />
+      </TabPanel>
       <TabPanel id="atlas" active={surface} className="mx-auto w-full max-w-[76rem] p-4 sm:p-6">
         {/* Next to the docket, because "what next" and "where is it" are the two questions a
             reviewer arrives with and the list only answers the first. */}

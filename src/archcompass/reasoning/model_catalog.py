@@ -56,6 +56,7 @@ def reasoning_config(
             else defaults.max_output_tokens_thinking
         ),
         thinking=thinking,
+        max_parallel_requests=defaults.max_parallel_requests,
         # The descriptor's number unless the environment says otherwise. Resolved here
         # because this is the one place both a pinned run and a stored selection pass
         # through, so the operator's knob reaches a local workspace and a hosted session

@@ -169,9 +169,19 @@ def test_answering_a_clarification_completes_the_revision(page, review_url: str)
     choices.first.click()
     page.get_by_role("button", name="Save and rejudge").click()
 
-    # The URL moves because the record does — a waiting snapshot is superseded by the one
-    # that came back with the verdicts. The revision it belongs to does not move: this is
-    # still review 1, now holding the case revision the answer completed.
+    # The page stays where it is. Answering used to navigate to the run's own address, which
+    # swapped the heading, the findings and the surface for a progress list — for a review the
+    # reader was already on, being judged again. Waiting for the banner here proves both
+    # halves: it is drawn on this record, so arriving at it means the page never left.
+    current = page.get_by_role("link", name="Read the current record")
+    current.wait_for(timeout=REVIEW_TIMEOUT_MS)
+    assert page.url == first_url
+
+    # A waiting snapshot is superseded by the one that came back with the verdicts, and this
+    # record says so rather than going on presenting itself as the review. The revision it
+    # belongs to does not move: this is still review 1, now holding the case revision the
+    # answer completed.
+    current.click()
     page.wait_for_url(lambda url: url != first_url, timeout=REVIEW_TIMEOUT_MS)
     page.get_by_text("Review 1", exact=False).first.wait_for(timeout=REVIEW_TIMEOUT_MS)
 
@@ -180,6 +190,11 @@ def test_answering_a_clarification_completes_the_revision(page, review_url: str)
     assert _visible(page.get_by_text("case revision 2", exact=False).first)
     # One review, one entry. Answering did not add a revision to the rail.
     assert page.get_by_text("One immutable revision").count() == 1
+
+    # And the round it asked is readable as a round, with what was said to it — which existed
+    # nowhere before and is the reason a reader can tell a second round from the first.
+    page.get_by_role("tab", name="Rounds").click()
+    assert _visible(page.get_by_text("Round 1", exact=False).first)
 
 
 #: The nine `##` sections the workspace parser requires, in the editor's own order, each

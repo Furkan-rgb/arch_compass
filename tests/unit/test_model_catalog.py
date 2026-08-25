@@ -460,3 +460,30 @@ def test_a_provider_this_workspace_cannot_reach_is_refused_by_name() -> None:
 
     with pytest.raises(ConfigurationError, match="invented"):
         service.select("invented", "gemma4:26b")
+
+
+def test_a_local_runner_is_asked_for_one_judgement_at_a_time() -> None:
+    """The number that decides how wide the candidate fan-out is allowed to be.
+
+    Ollama starts one `llama-server` with one slot for a model this size, so it answers one
+    request and queues the rest — and a queued request spends the deadline it was given
+    while it waits. A review that dispatched all forty-six of its candidates at once got
+    nine judgements back and then stopped: the tenth request was reached at five minutes and
+    the eleventh past the 360-second deadline, so most of the review was timeouts waiting to
+    happen. The same forty-six judgements sent one at a time are the same half hour of GPU
+    work with none of them lost.
+
+    Asserted on the descriptor rather than on a review, because it is the descriptor that a
+    later change would raise without noticing what it costs — and raising it is only correct
+    alongside `OLLAMA_NUM_PARALLEL`, which is what decides how many the runner serves.
+    """
+
+    from archcompass.reasoning.adapters.providers import OLLAMA_DESCRIPTOR
+
+    assert OLLAMA_DESCRIPTOR.defaults.max_parallel_requests == 1
+
+    resolved = reasoning_config(OLLAMA_DESCRIPTOR, "qwen3.8:27b", True)
+    assert resolved.max_parallel_requests == 1, (
+        "the descriptor's number has to reach the configuration the transport is built "
+        "from, or the bound is a comment rather than a limit"
+    )

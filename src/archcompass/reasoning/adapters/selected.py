@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
-from threading import Lock
+from collections.abc import Generator
+from contextlib import contextmanager
+from threading import BoundedSemaphore, Lock
 
 from langchain_core.language_models import BaseChatModel
 
@@ -54,15 +56,51 @@ from archcompass.reasoning.records import (
 
 
 class SelectedLangChainChatModel:
+    """The transport for the model in force, and one of its slots while a caller uses it.
+
+    Two things rather than one because a review asks for judgements faster than any provider
+    answers them. Every selected candidate is dispatched at once — the graph fans out one
+    branch per candidate and forty-six of them is an ordinary number for a real repository —
+    so without a bound here the fan-out is the request count, and the provider is handed the
+    whole review in one breath.
+
+    What that costs depends on who is listening. A hosted API answers in parallel and the
+    only risk is a rate limit. A local runner has one slot: it answers the first request and
+    queues the other forty-five, each of them spending the deadline it was given while it
+    waits its turn. Past a queue of about ten the tail cannot be reached in time, and the
+    review stops with nine judgements, thirty-six pending timeouts, and a progress line that
+    has not moved in five minutes. `ProviderDefaults.max_parallel_requests` is the number
+    that ends that, and this is where it is spent.
+
+    The gate is held for a whole conversation, not for one request: a hinge investigation is
+    a tool loop of a dozen calls and it holds one slot from its first to its last, because
+    what it is doing is using the model, and something else using it at the same time is the
+    thing being bounded.
+    """
+
     def __init__(self, selections: SelectedReasoningModel) -> None:
         self._selections = selections
-        self._cached: tuple[str, BaseChatModel] | None = None
+        self._cached: tuple[str, BaseChatModel, BoundedSemaphore] | None = None
         self._lock = Lock()
 
     def configuration(self) -> ReasoningModelConfig | None:
         return self._selections.current()
 
-    def current(self) -> tuple[BaseChatModel, str]:
+    @contextmanager
+    def in_use(self) -> Generator[tuple[BaseChatModel, str]]:
+        """The transport, held for as long as the caller is talking to it.
+
+        A context manager rather than a getter so that holding a slot and using the model
+        cannot come apart: there is no way to obtain the one without the other, which is
+        what a `current()` beside a separate `gate()` would have allowed on the call that
+        forgot.
+        """
+
+        model, identity, gate = self._resolve()
+        with gate:
+            yield model, identity
+
+    def _resolve(self) -> tuple[BaseChatModel, str, BoundedSemaphore]:
         config = self._selections.current()
         if config is None:
             raise NoReasoningModelSelectedError(
@@ -79,8 +117,19 @@ class SelectedLangChainChatModel:
             )
         with self._lock:
             if self._cached is None or self._cached[0] != identity:
-                self._cached = (identity, build_chat_model(config))
-            return self._cached[1], identity
+                # The gate is rebuilt with the transport and for the same reason it is
+                # cached with it: how many requests may be in flight is a property of the
+                # provider being talked to, so a workspace that switches from Ollama to a
+                # hosted model mid-process must not keep the local model's single slot.
+                #
+                # Callers already inside the old gate are unaffected — they hold that
+                # object, and it goes away when the last of them lets go of it.
+                self._cached = (
+                    identity,
+                    build_chat_model(config),
+                    BoundedSemaphore(config.max_parallel_requests),
+                )
+            return self._cached[1], identity, self._cached[2]
 
 
 _log = logging.getLogger("archcompass.reasoning")
@@ -140,10 +189,10 @@ class SelectedLangChainJudge:
     ) -> Finding:
         if _is_deterministic(self._selected):
             return DeterministicJudge().judge(candidate, case, policies, investigation)
-        model, identity = self._selected.current()
-        return LangChainArchitectureJudge(model, model_identity=identity).judge(
-            candidate, case, policies, investigation
-        )
+        with self._selected.in_use() as (model, identity):
+            return LangChainArchitectureJudge(model, model_identity=identity).judge(
+                candidate, case, policies, investigation
+            )
 
 
 class SelectedLangChainQuestionGenerator:
@@ -165,13 +214,13 @@ class SelectedLangChainQuestionGenerator:
                 round=round,
                 excluded_equivalence_keys=excluded_equivalence_keys,
             )
-        model, _ = self._selected.current()
-        return LangChainQuestionGenerator(model).generate(
-            case,
-            findings,
-            round=round,
-            excluded_equivalence_keys=excluded_equivalence_keys,
-        )
+        with self._selected.in_use() as (model, _):
+            return LangChainQuestionGenerator(model).generate(
+                case,
+                findings,
+                round=round,
+                excluded_equivalence_keys=excluded_equivalence_keys,
+            )
 
 
 class SelectedLangChainReviewSynopsist:
@@ -207,15 +256,15 @@ class SelectedLangChainReviewSynopsist:
                 previous=previous,
                 waiting=waiting,
             )
-        model, identity = self._selected.current()
-        return LangChainReviewSynopsist(model, model_identity=identity).write(
-            case,
-            findings,
-            questions=questions,
-            delta=delta,
-            previous=previous,
-            waiting=waiting,
-        )
+        with self._selected.in_use() as (model, identity):
+            return LangChainReviewSynopsist(model, model_identity=identity).write(
+                case,
+                findings,
+                questions=questions,
+                delta=delta,
+                previous=previous,
+                waiting=waiting,
+            )
 
 
 class SelectedLangChainReviewAnswerer:
@@ -237,10 +286,10 @@ class SelectedLangChainReviewAnswerer:
             return DeterministicAnswerer(self._investigators).answer(
                 review, history, question
             )
-        model, _ = self._selected.current()
-        return LangChainReviewAnswerer(model, self._investigators).answer(
-            review, history, question
-        )
+        with self._selected.in_use() as (model, _):
+            return LangChainReviewAnswerer(model, self._investigators).answer(
+                review, history, question
+            )
 
 
 class SelectedLangChainHingeInvestigator:
@@ -290,10 +339,10 @@ class SelectedLangChainHingeInvestigator:
                 finding, case, repository=repository, atlas=atlas
             )
         try:
-            model, identity = self._selected.current()
-            return LangChainHingeInvestigator(
-                model, self._investigators, model_identity=identity
-            ).investigate(finding, case, repository=repository, atlas=atlas)
+            with self._selected.in_use() as (model, identity):
+                return LangChainHingeInvestigator(
+                    model, self._investigators, model_identity=identity
+                ).investigate(finding, case, repository=repository, atlas=atlas)
         except (NotImplementedError, ProviderError) as error:
             # A hinge that could not be checked is the hinge this product produced
             # yesterday. It goes to a person, and the record says why nothing settled it.

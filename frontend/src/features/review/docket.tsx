@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { api, type Decision, type Finding, type Review } from "../../api";
+import { api, type Decision, type Finding, type Review, type ReviewRun } from "../../api";
 import { cn } from "../../lib/cn";
 import { dispositionOf, humanise, plural, splitQualified, verdictOf } from "../../lib/format";
 import { hasOpenReveal, isPlainShortcut } from "../../lib/keyboard";
@@ -14,12 +14,14 @@ import { Input } from "../../ui/field";
 import { ArrowDown, ArrowUp, ChevronDown, DriftedIcon } from "../../ui/icons";
 import { Label } from "../../ui/panel";
 import { LiveRegion } from "../../ui/states";
+import { RejudgementNote, type useRejudgementNotice } from "../start/run-progress";
 import { ClarificationRound, type RoundAnswers } from "./clarification";
 import { DecisionBar } from "./decision-bar";
 import { FindingBody } from "./finding-detail";
 import { CandidateTrajectory } from "./trajectory";
 import {
   type QueueFilter,
+  awaitsAnswers,
   decisionIsStale,
   deltaIndexOf,
   deltaStateOf,
@@ -601,31 +603,57 @@ function BulkBar({
   );
 }
 
-/** The question the review is waiting on, listed as what it is: the first item. */
+/**
+ * The question the review is waiting on, listed as what it is: the first item.
+ *
+ * Or the record of the round once it has been answered, which is the same item at its next
+ * state rather than a different one. `rejudging` is the run the answers started, and while it
+ * is in flight the card stays where it was and says what was recorded and what is happening
+ * because of it. It used to vanish — the page navigated to the run's own address, and the
+ * round a person had just spent ten minutes on left the screen along with everything else.
+ */
 function ClarificationCard({
   review,
   answers,
+  rejudging,
+  notice,
   open,
   onToggle,
 }: {
   review: Review;
   answers: RoundAnswers;
+  /** The rejudgement these answers started, while it is still running. */
+  rejudging: ReviewRun | null;
+  notice?: ReturnType<typeof useRejudgementNotice>;
   open: boolean;
   onToggle: () => void;
 }) {
+  const recorded = !awaitsAnswers(review) && rejudging;
   return (
     <section className="overflow-hidden rounded-lg border border-rule bg-surface shadow-rim">
       <button
         type="button"
         aria-expanded={open}
         onClick={onToggle}
-        className="flex w-full min-h-14 items-start gap-3 bg-held-soft px-4 py-3 text-left transition sm:px-5"
+        className={cn(
+          "flex w-full min-h-14 items-start gap-3 px-4 py-3 text-left transition sm:px-5",
+          recorded ? "bg-sunken" : "bg-held-soft",
+        )}
       >
-        <Mark shape="pause" className="mt-px size-[15px] shrink-0 text-held" />
+        <Mark
+          shape={recorded ? "check" : "pause"}
+          className={cn(
+            "mt-px size-[15px] shrink-0",
+            recorded ? "text-ink-3" : "text-held",
+          )}
+        />
         <span className="min-w-0 flex-1">
           <span className="block text-[14px] font-semibold text-ink">
-            {plural(review.questions.length, "question")} want
-            {review.questions.length === 1 ? "s" : ""} an answer
+            {recorded
+              ? `Round ${roundOf(review)} answered`
+              : `${plural(review.questions.length, "question")} want${
+                  review.questions.length === 1 ? "s" : ""
+                } an answer`}
           </span>
           {/* "re-judges what it touches" invited the reading that answering is cheap and
               local. It is neither: `select_rejudgements_node` returns every candidate,
@@ -633,9 +661,12 @@ function ClarificationCard({
               layer already said so — `api.ts`, "minutes of model work" — and the surface a
               person actually presses the button on did not. */}
           <span className="mt-0.5 block text-[12.5px] leading-[1.5] text-ink-2">
-            Nothing below can be finished until these are answered. Answering completes this
-            review's case revision and judges every candidate again, which is minutes of model
-            work.
+            {recorded
+              // No claim about rejudging: answering does not always rejudge. *Conclude with
+              // remaining uncertainty* seals the review without selecting a candidate, and
+              // the note below reads the run's own stage rather than assuming.
+              ? "Your answers are on this review's case revision."
+              : "Nothing below can be finished until these are answered. Answering completes this review's case revision and judges every candidate again, which is minutes of model work."}
           </span>
         </span>
         <ChevronDown
@@ -645,10 +676,95 @@ function ClarificationCard({
       </button>
       {open ? (
         <div className="animate-expand border-t border-rule py-3">
-          <ClarificationRound review={review} answers={answers} bare />
+          {recorded && rejudging ? (
+            <RoundRecorded
+              review={review}
+              answers={answers}
+              run={rejudging}
+              notice={notice}
+            />
+          ) : (
+            <ClarificationRound review={review} answers={answers} bare />
+          )}
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** Which round of this revision is on screen. */
+function roundOf(review: Review): number {
+  return review.questions[0]?.round ?? review.round;
+}
+
+/**
+ * What was just recorded, and what it set going — said where the reader pressed the button.
+ *
+ * The estimate is here rather than only beside the lineage because this is the moment of
+ * commitment: half an hour of model work starts on this press, and a number a reader has to
+ * scroll to find is a number they find out about afterwards. `NotifyWhenDone` is here for the
+ * same reason — the point of work that survives a closed tab is being told it does.
+ *
+ * The answers come from the round's own state, which the page holds, so they survive this
+ * card being collapsed and reopened. A reload loses them and the block says so rather than
+ * inventing them; by then the review has been superseded and its banner points at the round
+ * that actually holds the answers.
+ */
+function RoundRecorded({
+  review,
+  answers,
+  run,
+  notice,
+}: {
+  review: Review;
+  answers: RoundAnswers;
+  run: ReviewRun;
+  notice?: ReturnType<typeof useRejudgementNotice>;
+}) {
+  const said = review.questions.map((question) => ({
+    question,
+    value: answers.values[question.id]?.trim() || "",
+    skipped: answers.skipped.has(question.id) || !answers.values[question.id]?.trim(),
+  }));
+  // Whether the page still holds what was said, which is not the same as anything having been
+  // typed. A skip is an answer — the deliberate kind, and the one the round's other button
+  // produces for every question at once — and it carries no text. Asking "did anybody type
+  // something" meant a round answered entirely by skipping reported itself as unreadable and
+  // labelled every deliberate skip "Answered", which is the one distinction this product
+  // keeps everywhere else.
+  const held = review.questions.some(
+    (question) =>
+      Boolean(answers.values[question.id]?.trim()) || answers.skipped.has(question.id),
+  );
+  return (
+    <div className="grid gap-3 px-4 sm:px-5">
+      <ol className="grid gap-2">
+        {said.map((item) => (
+          <li key={item.question.id} className="rounded-md border border-rule bg-surface-2 px-3 py-2">
+            <div className="text-[12.5px] font-semibold leading-5 text-ink">
+              {item.question.text}
+            </div>
+            <div className="mt-1 text-[12.5px] leading-5 text-ink-2">
+              {held ? (
+                item.skipped ? (
+                  <span className="text-ink-3">Recorded as skipped</span>
+                ) : (
+                  item.value
+                )
+              ) : (
+                // A reload between answering and this render loses the text, and the block
+                // says what it knows rather than where to find it: what was said is on the
+                // case revision this review opened, and the snapshot on screen is the one
+                // taken *before* it — so "reopen this review" pointed at a record that will
+                // never hold these answers. The next one does, and its banner links there.
+                <span className="text-ink-3">Recorded on this review's case revision</span>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+      <RejudgementNote run={run} notice={notice} />
+    </div>
   );
 }
 
@@ -712,6 +828,8 @@ export function Docket({
   onSelectedChange,
   onOpenContext,
   onReadReport,
+  rejudging = null,
+  rejudgementNotice,
 }: {
   review: Review;
   /**
@@ -726,6 +844,23 @@ export function Docket({
   decisions: Map<string, Decision>;
   lineage: Review[];
   answers: RoundAnswers;
+  /**
+   * The rejudgement this review's answers started, while it is still running.
+   *
+   * Keeps the round on screen after it has been answered, as the record of what was said and
+   * what it set going. Without it the item vanished the moment the server accepted the
+   * answers — the one thing on the docket that had just been worked on, gone with no sign
+   * that anything had happened.
+   */
+  rejudging?: ReviewRun | null;
+  /**
+   * The page's offer to notify when the rejudgement lands.
+   *
+   * Owned above this component because this component does not outlive the run it is about:
+   * the run leaves `/api/reviews/runs` the moment it finishes, so the card unmounts and any
+   * effect inside it goes too. See `useRejudgementNotice`.
+   */
+  rejudgementNotice?: ReturnType<typeof useRejudgementNotice>;
   filter: QueueFilter;
   onFilterChange: (filter: QueueFilter) => void;
   /** The candidate id whose row is open, or `"clarification"`, or null for none. */
@@ -754,7 +889,7 @@ export function Docket({
   const { pathname } = useLocation();
   const [query, setQuery] = useState("");
   const [announcement, setAnnouncement] = useState("");
-  const waiting = review.status === "awaiting_answers" && review.questions.length > 0;
+  const waiting = awaitsAnswers(review);
   const delta = useMemo(() => deltaIndexOf(review), [review]);
 
   const { attention, settledFindings, decided } = useMemo(() => {
@@ -936,8 +1071,12 @@ export function Docket({
             ? -1
             : 0;
       if (!step) return;
+      // The same condition the card is rendered under, and the same one `defaultOpen` uses.
+      // Listed only while `waiting`, the walk lost the row the docket had just opened: with a
+      // round answered and its rejudgement running, `indexOf("clarification")` was -1, so
+      // ArrowUp took the nothing-is-open branch and jumped to the bottom of the list.
       const ids = [
-        ...(waiting ? ["clarification"] : []),
+        ...(waiting || rejudging ? ["clarification"] : []),
         ...visible.map((finding) => finding.candidate.id),
       ];
       if (!ids.length) return;
@@ -1003,10 +1142,12 @@ export function Docket({
       ) : null}
 
       <div className="mt-4 grid gap-3">
-        {waiting ? (
+        {waiting || rejudging ? (
           <ClarificationCard
             review={review}
             answers={answers}
+            rejudging={rejudging}
+            notice={rejudgementNotice}
             open={openId === "clarification"}
             onToggle={() => onOpen(openId === "clarification" ? null : "clarification")}
           />

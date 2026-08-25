@@ -105,6 +105,21 @@ class Answer:
     value: str | None
     actor: str
     answered_at: datetime
+    #: The case revision this answer was recorded on, stamped by `with_answers` rather than
+    #: supplied — a caller cannot know it, and one that guessed would be recording which
+    #: review a person's words belong to on a guess.
+    #:
+    #: `question.round` alone cannot say it. A review keeps one revision however many rounds
+    #: it asks, so round is exact *within* a review and collides across a case's life: review
+    #: 2's round 1 and review 3's round 1 are both "round 1" on the same list of answers.
+    #: Together the two are the address of a round — which revision asked, and which of its
+    #: rounds — and that is what a reader needs to see a case's history as rounds rather than
+    #: as one undifferentiated pile.
+    #:
+    #: Zero on an answer recorded before this field existed, which reads as "unstamped"
+    #: rather than as revision zero: a case revision is one or more, so nothing can mistake
+    #: it for a real one, and a reader can group what it cannot place under the case itself.
+    case_revision: int = 0
 
     def __post_init__(self) -> None:
         require_text(self.actor, "answer actor")
@@ -195,9 +210,16 @@ class ArchitectureCase:
         incoming = [item.question.equivalence_key for item in answers]
         if existing.intersection(incoming) or len(incoming) != len(set(incoming)):
             raise ValueError("this case already records an equivalent question")
+        # Stamped here and only here. The revision an answer belongs to is a fact this
+        # object holds and the caller does not — `_resume_command` builds an `Answer` from a
+        # question and a submission, neither of which knows which revision is open — so
+        # recording is where the two meet.
         return replace(
             self,
-            answers=(*self.answers, *answers),
+            answers=(
+                *self.answers,
+                *(replace(item, case_revision=self.revision) for item in answers),
+            ),
             updated_at=utc_now(),
         )
 

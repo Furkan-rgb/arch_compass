@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, type ReviewRun } from "../../api";
 import { humanise, plural, relativeTime } from "../../lib/format";
@@ -7,6 +7,7 @@ import { Button, CopyButton } from "../../ui/button";
 import { CheckIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { Label } from "../../ui/panel";
+import { useToast } from "../../ui/toast";
 import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
 
 /** The workspace's node names, said the way a person would say them. */
@@ -238,5 +239,210 @@ export function RunProgress({
 
       <LiveRegion>{failed ? "The review failed." : `${stageLabel(state.stage)}.`}</LiveRegion>
     </div>
+  );
+}
+
+/**
+ * One notification when a rejudgement lands, armed and fired from above the thing it is about.
+ *
+ * `NotifyWhenDone` cannot do this job, and the difference is where each of them lives. On the
+ * run's own page the component sits beside a query that keeps answering with the run after it
+ * has finished, so it observes `done` and fires. On the review page it sat inside the round's
+ * card, and `GET /api/reviews/runs` lists only what is still running — so the moment the work
+ * finished the run left the list, the card unmounted, and the effect that owed somebody a
+ * notification went with it. A reviewer who pressed the button, granted permission and read
+ * "You will be told when it is done" was never told.
+ *
+ * So the arming lives on the page, which stays mounted, and the card renders the control. The
+ * signal is the run *leaving* — the same signal `useRunsBecomeReviews` reads, and the only one
+ * available, because a finished run is not something this endpoint ever reports.
+ */
+export function useRejudgementNotice(
+  run: ReviewRun | null,
+  /**
+   * Every run currently in flight, which is what says a watched one has ended.
+   *
+   * Separate from `run` because `run` is narrowed to this review's own rejudgement and goes
+   * null for a second reason: the page is between reviews. Opening another revision leaves
+   * the review query with no data for a render, `run` collapses to null with the work still
+   * running, and reading that as completion fired a notification saying a review had finished
+   * judging while it was half way through — and disarmed, so the real ending was never
+   * announced. A run is listed until it is genuinely done, so leaving the list is the only
+   * signal that means what this needs it to mean. `undefined` is the list not having answered
+   * yet, which is not an absence.
+   */
+  inFlight: readonly ReviewRun[] | undefined,
+): {
+  supported: boolean;
+  armed: boolean;
+  arm: () => Promise<boolean>;
+} {
+  const [armed, setArmed] = useState(false);
+  // What was running when we last looked. Held in a ref rather than state because it is read
+  // by the effect that watches for its disappearance and must not itself cause a render. The
+  // message is kept rather than the number it is built from: by the time this fires the run
+  // is gone from every listing, so anything not written down while it was here is lost.
+  const watching = useRef<{ id: string; headline: string } | null>(null);
+  // Joined so the effect depends on a value rather than on an array identity — the query
+  // hands back a fresh array on every poll.
+  const listed = (inFlight ?? [])
+    .map((item) => item.run_id)
+    .sort()
+    .join(" ");
+
+  useEffect(() => {
+    const held = watching.current;
+    // A promise already made outranks the run currently in view. This page is not remounted
+    // when the reader walks to another review — the route carries no key — so arming on one
+    // rejudgement and then opening a second one used to rewrite what was being watched: the
+    // notification went to whichever run happened to finish first, named the wrong review,
+    // and consumed the arming, so the one somebody actually asked about was never announced.
+    const takeOver = !armed || !held || held.id === run?.run_id;
+    if (run && run.status === "running" && takeOver) {
+      watching.current = {
+        id: run.run_id,
+        // "finished judging" claimed which of four endings it was. A run leaves the listing
+        // on all of them — finished, failed, stopped, and paused to ask another round, which
+        // `record_waiting_review` reaches by writing `awaiting_answers` over `running`
+        // mid-stream. By the time this fires the run is gone and none of them can be told
+        // apart, so it says the one thing true of every one of them.
+        headline: run.sequence
+          ? `Review ${run.sequence} has finished running`
+          : "The review has finished running",
+      };
+      return;
+    }
+    const gone = watching.current;
+    // The listing not having answered yet is not the run having ended.
+    if (!gone || inFlight === undefined) return;
+    if (listed.split(" ").includes(gone.id)) return;
+    watching.current = null;
+    if (!armed) return;
+    setArmed(false);
+    if (typeof Notification !== "undefined") {
+      new Notification("ArchCompass", { body: gone.headline });
+    }
+  }, [run, armed, listed, inFlight]);
+
+  const arm = async () => {
+    if (typeof Notification === "undefined") return false;
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return false;
+    setArmed(true);
+    return true;
+  };
+
+  return { supported: typeof Notification !== "undefined", armed, arm };
+}
+
+/**
+ * What a rejudgement is doing, said where somebody committed to it.
+ *
+ * A one-line version of `RunProgress` for the place a reviewer presses the button rather than
+ * the place they go to watch. Three facts and no stage list: how much work is running, how
+ * long it looks like taking, and that it survives the tab — which is the one a person needs
+ * before deciding whether to wait. The estimate is the same `estimateLeft` the progress panel
+ * uses, so the two cannot disagree.
+ *
+ * The notice is passed in rather than owned here, because this component does not outlive the
+ * work it describes — see `useRejudgementNotice`.
+ */
+export function RejudgementNote({
+  run,
+  notice,
+}: {
+  run: ReviewRun;
+  notice?: ReturnType<typeof useRejudgementNotice>;
+}) {
+  const toast = useToast();
+  const running = run.status === "running";
+  const now = useTicking(running);
+  const left = running ? estimateLeft(run, now) : null;
+  const total = run.candidates_to_judge ?? 0;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md border border-rule bg-sunken px-3 py-2.5">
+      <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-ink-2">
+        {running ? <Spinner label="" /> : <CheckIcon />}
+        {/* Read off the run rather than assumed from the fact that one exists. Answering does
+            not always rejudge: *Conclude with remaining uncertainty* seals without selecting
+            a single candidate, so `select_candidates_for_rejudgement` never runs and
+            `candidates_to_judge` stays zero for the life of that run. Saying "Judging again"
+            there put a false sentence directly above the progress panel on the same screen,
+            which was correctly listing "Writing this review's case revision". A count of zero
+            is not a rejudgement, so the stage says what is happening instead. */}
+        <span className="min-w-0">
+          {!running
+            ? "This run has finished."
+            : total
+              ? `Judging ${plural(total, "candidate")} again${
+                  left ? ` — ${left}` : ""
+                }. This runs in the workspace, not in this tab, so you can close it.`
+              : `${
+                  run.stage ? stageLabel(run.stage) : "Working"
+                }. This runs in the workspace, not in this tab, so you can close it.`}
+        </span>
+      </p>
+      {notice?.supported && running ? (
+        notice.armed ? (
+          <span className="text-xs text-ink-3">You will be told when it is done.</span>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={async () => {
+              if (!(await notice.arm())) {
+                toast.warn("This browser is set not to show notifications from this page.");
+              }
+            }}
+          >
+            Tell me when it is done
+          </Button>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * One notification when the review lands, asked for and never assumed.
+ *
+ * A review is minutes long and this page says as much, which makes going and doing something
+ * else the ordinary case — and then nothing told anybody it had finished. The browser's own
+ * permission prompt is the wrong thing to spend on arrival, though: a page that asks before
+ * the reader has any reason to want one is the pattern every browser now buries. So the offer
+ * is a control, the prompt is the reader pressing it, and a refusal is remembered by the
+ * browser rather than asked again here.
+ *
+ * Absent entirely where the browser has no `Notification` — which is also the path jsdom
+ * takes, so no test has to stub one.
+ */
+export function NotifyWhenDone({ done, headline }: { done: boolean; headline: string | null }) {
+  const toast = useToast();
+  const [armed, setArmed] = useState(false);
+  const fired = useRef(false);
+
+  useEffect(() => {
+    if (!armed || !done || fired.current || !headline) return;
+    fired.current = true;
+    new Notification("ArchCompass", { body: headline });
+  }, [armed, done, headline]);
+
+  if (typeof Notification === "undefined" || done) return null;
+  if (armed) {
+    return <span className="text-xs text-ink-3">You will be told when it is done.</span>;
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={async () => {
+        const permission = await Notification.requestPermission();
+        if (permission === "granted") setArmed(true);
+        else toast.warn("This browser is set not to show notifications from this page.");
+      }}
+    >
+      Tell me when it is done
+    </Button>
   );
 }

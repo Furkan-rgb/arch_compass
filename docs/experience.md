@@ -446,6 +446,54 @@ Nothing travels, so there is nothing to animate but the opening itself, which is
 `--animate-expand` — the same token the docket's own rows use. The mirrored slide written for
 the swap was deleted with it.
 
+**And answering it does not take it away either.** The same rule, one level up. Pressing
+*Save and rejudge* used to navigate to the run's own address, so the item a person had just
+spent ten minutes on left the screen along with the findings, the scroll position, the open
+row and the filter — for a review they were already reading, being judged again. The round
+now stays where it is and becomes the record of itself: what was asked, what was said, and
+what that set going. The run's progress is on this page, and `/runs/{id}` is still a real
+address for anybody who lands on it.
+
+The acknowledgement is local and immediate, because the server's 202 has already accepted the
+answers and everything after it is reconciliation. It used to be the other way round — the
+press awaited a refetch of the full reviews listing, every review with all its findings and
+its whole atlas, before anything on screen moved — so the honest reading of a button that
+appeared to do nothing for several seconds was that it had not worked.
+
+**The estimate belongs at the moment of commitment.** Answering starts half an hour of model
+work on one press. How long that looks like taking, and that it survives a closed tab, are
+facts a person needs *before* deciding to wait — not on a page they have to find afterwards.
+So the run's rate and the offer to be notified sit in the round they were committed from.
+
+**A round says which round it is.** Being asked a second time is an event, and it read as the
+first time happening again. The Rounds surface is every round **this case** has been through —
+each question with what was said to it, oldest first, the open one last — and it names the
+ceiling out loud: a review asks at most twice, and then it is filed as it stands, and a later
+review continues the same case. The case rather than the review, because that is what the
+record is: a case carries its answers forward across revisions, and a second review of a
+repository continues the newest case, so the rounds above the last group belong to the reviews
+that asked them. Saying "this review" printed a count of three directly above a sentence
+saying a review asks at most twice. That history existed on the review all along and was
+rendered nowhere but the per-candidate judgement drawer, which shows only the answers bearing
+on the candidate you have open.
+
+**And what became of a round is not read off what became of the review.** A record that has
+been replaced carries the status of the record the execution now stands on — which for round
+one of a review cancelled at round two says `cancelled` about a round that was answered. So
+that status is said once, about the review, in the banner at the top; the surfaces that talk
+about a *round* say where to look instead of guessing. The one state that is knowable is the
+one with no successor filed at all: stopping a review files its successor immediately, so a
+waiting record that has none is one whose round was taken and is being judged.
+
+**A record that has been replaced says so.** A revision is recorded once per round it waits
+in and once more when it finishes, so one review is several records under one number. The
+listing keeps the newest, which is right, and leaves the earlier ones reachable by a URL
+somebody is already holding. Reading one, a person saw a review waiting on questions they had
+answered an hour before, a docket of verdicts that had since moved, and a report composed
+before their answers existed — every word true about the moment it was recorded, none of it
+true now, and nothing on the page saying which. It says so now, at the top, with a link to
+the record that replaced it.
+
 And the case has no other door. Constraints and decisions are gone from the domain: nothing
 in the product ever offered to write one and no review ever produced one, so the only way to
 fill them was hand-authoring YAML — the "confirm the architecture case" step from further up
@@ -501,6 +549,9 @@ except the last, which is not the kind of thing a test can hold.
 | A question is answered by picking | `tests/browser/test_workspace.py` — "answering a clarification completes the revision" |
 | The round is a stack, not a slideshow | "stacks the round, and opens the next question when one is answered" |
 | A settled row still says what was said | "says where each question in the round stands, and reopens one" |
+| Answering keeps you where you are | "keeps the round on screen as the record of what was just answered", and `tests/browser/test_workspace.py` end to end |
+| A record that has been replaced says so | "says when a snapshot has been replaced, and points at the one that replaced it" |
+| A surface never says what it cannot know | "does not tell somebody who stopped a review that it was answered", and its siblings |
 | A case can only be told an answer | `tests/unit/test_case_management.py` — "a case has no way to be told anything but an answer" |
 | No count without a control | none; enforced by review against this document |
 

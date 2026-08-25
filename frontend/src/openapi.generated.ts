@@ -18,6 +18,7 @@ export interface components {
     "value": string | null;
     "actor": string;
     "answered_at": string;
+    "case_revision"?: number;
   };
     "AnswerStatus": "answered" | "skipped";
     "AtlasEdge": {
@@ -550,6 +551,9 @@ export interface components {
     "started_at": string;
     "finished_at": string | null;
     "failure": string | null;
+    "answerable"?: boolean;
+    "superseded_by"?: string | null;
+    "superseded_by_status"?: string | null;
   };
     "ReviewRunResponse": {
     "run_id": string;

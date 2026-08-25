@@ -200,12 +200,13 @@ Worth knowing before reading a run that looks stuck, because the answer is mostl
 | bound | value | scope |
 |---|---|---|
 | `ReasoningModelConfig.timeout_seconds` | 360s | one model or embedding call |
+| `ReasoningModelConfig.max_parallel_requests` | 1 on Ollama, 8 hosted | calls in flight at once, whole review |
 | `retrying` defaults | 6 attempts over ~2 minutes | one call, across its retries |
 | Cloud Run `--timeout` | 600s | one HTTP request |
 | a whole run | **none** | — |
 
 There is no wall clock on a review. A run that has stopped moving has stopped for a reason
-that is not a timeout, and the two that have actually happened are worth naming.
+that is not a timeout, and the three that have actually happened are worth naming.
 
 The first is CPU. A review runs on a background thread — the POST that starts one returns 202
 and the work continues after it — and Cloud Run's default is to allocate CPU only while a
@@ -216,9 +217,26 @@ sets the flag, and the cost of setting it is that CPU is billed for an instance'
 lifetime rather than only while it serves — bounded by `--max-instances 1`, and still zero
 when the demo is idle, because nothing pins a minimum instance.
 
-The second is the counter itself, which used to say "Judging candidate 1 of 50" for the whole
+The second is a queue, and it is the reason `max_parallel_requests` is in the table above. A
+review dispatches every selected candidate at once — one branch per candidate, forty-six of
+them on this repository — and each branch is one request. Against a hosted API that is the
+point. Against Ollama it is not: it starts one `llama-server` with one slot for a model this
+size, so it answers the first request and queues the other forty-five, each of them spending
+the 360 seconds it was given while it waits its turn. Measured here at about thirty-five
+seconds a judgement, the tenth request is reached at five minutes and the eleventh past the
+deadline — so the review reported nine judged, stopped moving, and had thirty-six timeouts
+queued behind it. What it looked like from the outside was a stuck run at candidate 10 of 46;
+what it was is most of a review that had already been paid for and could not be delivered.
+The bound is what ends that, and one is the right number for the default local runner. Raise
+it only alongside `OLLAMA_NUM_PARALLEL`, because the number that matters is how many the
+runner serves at once and asking for more than that only rebuilds the queue.
+
+The third is the counter itself, which used to say "Judging candidate 1 of 50" for the whole
 of retrieval. Both halves of a candidate's turn are counted now, so a number that is not
-moving means work that is not moving.
+moving means work that is not moving. That was written before it was true: the retrieval half
+is streamed as a bare stage with its payload filtered away by the per-candidate subgraph's
+output schema, and the code read the payload before the stage, so it counted nothing and
+every review reported no retrievals at all. It counts the stage now.
 
 One thing `--no-cpu-throttling` does not buy, so that nobody reads more into it than it says:
 it keeps the thread running between requests, not the instance running between visitors.

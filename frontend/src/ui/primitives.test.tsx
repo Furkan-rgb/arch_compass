@@ -6,6 +6,7 @@ import { STORAGE_KEY as EDITOR_KEY } from "../lib/editor";
 import { setReducedMotion } from "../test-setup";
 import { Button, CopyButton } from "./button";
 import { SourceExcerpt } from "./code";
+import { Drawer } from "./drawer";
 import { PathRef } from "./meta";
 import { ErrorNotice, Spinner } from "./states";
 import { Tabs } from "./tabs";
@@ -214,5 +215,36 @@ describe("the toast", () => {
       fireEvent.click(screen.getByRole("button", { name: "Warn" }));
     }
     expect(screen.getAllByRole("button", { name: "Dismiss" })).toHaveLength(3);
+  });
+});
+
+describe("a drawer", () => {
+  /**
+   * A panel arrives from the edge it is anchored to, and the left one did not.
+   *
+   * There was one horizontal animation — `slide-left`, which enters from `+16px` — and both
+   * sides used it, so the navigation sat against the left edge and slid in from the right:
+   * a panel appearing to come out from under the page it covers. Asserted on the class
+   * because the class is the mechanism that was wrong, and because jsdom computes no
+   * keyframes to assert on instead.
+   */
+  it("enters from the side it is anchored to", () => {
+    const { rerender } = render(
+      <Drawer open onClose={() => {}} side="left" title="Navigation">
+        <span>Somewhere to go</span>
+      </Drawer>,
+    );
+    const left = screen.getByRole("dialog", { name: "Navigation" });
+    expect(left.className).toContain("animate-slide-right");
+    expect(left.className).not.toContain("animate-slide-left");
+
+    rerender(
+      <Drawer open onClose={() => {}} side="right" title="Judgement context">
+        <span>Why this verdict</span>
+      </Drawer>,
+    );
+    const right = screen.getByRole("dialog", { name: "Judgement context" });
+    expect(right.className).toContain("animate-slide-left");
+    expect(right.className).not.toContain("animate-slide-right");
   });
 });
