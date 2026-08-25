@@ -545,3 +545,42 @@ def test_no_model_output_schema_asks_for_a_place_in_one_of_our_lists() -> None:
         + str(sorted(offenders))
         + " — ask for the identifier instead, or fan the call out so there is nothing to point at"
     )
+
+
+def test_every_key_a_candidate_branch_writes_leaves_it() -> None:
+    """A key the branch writes and its output schema omits is dropped without a word.
+
+    `investigations` was, and nothing failed: the review composed with an empty manifest
+    while every finding carried the identity of a trace nothing had stored. A `Send` branch
+    returns through `CandidateReviewOutput`, so anything not named there is written inside
+    the branch and discarded at its edge.
+
+    Read off the node's own source rather than by running it, so this covers the keys a
+    branch writes on paths a unit test does not take.
+    """
+
+    from typing import get_type_hints
+
+    from archcompass.workflow.state import CandidateReviewOutput
+
+    source = (SOURCE_ROOT / "workflow" / "nodes.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    judge = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "judge_candidate"
+    )
+    written = {
+        key.value
+        for statement in ast.walk(judge)
+        if isinstance(statement, ast.Return) and isinstance(statement.value, ast.Dict)
+        for key in statement.value.keys
+        if isinstance(key, ast.Constant) and isinstance(key.value, str)
+    }
+
+    assert written, "no returned keys were found; this guard sweeps nothing"
+    declared = set(get_type_hints(CandidateReviewOutput))
+    assert written <= declared, (
+        f"judge_candidate writes {sorted(written - declared)}, which "
+        "CandidateReviewOutput does not declare — a Send branch drops those silently"
+    )

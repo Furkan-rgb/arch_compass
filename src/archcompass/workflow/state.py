@@ -97,5 +97,13 @@ class ReviewState(ReviewInput):
 
 
 class CandidateReviewOutput(TypedDict):
+    """What one candidate's branch hands back, and nothing else.
+
+    A key missing here does not fail: it is written inside the branch and silently dropped
+    at its edge. `investigations` was, and the review composed with an empty manifest while
+    every finding carried the identity of a trace nothing had stored.
+    """
+
     retrievals: dict[str, RetrievedPolicySet]
     findings: dict[str, Finding]
+    investigations: dict[str, RecordedInvestigation]
