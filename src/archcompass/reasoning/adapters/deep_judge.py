@@ -62,7 +62,6 @@ from archcompass.ports.capabilities import ReviewedSubject
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.reasoning.adapters.judge_tools import JudgeToolbox
 from archcompass.reasoning.adapters.langchain import (
-    JUDGEMENT_INSTRUCTION,
     FindingOutput,
     finding_from_output,
     judgement_prompt,
@@ -257,6 +256,14 @@ signal, and it carries its own statement of what it cannot see — that statemen
 boilerplate, and where your verdict would turn on what the proxy misses, looking is the right
 thing to do.
 
+Looking is the only thing that statement licenses. A proxy reading zero means the thing was
+not found by that method; it does not mean the thing is there in a form the method cannot
+see. If you go looking for what the proxy might have missed and do not find it, you have
+made the zero stronger, not weaker — and if your verdict needs that thing to exist, you have
+not established it and must not write as though you had. Evidence about a neighbouring
+symbol is evidence about that symbol: another port being substituted in tests says nothing
+about whether this one is.
+
 A relationship established by something other than a pass — matching declared method names,
 for instance — is a detector's inference over surfaces rather than an edge anyone resolved.
 Weigh it as the weaker claim it says it is.
@@ -272,7 +279,12 @@ WHEN TO ASK INSTEAD
 Reach `held` when the fact your verdict turns on is not in this repository or the recorded
 case at all — someone's intent, a commitment to a second case, a contract an external
 consumer already depends on. Having tools does not make those answerable. Do not reach
-`held` because you have not looked; do not keep looking to avoid it."""
+`held` because you have not looked; do not keep looking to avoid it.
+
+The test worth applying to yourself before you finish: name the fact your verdict rests on,
+and say where you saw it. If the answer is that you inferred it from what a measurement
+cannot see, or from how something else in this repository is done, then you did not see it —
+and a verdict resting on it is a guess wearing the clothes of a finding. Ask instead."""
 
 
 class DeepArchitectureJudge:
@@ -351,7 +363,10 @@ class DeepArchitectureJudge:
         agent = create_agent(
             self._model,
             list(offered.tools),
-            system_prompt=f"{JUDGEMENT_INSTRUCTION}\n\n{JUDGEMENT_TOOL_CONTRACT}",
+            # `judgement_prompt` already opens with `JUDGEMENT_INSTRUCTION`, so only the
+            # part about having tools belongs here. Stating the whole contract twice made
+            # the two copies compete for weight rather than reinforcing each other.
+            system_prompt=JUDGEMENT_TOOL_CONTRACT,
             response_format=ToolStrategy(FindingOutput, handle_errors=_OneRepair()),
             middleware=[
                 *offered.middleware,
