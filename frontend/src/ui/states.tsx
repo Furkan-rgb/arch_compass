@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import type { ElementType, ReactNode } from "react";
 
 import { cn } from "../lib/cn";
+import { Panel, PanelBody } from "./panel";
 
 /** A skeleton block. Shape first, then content — the layout never jumps. */
 export function Skeleton({ className }: { className?: string }) {
@@ -14,24 +15,32 @@ export function Skeleton({ className }: { className?: string }) {
   );
 }
 
+/**
+ * The panel that stands where a panel is about to be, rendered *through* `Panel` rather than
+ * beside it.
+ *
+ * It used to reproduce the raised recipe by hand — `rounded-lg border border-rule bg-surface`
+ * — and drop `shadow-rim` on the way, so in dark its top edge was lost against the void while
+ * the real panel replacing it half a second later had a rim saying where the surface starts.
+ * A surface appeared to gain an edge on load, which is the opposite of what a placeholder is
+ * for. Composing the component is what keeps the rim coming from the token.
+ */
 export function LoadingPanel({ label, rows = 3 }: { label: string; rows?: number }) {
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="rounded-lg border border-rule bg-surface p-5"
-    >
-      <div className="flex items-center gap-2.5 text-sm font-medium text-ink-2">
-        {/* The label is printed right beside it, so the spinner does not say it again. */}
-        <Spinner label="" />
-        {label}
-      </div>
-      <div className="mt-5 grid gap-2.5">
-        {Array.from({ length: rows }, (_, index) => (
-          <Skeleton key={index} className={cn("h-3", index === rows - 1 ? "w-1/2" : "w-full")} />
-        ))}
-      </div>
-    </div>
+    <Panel role="status" aria-live="polite">
+      <PanelBody>
+        <div className="flex items-center gap-2.5 text-sm font-medium text-ink-2">
+          {/* The label is printed right beside it, so the spinner does not say it again. */}
+          <Spinner label="" />
+          {label}
+        </div>
+        <div className="mt-5 grid gap-2.5">
+          {Array.from({ length: rows }, (_, index) => (
+            <Skeleton key={index} className={cn("h-3", index === rows - 1 ? "w-1/2" : "w-full")} />
+          ))}
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -99,7 +108,13 @@ export function Notice({
     <div
       className={cn(
         "rounded-md border px-3.5 py-3 text-sm leading-6",
-        tone === "notice" && "border-rule bg-sunken/70 text-ink-2",
+        // Two grounds off the declared ramp, not one ground and an alpha of it. `bg-sunken/70`
+        // composited to `#f1f1f1` in light and `#1a1a1a` in dark — two invented greys, each a
+        // different distance from its panel, so the pair read one way in one theme and another
+        // in the other. `--surface-2` is a strip that recedes into the panel and `--sunken` is
+        // a block set apart from it, in both themes and in the same direction, which is
+        // exactly the difference between a standing note and the workspace asking something.
+        tone === "notice" && "border-rule bg-surface-2 text-ink-2",
         tone === "working" && "border-rule-strong bg-sunken text-ink-2",
         className,
       )}
@@ -118,6 +133,15 @@ export function Notice({
     </div>
   );
 }
+
+/**
+ * The length past which a thrown message stops being a sentence and starts being a stack.
+ *
+ * Three lines of 14px in this block is roughly this many characters. It is a threshold rather
+ * than a measurement because nothing can measure the wrap at render time, and being wrong
+ * either way costs a disclosure nobody opens or a disclosure nobody needed.
+ */
+const LONG_MESSAGE = 180;
 
 /**
  * `action` is the way out, and it is optional because most of the fifteen call sites do not
@@ -145,36 +169,72 @@ export function ErrorNotice({
   return (
     <div
       role="alert"
-      // `wrap-anywhere`: the message is whatever the server or the fetch threw, which is
-      // regularly a URL or an absolute path with no break opportunity in it at all.
-      className="animate-rise rounded-md border border-material/30 bg-material-soft px-4 py-3 text-sm leading-6 text-material wrap-anywhere"
+      className="animate-rise rounded-md border border-material/30 bg-material-soft px-4 py-3 text-sm leading-6 text-material"
     >
-      <strong className="mr-1.5 font-semibold">{title}:</strong>
-      {message}
+      {/* Clamped, because this renders whatever was thrown and a fetch against a local
+          workspace regularly throws several hundred characters carrying a URL and a stack
+          fragment. Uncapped, the reddest and loudest region on the page became the longest
+          one, and the `action` that gets the reader out of it — the one state in this product
+          that regularly resolves itself — was pushed below the fold of the block.
+
+          `line-clamp-3` is the only display utility on this element on purpose: a clamp sets
+          `display: -webkit-box` itself, and a second display class beside it wins and cancels
+          it silently. `wrap-anywhere` stays, because the message is regularly a URL or an
+          absolute path with no break opportunity in it at all. */}
+      <p className="line-clamp-3 wrap-anywhere">
+        <strong className="mr-1.5 font-semibold">{title}:</strong>
+        {message}
+      </p>
+      {message.length > LONG_MESSAGE ? (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs font-semibold">Show the full message</summary>
+          <p className="mt-1.5 font-mono text-[11px] leading-5 wrap-anywhere">{message}</p>
+        </details>
+      ) : null}
       {action ? <div className="mt-2.5 flex flex-wrap items-center gap-2">{action}</div> : null}
     </div>
   );
 }
 
+/**
+ * What a surface says when it has nothing to show, which is the whole of the page's content
+ * at that moment — and therefore has to be a heading and has to have a ground.
+ *
+ * `as` defaults to `h2`, because each of these stands where a section's list would, under the
+ * page's `h1`; a caller already inside an `h2` passes `as="h3"`. It was a `div`, so a reader
+ * moving by heading landed on the page title and then on nothing at all. The escape hatch is
+ * the one `Label` in `ui/panel.tsx` already establishes for this exact class of problem.
+ *
+ * `text-[15px]` matches `PanelHeader`, which is the same semantic level. It was `text-base` —
+ * 16px, the one size the type scale reserves for the model's reasoning and nothing else.
+ *
+ * `bg-surface`, not `bg-surface/40`. Forty per cent of the surface composited to `#f9f9f9` in
+ * light, a sixth grey one step off `--surface-2`, and to `#050505` in dark — *below every
+ * named surface*, 1.03:1 from the canvas, so an empty state in dark was a dashed outline
+ * around nothing. It is a panel with nothing in it yet, which is what `--surface` is for, and
+ * it puts "nothing is darker than the page" back to being true.
+ */
 export function EmptyState({
   title,
   children,
   action,
   className,
+  as: Heading = "h2",
 }: {
   title: string;
   children?: ReactNode;
   action?: ReactNode;
   className?: string;
+  as?: ElementType;
 }) {
   return (
     <div
       className={cn(
-        "rounded-lg border border-dashed border-rule-strong bg-surface/40 px-6 py-12 text-center",
+        "rounded-lg border border-dashed border-rule-strong bg-surface px-6 py-12 text-center",
         className,
       )}
     >
-      <div className="font-display text-base font-semibold text-ink">{title}</div>
+      <Heading className="font-display text-[15px] font-semibold text-ink">{title}</Heading>
       {children ? (
         <div className="mx-auto mt-2 max-w-md text-sm leading-6 text-ink-3">{children}</div>
       ) : null}

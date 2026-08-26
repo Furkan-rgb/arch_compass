@@ -136,7 +136,12 @@ export function AtlasMap({
             y={module.y + 22}
             // Font size is in user units, so it shrinks with the map. The larger step is what
             // keeps a module legible once the figure is being drawn at about half scale.
-            className="fill-[var(--ink-3)] font-mono text-[18px] font-semibold uppercase tracking-[0.14em] sm:text-[12px]"
+            //
+            // 15 rather than 12, and `--ink-2` rather than `--ink-3`. The hero draws the map at
+            // roughly 0.65–0.9 of the viewBox, so twelve user units landed at a six-pixel cap
+            // height — the smallest type on the page, in the tier below body ink, carrying the
+            // hero's entire claim that the repository was parsed into a structure.
+            className="fill-[var(--ink-2)] font-mono text-[18px] font-semibold uppercase tracking-[0.14em] sm:text-[15px]"
           >
             {module.label}
           </text>
@@ -171,12 +176,15 @@ export function AtlasMap({
             x={node.x}
             y={node.y + (node.tone && verdictLabels === "above" ? -22 : node.tone ? 32 : 24)}
             textAnchor="middle"
+            // 15 user units, not 13: at the scale the figure is actually drawn, thirteen
+            // rendered at eight or nine CSS pixels, under the floor the rest of the system
+            // holds itself to. The specimen's coordinates leave room for the extra two.
             className={cn(
               "font-mono",
               isActive
-                ? "fill-[var(--ink)] text-[20px] font-semibold sm:text-[13px]"
+                ? "fill-[var(--ink)] text-[20px] font-semibold sm:text-[15px]"
                 : cn(
-                    "fill-[var(--ink-3)] text-[13px]",
+                    "fill-[var(--ink-3)] text-[15px]",
                     labels === "active" && "hidden sm:inline",
                   ),
             )}

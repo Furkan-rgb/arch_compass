@@ -18,11 +18,25 @@ const VARIANTS: Record<ButtonVariant, string> = {
   // and inside a sunken block, and on this ground it has to read as raised above all three.
   // One flat grey can only be brighter than one of them, so in dark the token is a film that
   // steps up from whatever is behind it, and the rim is the light along its top edge.
+  //
+  // Two things changed on the most-used button in the product. `border-rule-control` is the
+  // edge: in light `--control` and `--surface` are both `#ffffff`, so a secondary button on a
+  // panel is a white box whose only boundary was a 1.41:1 hairline — under the 3:1 a boundary
+  // a reader has to find is held to, and here the boundary is the whole affordance. And the
+  // hover used to declare two things one of which was dead: `hover:border-rule-strong` set
+  // the colour the base class had already set, leaving a 1.19:1 fill shift as the entire
+  // response to a pointer. The edge is what moves now, which is the device this system
+  // already uses for a state — an edge appearing rather than a fill inverting.
   secondary:
-    "border-rule-strong bg-control text-ink shadow-rim hover:border-rule-strong hover:bg-control-2 active:translate-y-px",
-  ghost: "border-transparent text-ink-2 hover:bg-sunken hover:text-ink",
-  quiet: "border-rule bg-sunken/70 text-ink-2 hover:border-rule-strong hover:text-ink",
-  danger: "border-material/30 bg-material-soft text-material hover:border-material/55",
+    "border-rule-control bg-control text-ink shadow-rim hover:border-ink-3 hover:bg-control-2 active:translate-y-px",
+  ghost: "border-transparent text-ink-2 hover:bg-sunken hover:text-ink active:translate-y-px",
+  quiet:
+    "border-rule bg-sunken text-ink-2 hover:border-rule-strong hover:text-ink active:translate-y-px",
+  // The one variant with no answer to a press at all, which is the variant that deletes
+  // things — where a person most needs to know the press registered before the request comes
+  // back. It now moves the fill as well as the border, and pushes down like the other four.
+  danger:
+    "border-material/30 bg-material-soft text-material hover:border-material/55 hover:bg-material/15 active:translate-y-px",
 };
 
 // 44px is the charter's fifth principle, and `md` is what a button is unless somebody says
@@ -52,10 +66,27 @@ export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize
     // and a button that took it would be rounder than the panel it sits in relative to its
     // own height.
     "inline-flex select-none items-center justify-center rounded-sm border font-semibold transition duration-150",
-    // `aria-disabled` gets the same wash and the same inert pointer as `disabled`. What it
+    // Off is drawn with tokens, not with an opacity, and this is the whole reason why.
+    //
+    // `opacity-45` composites an element toward whatever is behind it, foreground and
+    // background together — so on the primary it took white on `#971b1a` down to a `#d09898`
+    // fill with a white label, **2.43:1**, and in doing so manufactured a fifth pink out of
+    // the one hue the system has. On `/start` and on Ask that pink was the only chromatic
+    // object on the screen, which put the eye on the one control that cannot be pressed; in
+    // dark it read as an armed destructive button rather than as a disabled one. The other
+    // four variants fared no better, landing between 2.04:1 and 2.41:1.
+    //
+    // The replacement is the `secondary` recipe with the meta ink: a control's edge, a
+    // control's fill, and a label at `--ink-3`, which `tokens.test.ts` measures at 5:1 or
+    // better against every ground in both themes — precisely the guarantee an alpha throws
+    // away. No rim, because an off control is not raised. The variant selectors are attribute
+    // and pseudo-class selectors, so each of these outranks the variant's own single class
+    // whatever order `cn` leaves them in.
+    //
+    // `aria-disabled` gets the same drawing and the same inert pointer as `disabled`. What it
     // keeps is the tab stop — see `Button` below for when that is the right trade.
-    "disabled:pointer-events-none disabled:opacity-45",
-    "aria-disabled:pointer-events-none aria-disabled:opacity-45",
+    "disabled:pointer-events-none disabled:border-rule-control disabled:bg-control disabled:text-ink-3 disabled:shadow-none",
+    "aria-disabled:pointer-events-none aria-disabled:border-rule-control aria-disabled:bg-control aria-disabled:text-ink-3 aria-disabled:shadow-none",
     VARIANTS[variant],
     SIZES[size],
   );
@@ -205,9 +236,21 @@ export function ToggleButton({
         "inline-flex min-h-8 pointer-coarse:min-h-11 items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-xs font-semibold transition duration-150",
         // A toggle for an empty set stays readable — it is telling you the count is zero,
         // which is information — but stops offering to filter to nothing.
-        "disabled:pointer-events-none disabled:opacity-40",
+        //
+        // The class beside that sentence used to be `opacity-40`, which measured 1.76–1.92:1
+        // on every ground in both themes: the count a reader was meant to be told was the
+        // least readable text on the strip, and the comment said the opposite. So the state
+        // is drawn instead of dimmed — the unpressed look, which already reads as "not on",
+        // and no pointer, which is what says "not offering". The zero does the rest; it is
+        // the reason the chip is off, and it is set in the tier `tokens.test.ts` measures.
+        "disabled:pointer-events-none disabled:border-transparent disabled:text-ink-3",
+        // `hover:border-ink-3` on the pressed branch, because the pressed branch had no hover
+        // of any kind — and a filter strip's resting state is usually several chips on at
+        // once, so most of the strip was inert to a pointer most of the time, with nothing
+        // saying it could be turned back off. The fill cannot carry it: `--control` is the
+        // panel colour in light. The edge can, on both grounds.
         pressed
-          ? "border-rule-strong bg-control text-ink shadow-rim"
+          ? "border-rule-control bg-control text-ink shadow-rim hover:border-ink-3"
           : "border-transparent text-ink-3 hover:bg-sunken hover:text-ink",
         className,
       )}

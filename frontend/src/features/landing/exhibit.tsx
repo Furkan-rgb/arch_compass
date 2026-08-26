@@ -30,7 +30,10 @@ import { CASE_FILE, LEAD_CANDIDATE_ID } from "./case-file";
  * - `DecisionBar` reads and writes standing decisions, and binds `A`/`P`/`W` at the document.
  *   On a marketing page that is a request nobody asked for and a keystroke that would record
  *   a decision against a repository that does not exist. The labels still come from its own
- *   `CHOICES`, so the three words cannot drift.
+ *   `CHOICES`, so the three words cannot drift. What does not follow from "not a control" is
+ *   "not readable": the three words are the "you decide" of this section's headline, so they
+ *   are a labelled list with a caption saying they are a still, rather than the `aria-hidden`
+ *   button-shaped spans they were.
  * - `Docket` itself carries the filters, the keyboard walk and the clarification round, all
  *   of which mutate. What is kept is the shape a reader has to recognise: a column of rows,
  *   each stating its own claim, opening in place.
@@ -62,23 +65,43 @@ function Row({
   // verdict alone — which is what makes the cleared row settle and the other two not.
   const settled = !needsAttention(finding);
   const panelId = `exhibit-panel-${candidateId}`;
+  const headingId = `exhibit-${candidateId}`;
 
   return (
+    // The workbench's row is an `<article aria-labelledby>` over an `sr-only` heading naming
+    // the candidate and its claim, which is what makes a long list navigable by heading. This
+    // one had neither, so the section claiming to be the real component had already drifted in
+    // the one place a screen reader depends on: three anonymous regions holding three buttons
+    // whose names were a run-together string of identifier, verdict, claim and pattern.
     <article
+      aria-labelledby={headingId}
       className={cn(
         "border-b border-l-[3px] border-rule last:border-b-0",
         settled ? "border-l-transparent" : TONE_EDGE[descriptor.tone],
         open && "bg-surface",
       )}
     >
+      <h2 id={headingId} className="sr-only">
+        {identity} — {finding.candidate.summary}
+      </h2>
       <button
         type="button"
         aria-expanded={open}
         aria-controls={panelId}
+        // The whole qualified name, because the namespace beside it truncates and the leaf is
+        // the only half that wraps. The workbench's row carries the same attribute for the
+        // same reason; the three names here are short today, and the guard was still missing.
+        title={identity}
         onClick={onToggle}
+        // `--sunken` for the hover, never `--surface-2`. This row sits in a panel on
+        // `--surface`, inside a section whose ground is `--surface-2` and under a header strip
+        // that is also `--surface-2` — so one token was being asked to be a page ground, a
+        // header and a pointer state within 200px, and against the panel it is a 1.04:1 change
+        // in light, which is no feedback at all. `--sunken` is the token the design system
+        // names for a hover, and it is a 1.13:1 step here.
         className={cn(
           "flex min-h-14 w-full items-start gap-3 px-4 py-3 text-left transition sm:px-5",
-          open ? "bg-surface" : "hover:bg-surface-2",
+          open ? "bg-surface" : "hover:bg-sunken",
         )}
       >
         <Mark
@@ -144,16 +167,30 @@ function Row({
             <p className="mt-1.5 max-w-[58ch] text-sm leading-6 text-ink-2">
               Nobody has decided this.
             </p>
-            <div aria-hidden="true" className="mt-3 flex flex-wrap gap-2">
+            {/* A list, not a control group, and announced rather than hidden.
+                These three words are the "you decide" in the section's own headline, and they
+                were `aria-hidden` button-shaped spans: a screen reader was told nothing at
+                all, and a sighted reader got a primary-looking action that swallowed the
+                click. Keeping `buttonClass` is what stops the picture drifting from the real
+                control, so the honesty has to come from the markup and the caption instead —
+                `role="list"` because `list-style: none` costs a `<ul>` its semantics in
+                Safari, `cursor-default` because nothing here is pressable. */}
+            <ul role="list" aria-label="The three decisions a person can record" className="mt-3 flex flex-wrap gap-2">
               {CHOICES.map((choice, position) => (
-                <span
+                <li
                   key={choice.id}
-                  className={buttonClass(position === 0 ? "primary" : "secondary", "md")}
+                  className={cn(
+                    buttonClass(position === 0 ? "primary" : "secondary", "md"),
+                    "cursor-default select-none",
+                  )}
                 >
                   {choice.label}
-                </span>
+                </li>
               ))}
-            </div>
+            </ul>
+            <Mono className="mt-2.5 block text-ink-3">
+              Shown, not live · the real controls record against a branch
+            </Mono>
             <p className="mt-3 max-w-[56ch] text-[12px] leading-5 text-ink-3">
               Whatever the team chooses stays with the branch, with the reasoning and the name on
               it, and the next review reads it before it judges again.

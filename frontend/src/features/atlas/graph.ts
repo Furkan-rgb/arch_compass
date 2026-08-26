@@ -20,8 +20,18 @@ export type AtlasNodeView = {
   /** The last segment of the qualified name, which is what fits on a card. */
   label: string;
   qualified: string;
-  /** Where it is, with the line span where the atlas recorded one. */
+  /**
+   * Where it is, and the line span where the atlas recorded one — as three fields, not one
+   * string.
+   *
+   * `ui/meta.tsx`'s `PathRef` composes them itself, so that the button copies the `path:line`
+   * an editor's go-to-file box accepts while the screen shows the readable range and the
+   * editor link is built from a bare path. This carried `file.py:10-40` in `path` and defeated
+   * all three at once.
+   */
   path: string;
+  line?: number | null;
+  endLine?: number | null;
   kind: string;
   isPublic?: boolean | null;
   /**
@@ -159,6 +169,11 @@ export type AtlasExplorerProps = {
    * them — presses a button and changes the map not at all, which reads as broken rather than
    * as an answer. A bounded view has to be able to say "none", and only what made the request
    * knows what "none" was in response to.
+   *
+   * They are drawn in the strip above the canvas, not in the detail panel. In the panel they
+   * sat inside a section that exists only while a card is selected, so a search that matched
+   * nothing on the map answered into a block that was not rendered — and nothing selected is
+   * the state the surface opens in.
    */
   exploreNote?: string;
   traceNote?: string;

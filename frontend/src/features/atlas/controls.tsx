@@ -9,10 +9,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "../../lib/cn";
-import { useIsTabletUp } from "../../lib/media";
+import { useHasKeyboard } from "../../lib/media";
 import { humanise } from "../../lib/format";
 import { Button } from "../../ui/button";
 import { SearchInput } from "../../ui/field";
+import { ChevronDown } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { Tooltip } from "../../ui/tooltip";
 import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEP, edgeKindClass } from "./geometry";
@@ -41,23 +42,38 @@ export function LensPicker({
   lens: AtlasLens;
   onLens: (lens: AtlasLens) => void;
 }) {
+  const chosen = LENSES.find((entry) => entry.value === lens);
   return (
-    <div className="flex items-center gap-3 overflow-x-auto border-b border-rule px-3 py-2 scrollbar-none">
+    /* Wrapping rather than scrolling as one row: the switch keeps its own scroller for the
+       three buttons, and the sentence beside it drops to a second line on a screen too narrow
+       to hold both. A hint truncated to "What a finding was ma…" would be the tooltip's defect
+       in a different shape. */
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-rule px-3 py-2">
       <Mono className="shrink-0 text-[10px] uppercase tracking-[0.13em] text-ink-3">Lens</Mono>
-      <ToggleGroup
-        type="single"
-        value={lens}
-        // Radix hands back "" when the pressed item is pressed again. A lens is not something
-        // the map can be without, so the empty answer re-selects what was already selected.
-        onValueChange={(value) => value && onLens(value as AtlasLens)}
-        aria-label="Graph lens"
-      >
-        {LENSES.map(({ value, label, hint }) => (
-          <ToggleGroupItem key={value} value={value} title={hint}>
-            {label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      <div className="flex min-w-0 items-center overflow-x-auto scrollbar-none">
+        <ToggleGroup
+          type="single"
+          value={lens}
+          // Radix hands back "" when the pressed item is pressed again. A lens is not something
+          // the map can be without, so the empty answer re-selects what was already selected.
+          onValueChange={(value) => value && onLens(value as AtlasLens)}
+          aria-label="Graph lens"
+        >
+          {LENSES.map(({ value, label }) => (
+            <ToggleGroupItem key={value} value={value}>
+              {label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
+      {/* What the chosen lens means, printed rather than hidden in a `title`.
+
+          The surface opens on Judged, so the first map anybody sees is filtered by a concept
+          nothing on screen defined. The three hints were written and are good — they were just
+          delivered through a native tooltip, which needs a hover and a second of patience,
+          never fires on touch and is unreachable from the keyboard. Printed here it changes
+          with the lens and answers the question once instead of three times. */}
+      {chosen ? <p className="text-[12px] leading-4 text-ink-2">{chosen.hint}</p> : null}
     </div>
   );
 }
@@ -100,52 +116,61 @@ export function LensControls({
   onToggleEdgeKind: (kind: string) => void;
   loading: boolean;
 }) {
-  const roomy = useIsTabletUp();
   const drawnKinds = edgeKinds.filter((kind) => !hiddenEdgeKinds.has(kind));
 
   return (
     /**
-     * Folded on a phone, laid out on a tablet and up.
+     * Folded at every width, and openable at every width.
      *
-     * Seven rows of controls above a map is a surface whose subject is below the fold. The
-     * lens is the one control that changes what the map is *of*, so it stays out; everything
-     * else narrows what is already drawn and can wait to be asked for.
+     * Four rows of controls and a paragraph above a map is a surface whose subject starts
+     * three hundred pixels below the top of its own panel. The lens is the one control that
+     * changes what the map is *of*, so it stays out; everything else narrows what is already
+     * drawn and can wait to be asked for — and that argument does not stop being true on a
+     * wide screen, where the map is the thing there is finally room for.
+     *
+     * This used to be `open={roomy}` over a summary that was `lg:hidden`, which is the worst
+     * of both: above 1024px the fold was forced open by a width and there was no control on
+     * screen to close it. Uncontrolled and closed, so the element the user agent owns is left
+     * to the user agent, and the disclosure is a real one everywhere.
      *
      * `<details>` rather than a button and a piece of state, so the disclosure role, the
      * keyboard path and the expanded state announced to a screen reader are free and correct.
-     * `open` is driven by the width rather than by CSS, because forcing a details element
-     * open with a rule is fighting the user agent over an element it owns.
      */
-    <details
-      open={roomy}
-      className="group border-b border-rule [&_summary::-webkit-details-marker]:hidden"
-    >
-      <summary className="flex min-h-11 list-none items-center gap-2 px-3 lg:hidden">
+    <details className="group border-b border-rule [&_summary::-webkit-details-marker]:hidden">
+      {/* "Search and filters" was a promise the body did not keep: Surface signals and Surface
+          cycles are requests that add cards to the map, and the Highlight menu is neither a
+          search nor a filter. A reader looking for the atlas queries had no reason to open a
+          disclosure that said it held filters. */}
+      <summary className="flex min-h-11 list-none items-center gap-2 px-3">
         <Mono className="text-[10px] uppercase tracking-[0.13em] text-ink-3">
-          Search and filters
+          Search, filters and atlas queries
         </Mono>
-        <span aria-hidden="true" className="ml-auto font-mono text-xs text-ink-3 group-open:hidden">
-          +
-        </span>
-        <span
+        {/* A drawn mark rather than a typed `+` and `−`. Those two are the half of the
+            drawn-mark rule no test can catch, and at `text-xs` a bare minus is a six-pixel
+            dash standing between a phone reader and every filter on the surface. One element
+            instead of two, and the rotation is a transform the reduced-motion block already
+            collapses. The CameraButton's own `−` and `+` stay: there they are the arithmetic
+            they look like. */}
+        <ChevronDown
           aria-hidden="true"
-          className="ml-auto hidden font-mono text-xs text-ink-3 group-open:inline"
-        >
-          −
-        </span>
+          className="ml-auto size-3.5 text-ink-3 transition group-open:rotate-180"
+        />
       </summary>
 
-      <div className="space-y-2.5 border-t border-rule px-3 py-2.5 lg:border-t-0">
+      <div className="space-y-2.5 border-t border-rule px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
           <form
             className="flex min-w-0 flex-1 basis-56 items-center gap-2"
             role="search"
             onSubmit={onSubmitSearch}
           >
+            {/* Not "the repository": this box searches the atlas the caller handed the map,
+                which is the same distinction the header paragraph beside the map makes in
+                prose and the accessible names quietly contradicted. */}
             <SearchInput
               value={searchValue}
               onValueChange={onSearchValue}
-              label="Search the repository atlas"
+              label="Search the atlas this map was given"
               placeholder="Find a module, class or path"
               className="flex-1"
             />
@@ -161,11 +186,17 @@ export function LensControls({
                 <Mono className="shrink-0 text-[11px] tabular-nums text-ink-2">
                   {matches.index + 1} of {matches.count} match
                 </Mono>
-                <Tooltip content="n for the next match, Shift-n for the one before.">
+                {/* The keystrokes only where there are keys to make them. A tooltip opens on
+                    hover and on focus, so on a touch device it never opens — and `n` and
+                    `Shift-n` do not exist there anyway, so the hint was being shown only where
+                    it was least needed. `useHasKeyboard` measures the input rather than the
+                    width, which is what a key cap is really asking about, and is how the
+                    shell, the docket and the decision bar already gate theirs. */}
+                <WithKeyHint content="n for the next match, Shift-n for the one before.">
                   <Button variant="quiet" size="sm" onClick={() => onNextMatch()}>
                     Next
                   </Button>
-                </Tooltip>
+                </WithKeyHint>
               </>
             ) : null}
           </form>
@@ -297,8 +328,18 @@ export function ExplorationStrip({
           <li key={exploration.id}>
             {/* The word rather than a cross, because a cross that is not from the mark set
                 is a typed glyph pretending to be an icon — and "Drop" is what pressing it
-                does. */}
-            <Button variant="quiet" size="sm" onClick={exploration.onDrop}>
+                does.
+
+                The name is set explicitly because the visible order reads the wrong way round
+                to anyone who cannot see the strip: "Dependants of Gateway Drop" is a subject
+                followed by a verb, in the same chip shape the relationship filters two rows
+                above use for a control that toggles rather than removes. */}
+            <Button
+              variant="quiet"
+              size="sm"
+              aria-label={`Drop ${exploration.label}`}
+              onClick={exploration.onDrop}
+            >
               {exploration.label}
               <span className="font-semibold uppercase tracking-[0.13em] text-[10px] text-ink-3">
                 Drop
@@ -317,22 +358,45 @@ export function ExplorationStrip({
 /** The strip under the controls: where the camera is pointed. */
 export function ViewportToolbar({
   instructionsId,
+  minimapAvailable,
   view,
 }: {
   instructionsId: string;
+  /** Whether there is a minimap to draw. A one-card graph has nothing to overview. */
+  minimapAvailable: boolean;
   view: AtlasViewport;
 }) {
+  const hasKeyboard = useHasKeyboard();
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-rule bg-surface-2 px-3 py-2">
-      <Mono
-        className="hidden text-[10px] uppercase tracking-[0.13em] text-ink-3 lg:inline"
-        id={instructionsId}
-      >
-        {/* Which way an arrow points, said once. Every edge is stored from the dependent to
-            the dependency and every arrowhead follows it, and a reader with no sentence to go
-            on has to infer a convention from a triangle. */}
-        Drag to pan · pinch or ⌘-scroll to zoom · an arrow points from a dependent to what it
-        depends on
+      {/* The whole instruction set, always in the document, and the canvas's `aria-describedby`
+          points here.
+
+          It pointed at the visible line below, which is `hidden` under 1024px — and
+          `display: none` content is removed from the accessibility tree, so on every viewport
+          a touch reader is likely to be using, the canvas's description resolved to nothing.
+          Where it did resolve it described only pointer gestures, while the arrow keys, Home
+          and End, Enter and `n` are all implemented and were named nowhere. The defect was
+          what the sentence said, not whether it was displayed, so the fix is a sentence that
+          says all of it rather than a different breakpoint on the old one. */}
+      <span className="sr-only" id={instructionsId}>
+        Drag or use the arrow keys to walk the cards. Home and End are its two ends, Enter
+        selects the card you are on, and n steps through the elements a search matched. Pinch
+        or hold the zoom modifier while scrolling to zoom. An arrow points from a dependent to
+        what it depends on.
+      </span>
+      <Mono className="text-[10px] uppercase tracking-[0.13em] text-ink-3">
+        {/* Which way an arrow points, said once, at every width. Every edge is stored from the
+            dependent to the dependency and every arrowhead follows it, and a reader with no
+            sentence to go on has to infer a convention from a triangle — which is a fact about
+            the picture and does not stop being true on a phone.
+
+            The gesture half is gated on the input rather than on the width, because a screen
+            with no keyboard cannot make a ⌘-scroll and a screen with no touchscreen cannot
+            pinch. It was the other way round: hidden below 1024px, so the pinch was taught
+            only to the machines least likely to have a screen to pinch. */}
+        {hasKeyboard ? "Drag to pan · ⌘-scroll to zoom · " : "Drag to pan · pinch to zoom · "}
+        an arrow points from a dependent to what it depends on
       </Mono>
       {/* A fit that could not fit did it silently, and left the reader looking at a corner of
           a map they had asked to see whole.
@@ -353,7 +417,7 @@ export function ViewportToolbar({
         role="group"
         aria-label="Graph viewport controls"
       >
-        <div className="inline-flex items-center rounded-sm border border-rule bg-sunken/70 p-0.5">
+        <div className="inline-flex items-center rounded-sm border border-rule bg-sunken p-0.5">
           <CameraButton
             label="Zoom out"
             disabled={view.zoom <= MIN_ZOOM}
@@ -361,8 +425,13 @@ export function ViewportToolbar({
           >
             −
           </CameraButton>
+          {/* `aria-live="off"`, not a deleted attribute. `<output>` is `role="status"` and is a
+              live region with no `aria-live` on it at all, so removing the attribute would
+              leave the wheel-tick stream exactly where it was — and the panel already has one
+              polite region, deliberately narrowed to the single sentence naming the card the
+              reader is on. The element and its name stay: this is a readout to go and read. */}
           <output
-            aria-live="polite"
+            aria-live="off"
             aria-label="Current graph zoom"
             className="w-11 text-center font-mono text-[11px] tabular-nums text-ink-2"
           >
@@ -390,13 +459,32 @@ export function ViewportToolbar({
           <ToggleGroupItem value="fullscreen" onClick={() => void view.toggleFullscreen()}>
             {view.fullscreen ? "Exit full screen" : "Full screen"}
           </ToggleGroupItem>
-          <ToggleGroupItem value="minimap" onClick={() => view.setShowMinimap((v) => !v)}>
+          {/* A one-card graph has no overview to draw, and the canvas already declines to
+              draw one — which left the chip sitting in its raised, bordered on state over
+              nothing at all. */}
+          <ToggleGroupItem
+            value="minimap"
+            disabled={!minimapAvailable}
+            title={minimapAvailable ? undefined : "A map of one element has nothing to overview"}
+            onClick={() => view.setShowMinimap((v) => !v)}
+          >
             Minimap
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
     </div>
   );
+}
+
+/**
+ * A tooltip naming a keystroke, wrapped round a control only where a keyboard is in front of
+ * the screen. Everywhere else the control is handed back bare rather than carrying a hint
+ * nobody there can act on.
+ */
+function WithKeyHint({ content, children }: { content: string; children: React.ReactElement }) {
+  const hasKeyboard = useHasKeyboard();
+  if (!hasKeyboard) return children;
+  return <Tooltip content={content}>{children}</Tooltip>;
 }
 
 /**
@@ -422,9 +510,16 @@ function CameraButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "inline-flex size-7 pointer-coarse:size-10 items-center justify-center rounded-[4px]",
+        // 44px on a coarse pointer, which is the charter's fifth principle and what every
+        // other control in the product answers the touch floor with — these two were the only
+        // pair at 40, on the surface where pinch is the alternative and pinch competes with
+        // the page scroll. `rounded-xs` is the documented 4px step rather than the same value
+        // written out as an arbitrary one.
+        "inline-flex size-7 pointer-coarse:size-11 items-center justify-center rounded-xs",
         "font-mono text-sm text-ink-2 transition hover:bg-control hover:text-ink",
-        "disabled:pointer-events-none disabled:opacity-40",
+        // Drawn rather than dimmed: at 40% the character a stepper *is* fell to about 3:1, and
+        // the ink ramp's bottom step is measured against every ground it is painted on.
+        "disabled:pointer-events-none disabled:text-ink-3",
       )}
     >
       {children}

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import type { Finding, RetrievalProvenance, Review } from "../../api";
@@ -9,12 +9,10 @@ import { InvestigationTranscript, investigationSummary } from "./investigation";
 import { Tag } from "../../ui/badge";
 import { Button, CopyButton } from "../../ui/button";
 import { EvidenceBlock } from "../../ui/code";
-import { ChevronDown } from "../../ui/icons";
+import { ArrowRight, ChevronDown } from "../../ui/icons";
 import { MetaList, MetaRow, Mono, PathRef } from "../../ui/meta";
 import { Label } from "../../ui/panel";
 import { Notice } from "../../ui/states";
-
-
 
 /**
  * A measurement's name, said from the reader's side.
@@ -57,6 +55,24 @@ function retrievalLabel(finding: Finding, retrieval?: RetrievalProvenance): stri
 }
 
 /**
+ * A detection rationale, with the fingerprint it usually ends on taken off the end of it.
+ *
+ * The deterministic detector regularly closes its sentence with the 64-character participant
+ * fingerprint it matched on, and the sentence is prose — so the hash was set in the sans face
+ * reserved for prose and then flowed through three lines, breaking mid-hash with no visual
+ * seam. It is an identity produced by analysis, which is the Measured voice, and it belongs
+ * under the sentence in mono, shortened, with a way to take the whole of it.
+ *
+ * The prose keeps `wrap-anywhere` for the case this does not match, which is any rationale
+ * that names something long somewhere other than at the end.
+ */
+function splitFingerprint(rationale: string): { prose: string; fingerprint?: string } {
+  const found = /\s*\b([0-9a-f]{32,64})\b\.?\s*$/.exec(rationale);
+  if (!found) return { prose: rationale };
+  return { prose: rationale.slice(0, found.index).trimEnd(), fingerprint: found[1] };
+}
+
+/**
  * What `Policies` says while it is closed.
  *
  * Four different situations arrive here as "no policies", and the charter's "say where it
@@ -80,9 +96,17 @@ function policiesSummary(finding: Finding, retrieval?: RetrievalProvenance): str
   return `0 of ${retrieved} retrieved policies bore on this judgement`;
 }
 
-/** A fact that supports the block above it, said in one line. */
+/**
+ * A fact that supports the block above it, said in one line.
+ *
+ * `46ch`, not the `62ch` this and every other measured block in the product used to carry.
+ * `ch` is the width of Onest's zero, which is about `0.65em` — so `62ch` resolved to roughly
+ * 650px at the reading size and admitted 89 lowercase characters, forty per cent more than
+ * the number implied. The unit is kept, because it keeps the measure proportional to the size
+ * the block is set at; the number is corrected to the 30em a measure actually is.
+ */
 function Footnote({ children, className }: { children: ReactNode; className?: string }) {
-  return <p className={cn("mt-3 max-w-[62ch] text-[12px] leading-5 text-ink-3", className)}>{children}</p>;
+  return <p className={cn("mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-3", className)}>{children}</p>;
 }
 
 /**
@@ -108,6 +132,14 @@ function BlockLabel({ children, className }: { children: ReactNode; className?: 
  * It lives in this file rather than beside the drawer that also uses it because
  * `ui/design-system.test.ts` allowlists the files that may spend the mark, and one link
  * written twice is the drift that allowlist exists to stop.
+ *
+ * `-my-3 py-3` is `PathRef`'s trick, and this is the other half of the same promise: a
+ * finding has two ways out to the source a claim came from, and only the one going to a file
+ * was tappable. This one was a bare line of 11px type with no box at all — well under the
+ * 24px minimum, let alone the 44px floor the rest of the product holds. The padding makes the
+ * touch box; the matching negative margin hands those pixels straight back to the layout, so
+ * nothing moves. A call site that wants to space it does so on a wrapper — `cn` is
+ * tailwind-merge, and a `mt-*` passed here sits beside the `-my-3` rather than replacing it.
  */
 export function PolicyRef({ id, className }: { id: string; className?: string }) {
   return (
@@ -115,7 +147,7 @@ export function PolicyRef({ id, className }: { id: string; className?: string })
       to={`/policies?open=${encodeURIComponent(id)}`}
       title={`Read the policy ${id}`}
       className={cn(
-        "font-mono text-[11px] text-mark underline decoration-rule-strong underline-offset-2 transition hover:decoration-current [overflow-wrap:anywhere]",
+        "-my-3 inline-block py-3 font-mono text-[11px] text-mark underline decoration-rule-strong underline-offset-2 transition hover:decoration-current [overflow-wrap:anywhere]",
         className,
       )}
     >
@@ -131,8 +163,13 @@ export function PolicyRef({ id, className }: { id: string; className?: string })
  * then the identity behind it. `MEASURED · boundary-scan`, `JUDGED · gemini/judge:v1`,
  * `DECIDED · nobody yet`. There is no gutter and no second typeface; there is a line naming
  * the author, and a reader who has read one finding knows the shape of the next.
+ *
+ * Exported for the report surface, which sets the review's synopsis — the one other
+ * model-authored paragraph in the product. It had grown its own label recipe at its own
+ * tracking and its own weight, so the two paragraphs a reader is meant to recognise as the
+ * same kind of thing were the two that did not match.
  */
-function Attribution({ voice, by, className }: { voice: string; by?: ReactNode; className?: string }) {
+export function Attribution({ voice, by, className }: { voice: string; by?: ReactNode; className?: string }) {
   return (
     <p className={cn("flex flex-wrap items-baseline gap-x-2 gap-y-0.5", className)}>
       {/* A `span`, because a voice sits on the same baseline as the identity beside it and
@@ -186,22 +223,53 @@ function HashRow({ label, value }: { label: string; value: string }) {
 function Disclosure({
   label,
   summary,
+  machine,
   children,
 }: {
   label: string;
   summary: ReactNode;
+  /**
+   * Whether the closed state is a machine string or a sentence.
+   *
+   * Every summary used to be set in mono, which is the face this system reserves for names,
+   * paths and ids. That is right for Provenance, whose closed state really is two hashes, and
+   * wrong for the other two: "The corpus was searched · nothing came back above the
+   * threshold" in 11px monospace reads as an identifier that has gone wrong — the failure
+   * `surfaces.tsx` names by hand a few files over. So the caller says which voice its own
+   * summary is in, and English goes at the footnote step in sans.
+   */
+  machine?: boolean;
   children: ReactNode;
 }) {
   return (
     <details className="group border-t border-rule">
-      <summary className="flex min-h-11 list-none items-start gap-3 px-4 py-3 transition hover:bg-surface-2 focus-visible:-outline-offset-2 sm:px-6">
+      {/* The chevron leads. Three bands of the same white split by hairlines, two of which
+          open and one of which does not, told a reader nothing at rest — and the only mark
+          that said so was 16px wide at the far right of a 1168px row, more than a thousand
+          pixels from the word it opens. In front of the label it sits twelve pixels from it.
+
+          `hover:bg-sunken`, not `hover:bg-surface-2`: `#ffffff` to `#fafafa` is five values,
+          which is a division a reader is not asked to notice and nowhere near a state that
+          appears under a pointer. `--surface-2` is also what the open body is filled with,
+          so a hover in it would have been the row previewing its own contents.
+
+          `sm:px-5` rather than `sm:px-6`, so the left edge of an open finding stops stepping
+          in and out: the argument, the readings, the evidence and the decision bar all resolve
+          to 16px below `sm` and 20px above it, and four pixels is enough to read as a
+          misalignment against a hairline and not enough to read as an indent. */}
+      <summary className="flex min-h-11 list-none items-start gap-3 px-4 py-3 transition hover:bg-sunken focus-visible:-outline-offset-2 sm:px-5">
+        <ChevronDown className="mt-0.5 size-4 shrink-0 text-ink-3 transition group-open:rotate-180" />
         <Label className="shrink-0 leading-5 text-ink">{label}</Label>
-        <span className="min-w-0 flex-1 font-mono text-[11px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+        <span
+          className={cn(
+            "min-w-0 flex-1 text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]",
+            machine && "font-mono text-[11px]",
+          )}
+        >
           {summary}
         </span>
-        <ChevronDown className="mt-0.5 size-4 shrink-0 text-ink-3 transition group-open:rotate-180" />
       </summary>
-      <div className="border-t border-rule bg-surface-2 px-4 py-4 sm:px-6">{children}</div>
+      <div className="border-t border-rule bg-surface-2 px-4 py-4 sm:px-5">{children}</div>
     </details>
   );
 }
@@ -281,7 +349,7 @@ function hingeFootnote(review: Review, asked: boolean): string {
  * would be answering a question already answered.
  *
  * It is laid out by how much room each part actually needs, which is not the same as how
- * important each part is. The model's argument is two or three sentences and caps at `62ch`,
+ * important each part is. The model's argument is two or three sentences and caps at `46ch`,
  * so it takes the full width and stops; the evidence is source code, which needs every pixel
  * it can get. A first attempt put the argument in a `1fr` column beside a `24rem` one holding
  * everything the machine produced, and got both wrong at once: seven hundred pixels of empty
@@ -289,7 +357,6 @@ function hingeFootnote(review: Review, asked: boolean): string {
  * gutter. So the argument is a band across the top, and under it the readings take a narrow
  * column beside the excerpts, which take the rest.
  */
-
 export function FindingBody({
   review,
   finding,
@@ -301,6 +368,8 @@ export function FindingBody({
   onAnswer?: () => void;
   onOpenContext?: () => void;
 }) {
+  const uid = useId();
+  const hingeId = `hinge-${uid}`;
   const descriptor = verdictOf(finding.verdict);
   const measurements = finding.candidate.measurements;
   const retrieval = review.retrieval_manifest.find(
@@ -311,6 +380,12 @@ export function FindingBody({
   );
   const answered = review.case.answers.filter((answer) => answer.status === "answered");
   const firstLocation = finding.evidence.find((item) => item.location)?.location;
+  // How many distinct files the excerpts come from, which is what the Evidence header can say
+  // that the cards under it cannot — each of those carries its own location.
+  const evidenceFiles = new Set(
+    finding.evidence.map((item) => item.location?.path).filter(Boolean),
+  ).size;
+  const detected = splitFingerprint(finding.candidate.detection_rationale);
   // Two separate questions, and folding them into one ternary made the footnote below assert
   // things that were not true. `openQuestion` is whether this review holds a question naming
   // this candidate — it does on a cancelled review, because `cancel()` keeps every question.
@@ -331,44 +406,79 @@ export function FindingBody({
     <div>
       {/* ── The argument, across the top ─────────────────────────────────────── */}
       <section className="min-w-0 px-4 py-4 sm:px-5">
-          <Attribution
-            voice="Judged"
-            by={`${finding.model_identity} · ${retrievalLabel(finding, retrieval)}`}
-          />
-          {/* The only thing on the surface set at the reading size. The model's output is an
-              argument a reader is meant to weigh and disagree with, and it says so by being
-              the longest measure and the largest body text here.
+        <Attribution
+          voice="Judged"
+          by={`${finding.model_identity} · ${retrievalLabel(finding, retrieval)}`}
+        />
+        {/* The only thing on the surface set at the reading size. The model's output is an
+            argument a reader is meant to weigh and disagree with, and it says so by being
+            the longest measure and the largest body text here.
 
-              `wrap-anywhere` because the model writes about code: a 34-character qualified
-              name inside a paragraph is wider than a 320px phone. */}
-          <p className="mt-2.5 max-w-[62ch] whitespace-pre-line text-[16px] leading-[1.65] text-ink wrap-anywhere">
-            {finding.reasoning}
-          </p>
-          <Footnote>
-            {descriptor.description} Judged against case revision {review.case.revision} and{" "}
-            {plural(review.case.answers.length, "answer")}.
-          </Footnote>
+            `wrap-anywhere` because the model writes about code: a 34-character qualified
+            name inside a paragraph is wider than a 320px phone. */}
+        <p className="mt-2.5 max-w-[46ch] whitespace-pre-line text-[16px] leading-[1.65] text-ink wrap-anywhere">
+          {finding.reasoning}
+        </p>
+        <Footnote>
+          {descriptor.description} Judged against case revision {review.case.revision} and{" "}
+          {plural(review.case.answers.length, "answer")}.
+        </Footnote>
 
         {/* What the judgement is waiting on and what it suggests: two short blocks that
-            never both fill a row, so they share one wherever there is room for two. */}
+            never both fill a row, so they share one wherever there is room for two — and
+            only then. The split used to be unconditional, so a finding with a hinge and no
+            recommendation confined the one thing standing between the reader and six settled
+            candidates to 47% of the row and ran 490px of empty panel down the right of it.
+            The finding is allowed to change width halfway down; it is not allowed to change
+            width for a block that is not there. */}
         {finding.hinge || finding.recommended_response ? (
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div
+            className={cn(
+              "mt-4 grid gap-4",
+              finding.hinge && finding.recommended_response && "lg:grid-cols-2",
+            )}
+          >
             {finding.hinge ? (
               <div className="min-w-0">
                 <BlockLabel>Hinges on</BlockLabel>
+                {/* One of the pair is in a box and the other is not, which is a difference a
+                    reader sees at a glance. They used to be two boxes drawn from two `Notice`
+                    tones — `#fafafa` against `#ebebeb` on a white row, with both call sites
+                    then overriding the text to full ink and cancelling the only other thing
+                    the tones carried. Fifteen values of grey and a border alpha is not enough
+                    to tell *the reason this finding is held* from *a suggestion the product
+                    explicitly disclaims*, which sit side by side in the same grid. So the
+                    hinge keeps the box, and the recommendation is prose under its label. */}
                 <Notice tone="working" className="mt-1.5">
-                  <p className="text-[14px] leading-relaxed text-ink wrap-anywhere">
+                  <p id={hingeId} className="text-[14px] leading-relaxed text-ink wrap-anywhere">
                     {finding.hinge}
                   </p>
                   {waitingOn && onAnswer ? (
+                    /* The one action that unblocks every candidate in a waiting review, so it
+                       is the primary and not a ghost at the weight of "Judgement context" nine
+                       hundred pixels below. Unlike Accept / Park / Waive, which are peers by
+                       design, there is no competing choice here.
+
+                       No `aria-label`. It named the button "Answer the open question: …" with
+                       the whole question folded in, so the visible words were not in the
+                       accessible name — nothing to say for anyone driving the page by voice,
+                       and a paragraph where a name should be for anyone listening. The
+                       question is what `aria-describedby` is for, and it is already on screen
+                       directly above.
+
+                       The arrow is drawn. It was `&rarr;`, which is the forbidden glyph
+                       written as an entity: the guard scans source for the character and an
+                       entity contains none, while the browser renders U+2192 out of whatever
+                       the operating system has, since neither Onest nor Plex Mono ships it. */
                     <Button
-                      variant="secondary"
+                      variant="primary"
                       size="md"
                       className="mt-2.5 min-h-11"
-                      aria-label={`Answer the open question: ${waitingOn.text}`}
+                      aria-describedby={hingeId}
                       onClick={onAnswer}
                     >
-                      Answer it &rarr;
+                      Answer it
+                      <ArrowRight aria-hidden="true" className="size-[13px]" />
                     </Button>
                   ) : null}
                 </Notice>
@@ -382,11 +492,9 @@ export function FindingBody({
             {finding.recommended_response ? (
               <div className="min-w-0">
                 <BlockLabel>Recommended response</BlockLabel>
-                <Notice className="mt-1.5">
-                  <p className="text-[14px] leading-relaxed text-ink wrap-anywhere">
-                    {finding.recommended_response}
-                  </p>
-                </Notice>
+                <p className="mt-1.5 max-w-[46ch] text-[14px] leading-relaxed text-ink wrap-anywhere">
+                  {finding.recommended_response}
+                </p>
                 <Footnote>
                   A recommendation, not a change. ArchCompass does not write the fix.
                 </Footnote>
@@ -400,9 +508,15 @@ export function FindingBody({
       <div
         className={cn(
           "grid border-t border-rule bg-surface-2",
-          // A candidate with no excerpts has nothing to sit beside, and a 22rem column with
+          // A candidate with no excerpts has nothing to sit beside, and a 26rem column with
           // an empty half of the screen next to it reads as a layout that failed.
-          finding.evidence.length > 0 && "lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]",
+          //
+          // 26rem, not 22. At 1440 the column with all the text was the narrow one and the
+          // column that ran out of content was the wide one: two small excerpts ended and
+          // left 535 rows of empty strip under them, while "a proxy, not a count" wrapped its
+          // qualifier onto a second line 818px to the left. The other half of that is below —
+          // "How it was detected" spans the grid rather than lengthening this column.
+          finding.evidence.length > 0 && "lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]",
         )}
       >
         <section className="min-w-0 px-4 py-4 sm:px-5">
@@ -415,7 +529,15 @@ export function FindingBody({
             <div className="mt-2.5">
               <BlockLabel>
                 Involved code
-                <span className="font-mono font-medium normal-case tracking-normal">
+                {/* `font-normal`, and this is a correction rather than a preference. Only 400
+                    and 600 of IBM Plex Mono are loaded, so the `font-medium` that stood here
+                    asked for a 500 that CSS font matching resolved down to 400 — the class
+                    described a weight that never painted. What the count wants is to be
+                    lighter than the 700 label it sits inside, which is exactly what 400
+                    already was, so nothing moves on screen and the class now names what it
+                    renders. The measurement value below took the other road and went to 600,
+                    because there the emphasis was the point. */}
+                <span className="font-mono font-normal normal-case tracking-normal">
                   {" · "}
                   {finding.candidate.participants.length}
                 </span>
@@ -424,21 +546,32 @@ export function FindingBody({
                   the role stapled inside. `role` is only sometimes a word — the deterministic
                   detector writes "the only implementation of it in this repository", and a
                   sentence sharing a chip with an identifier squeezed the identifier to about
-                  thirty pixels and broke it one character to a line. */}
-              <ul aria-label="Involved code" className="mt-1.5 grid gap-1.5">
+                  thirty pixels and broke it one character to a line.
+
+                  And now without the chip's box, which was drawing nothing. `Tag` is filled
+                  with `--surface-2`, which is the exact colour of the exhibit strip it sits
+                  on — 1.00:1 — leaving a `--rule` hairline at 1.25:1 in light and 1.36:1 in
+                  dark as the whole boundary, under the 3:1 a non-text edge is held to. It
+                  cost ten pixels a side to say nothing. Rows on a rule instead, which is what
+                  the readings twelve lines below already do, and the same 34rem measure so a
+                  name and its role do not end up at opposite ends of the page below `lg`. */}
+              <ul
+                aria-label="Involved code"
+                className="mt-1.5 max-w-[34rem] divide-y divide-rule border-t border-rule"
+              >
                 {finding.candidate.participants.map((participant) => (
                   <li
                     key={`${participant.qualified_name}-${participant.role}`}
-                    className="flex max-w-full items-start gap-1"
+                    className="flex max-w-full items-start gap-1 py-1.5"
                   >
-                    <Tag className="min-w-0 flex-col items-start gap-0.5 px-2.5 py-1.5">
-                      <Mono className="text-[11px] text-ink wrap-anywhere">
+                    <span className="min-w-0 max-w-full flex-1">
+                      <Mono className="block text-[11px] text-ink wrap-anywhere">
                         {participant.qualified_name}
                       </Mono>
-                      <span className="text-[11px] leading-4 text-ink-3">
+                      <span className="block text-[11px] leading-4 text-ink-3">
                         {humanise(participant.role)}
                       </span>
-                    </Tag>
+                    </span>
                     {/* The reviewer's next action after reading a finding is to go to the
                         code, and the qualified name is what an editor's *go to symbol* box
                         and a search take. */}
@@ -456,7 +589,14 @@ export function FindingBody({
           {measurements.length ? (
             // Readings on a rule, not a row of cards. A reading that has been put in a box is
             // asking to be looked at twice.
-            <dl className="mt-3.5 border-t border-rule">
+            //
+            // The measure is the pairing. `justify-between` is right in the 26rem column
+            // these were designed for and wrong below `lg`, where the grid collapses and the
+            // same rows span the whole 76rem page — `referenced by` on the far left and `7`
+            // on the far right, eight hundred pixels apart, is a pair the eye reconstructs
+            // rather than reads. 34rem changes nothing in the column and holds it together
+            // everywhere else.
+            <dl className="mt-3.5 max-w-[34rem] border-t border-rule">
               {measurements.map((item) => (
                 <div key={item.name} className="border-b border-rule py-2">
                   <div className="flex items-baseline justify-between gap-3">
@@ -466,7 +606,20 @@ export function FindingBody({
                         <span className="font-normal text-ink-3"> · a proxy, not a count</span>
                       ) : null}
                     </dt>
-                    <dd className="shrink-0 font-mono text-[16px] font-medium tabular-nums text-ink">
+                    {/* 14px, not 16. Sixteen is the row the type scale gives to the model's
+                        reasoning — "its own size, used nowhere else" — and it is the whole
+                        device that keeps the model's voice apart from the machine's. Setting
+                        a deterministic count at it made the numeral the largest glyph in the
+                        lower half of an open row and told the reader the wrong thing about
+                        where it came from. The reading is still the anchor of its line: mono,
+                        tabular, right-aligned against a 12px label.
+
+                        `font-semibold`, not `font-medium`. Only 400 and 600 of IBM Plex Mono
+                        are loaded, so CSS font matching resolves a desired 500 down to 400 —
+                        the emphasis this line believed it had never arrived. The other six
+                        mono `font-medium` call sites and the scale row that publishes "14 |
+                        Mono, 500" are one decision and are not this file's to take. */}
+                    <dd className="shrink-0 font-mono text-[14px] font-semibold tabular-nums text-ink">
                       {item.value}
                       {item.unit ? <span className="text-[11px] text-ink-3"> {item.unit}</span> : null}
                     </dd>
@@ -482,18 +635,6 @@ export function FindingBody({
               This pattern is detected structurally and carries no counts.
             </p>
           )}
-
-          <div className="mt-3.5">
-            <BlockLabel>How it was detected</BlockLabel>
-            {/* `wrap-anywhere`: a detection rationale regularly ends in a 64-character
-                participant fingerprint, which is one token to the line breaker. */}
-            <p className="mt-1 text-[12.5px] leading-6 text-ink-2 wrap-anywhere">
-              {finding.candidate.detection_rationale}
-            </p>
-            {finding.candidate.limitations ? (
-              <Footnote className="mt-2">{finding.candidate.limitations}</Footnote>
-            ) : null}
-          </div>
 
           {/* The deeper audit — the case, the policy corpus, what else touches this code, the
               retrieval behind it — at the foot of the machine's own column, which is where a
@@ -511,19 +652,16 @@ export function FindingBody({
             and you cannot read source code in a gutter. */}
         {finding.evidence.length ? (
           <section className="min-w-0 border-t border-rule px-4 py-4 sm:px-5 lg:border-l lg:border-t-0">
-            {/* The location was set in the mark with an underline under it and did nothing at
-                all when pressed — the one decoration this system reserves for "this goes to
-                the source", promising a destination it did not have. `PathRef` is that
-                promise kept: it copies `path:line`, and opens the file where somebody has
-                said which editor they use. */}
+            {/* How many files the evidence spans, not where the first card happens to be.
+                The header used to repeat the first excerpt's own location — which that card
+                prints 34px below it — and in doing so labelled a column that also holds
+                `adapters.py` as though it were all `ports.py`. A reader takes a location under
+                a block label as the scope of the block. Each card carries its own `PathRef`;
+                the header answers the question the cards cannot. */}
             <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
               <BlockLabel>Evidence</BlockLabel>
-              {firstLocation ? (
-                <PathRef
-                  path={firstLocation.path}
-                  line={firstLocation.start_line}
-                  endLine={firstLocation.end_line}
-                />
+              {evidenceFiles ? (
+                <Mono className="text-[11px] text-ink-3">{plural(evidenceFiles, "file")}</Mono>
               ) : null}
             </div>
             <div className="mt-1.5 grid gap-2">
@@ -540,17 +678,55 @@ export function FindingBody({
             </div>
           </section>
         ) : null}
+
+        {/* Across the grid rather than down the readings column. It is prose, and prose is
+            what the narrow column was worst at: at 1440 the readings ran on while two small
+            excerpts beside them ended and left half the strip empty, so the block with a
+            measure was in the 26rem column and the block with nothing left to show had 818px.
+            Moving the one paragraph in the Measured half out of the column brings the two
+            within a few hundred pixels of each other and gives the sentence its own measure.
+            It stays on the strip, because it is still the machine's voice. */}
+        <section className="min-w-0 border-t border-rule px-4 py-4 sm:px-5 lg:col-span-2">
+          <BlockLabel>How it was detected</BlockLabel>
+          {/* `wrap-anywhere` for a rationale that names something long in the middle of a
+              sentence. The common case — a 64-character participant fingerprint at the end of
+              it — is split off below instead, because a hash flowed through a paragraph in the
+              sans face breaks mid-hash with no visual seam, and 0/O and 1/l stop being
+              distinguishable in a face that was never asked to keep them apart. */}
+          <p className="mt-1 max-w-[46ch] text-[12.5px] leading-6 text-ink-2 wrap-anywhere">
+            {detected.prose}
+          </p>
+          {detected.fingerprint ? (
+            <span className="mt-1.5 flex items-start gap-1">
+              <Mono className="text-[11px] text-ink-3">{shortId(detected.fingerprint, 12)}</Mono>
+              <CopyButton
+                value={detected.fingerprint}
+                label="Copy the participant fingerprint"
+                className="-my-1 shrink-0"
+              />
+            </span>
+          ) : null}
+          {finding.candidate.limitations ? (
+            <Footnote className="mt-2">{finding.candidate.limitations}</Footnote>
+          ) : null}
+        </section>
       </div>
 
       {/* ── The audit, folded away, each with a closed state that says what is inside ── */}
       <Disclosure label="Policies" summary={policiesSummary(finding, retrieval)}>
         {finding.policies.length ? (
-          <ul className="grid max-w-[62ch] gap-2">
+          <ul className="grid max-w-[46ch] gap-2">
+            {/* A hairline card with no fill, for the reason `EvidenceBlock` has none: the
+                fold body it sits in is `--surface-2`, and `--surface` is above it in light
+                and below it in dark, so the same card read as raised in one theme and as a
+                hole in the other. And the id at the 11px mono step the scale contains rather
+                than at 10.5px, which it does not — the size was there to keep a link that had
+                no touch box from looking heavy, and the link has a touch box now. */}
             {finding.policies.map((bearing) => (
-              <li key={bearing.policy_id} className="rounded-md border border-rule bg-surface px-3.5 py-3">
+              <li key={bearing.policy_id} className="rounded-md border border-rule px-3.5 py-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <span className="text-[13px] font-semibold text-ink">{bearing.policy_title}</span>
-                  <PolicyRef id={bearing.policy_id} className="text-[10.5px]" />
+                  <PolicyRef id={bearing.policy_id} />
                 </div>
                 <p className="mt-1.5 text-[14px] leading-relaxed text-ink-2 wrap-anywhere">
                   {bearing.reasoning}
@@ -559,7 +735,7 @@ export function FindingBody({
             ))}
           </ul>
         ) : (
-          <p className="max-w-[62ch] text-[13px] leading-6 text-ink-2">
+          <p className="max-w-[46ch] text-[13px] leading-6 text-ink-2">
             No policy bore on this judgement. The model was given the case, the measurements and
             the evidence, and reached the verdict without a policy to weigh it against.
           </p>
@@ -583,12 +759,21 @@ export function FindingBody({
         </Disclosure>
       ) : null}
 
+      {/* The one fold whose closed state really is a machine string, so the one that keeps
+          the mono voice.
+
+          Both halves shortened. It led with the full prompt identity and applied `shortId` to
+          only the value beside it, so the line a reader scans on a phone ran to three or four
+          wrapped lines of hex before reaching the fact it exists to carry — which is the
+          argument `retrievalLabel` makes eight hundred lines above and then was not applied
+          here. The whole of both values is inside, in `Provenance`, with a clipboard. */}
       <Disclosure
         label="Provenance"
+        machine
         summary={
           retrieval
-            ? `Prompt ${finding.prompt_identity} · corpus ${shortId(retrieval.corpus_fingerprint, 12)}`
-            : `Prompt ${finding.prompt_identity} · no retrieval recorded for this candidate`
+            ? `Prompt ${shortId(finding.prompt_identity, 12)} · corpus ${shortId(retrieval.corpus_fingerprint, 12)}`
+            : `Prompt ${shortId(finding.prompt_identity, 12)} · no retrieval recorded for this candidate`
         }
       >
         <MetaList>

@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import { api, type RepositoryFolder, type RepositoryFolderTree } from "../../api";
 import { cn } from "../../lib/cn";
 import { plural } from "../../lib/format";
+import { useScrollEdges } from "../../lib/motion";
 import { Tag } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { FolderIcon } from "../../ui/icons";
@@ -79,6 +80,12 @@ export function ScopePicker({
   onChange: (next: string[]) => void;
 }) {
   const tree = useRepositoryTree(root);
+  // A repository with more folders than fit 288px is the common case, and the list ended
+  // mid-row against nothing — no scrollbar on macOS until the trackpad is touched, so it read
+  // as a rendering fault rather than as a scroller. `.scroll-edge` is the fade `styles.css`
+  // already describes for this, driven by the hook that reports which edges still have rows
+  // past them.
+  const { ref: scroller, edges } = useScrollEdges<HTMLUListElement>();
 
   if (!root) {
     return (
@@ -163,7 +170,12 @@ export function ScopePicker({
         </div>
       </div>
 
-      <ul className="scrollbar-slim grid max-h-72 gap-1 overflow-y-auto overflow-x-clip">
+      <ul
+        ref={scroller}
+        data-edge-top={edges.top}
+        data-edge-bottom={edges.bottom}
+        className="scroll-edge scrollbar-slim grid max-h-72 gap-1 overflow-y-auto overflow-x-clip"
+      >
         {folders.map((folder) => (
           <FolderRow
             key={folder.path}
@@ -228,10 +240,27 @@ function FolderRow({
           // invalid at computed-value time, and `padding-left` would fall back to 0 rather
           // than to the gutter every row needs.
           "pl-[calc(0.625rem_+_var(--depth,0rem))]",
-          dimmed
-            ? "border-rule bg-sunken text-ink-3"
-            : "border-transparent hover:border-rule hover:bg-sunken/60",
-          covered && "cursor-not-allowed opacity-60",
+          // Three states, three grounds off the ramp — and none of them an alpha.
+          //
+          // `covered` used to be `bg-sunken text-ink-3` *plus* `opacity-60`, so the demotion
+          // was applied twice and the second application took the one number this picker
+          // exists to show — how many Python files leaving the folder out would save — to
+          // 2.39:1 in light and 2.62:1 in dark. The opacity was carrying a real distinction,
+          // though: without it "you left this out" and "its parent left it out" draw
+          // identically. So the distinction moves onto the ramp. `--surface-2` is the strip
+          // that recedes into the panel, which is what a decision somebody else's tick
+          // already made looks like, and `--ink-3` measures 6.1:1 on it in light and 5.7:1 in
+          // dark — the values `styles.css` was rewritten to guarantee and that an opacity on
+          // top of them throws away.
+          //
+          // The hover is `--sunken` and not `bg-sunken/60`: sixty per cent of it composites
+          // to six values in light and nineteen in dark, so the same declaration was a real
+          // step in one theme and nothing in the other.
+          covered
+            ? "cursor-not-allowed border-rule bg-surface-2 text-ink-3"
+            : checked
+              ? "border-rule bg-sunken text-ink-3"
+              : "border-transparent hover:border-rule hover:bg-sunken",
         )}
       >
         <input

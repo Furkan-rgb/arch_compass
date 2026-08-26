@@ -96,8 +96,29 @@ describe("a review being made", () => {
 
     const progress = await screen.findByRole("list", { name: "Review progress" });
     expect(within(progress).getByText("Judging candidate 6 of 15")).toBeInTheDocument();
-    // Two rows before it and none after: every turn through the loop is that one row.
-    expect(within(progress).getAllByRole("listitem")).toHaveLength(3);
+    // Six rows however deep the loop is. The list is the six phases the start page already
+    // promises a review does, so a turn through the candidate loop is the same single row
+    // whether it is the first candidate or the fifteenth.
+    expect(within(progress).getAllByRole("listitem")).toHaveLength(6);
+  });
+
+  it("has a length and a denominator before anything has been judged", async () => {
+    // The list used to be built from the stages that had already happened, so at minute one
+    // it was one row with a spinner on it — no length, no denominator, and no estimate
+    // either, because `estimateLeft` says nothing until two candidates are judged. That is
+    // most of a multi-minute run spent saying "Started 4 minutes ago" beside a single line.
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
+    vi.spyOn(api, "reviewRun").mockResolvedValue(
+      runFixture({ stage: "analyze_repository", stages: ["load_context", "analyze_repository"] }),
+    );
+
+    render(wrap(<RunPage />));
+
+    const progress = await screen.findByRole("list", { name: "Review progress" });
+    expect(within(progress).getAllByRole("listitem")).toHaveLength(6);
+    expect(screen.getByText(/step 1 of 6/)).toBeInTheDocument();
+    // And the phases it has not reached say so, rather than being absent.
+    expect(within(progress).getByText("Clarification")).toBeInTheDocument();
   });
 
   it("says it is retrieving while it is retrieving, rather than judging nothing", async () => {
@@ -252,7 +273,15 @@ describe("a review being made", () => {
     expect(screen.getByText("thread-9")).toBeInTheDocument();
   });
 
-  it("offers a way to stop a run somebody no longer wants", async () => {
+  /**
+   * Stopping asks first, because stopping is the one press on this page that cannot be undone.
+   *
+   * It used to be a single unconfirmed click that discarded minutes of paid model work, and
+   * the only statement of what that cost was the panel's copy afterwards — "Nothing was
+   * recorded as a verdict", in the past tense, on a page that had already lost the run. The
+   * same product asks twice before deleting a policy, which is recoverable by re-authoring it.
+   */
+  it("asks before it throws a run away, and says what throwing it away costs", async () => {
     vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
     vi.spyOn(api, "reviewRun").mockResolvedValue(runFixture({}));
     const cancelled = vi
@@ -263,10 +292,23 @@ describe("a review being made", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Stop this run" }));
 
+    // The consequence is stated before the press that causes it, not after it.
+    expect(screen.getByText("Stop and discard what it has judged?")).toBeInTheDocument();
+    expect(cancelled).not.toHaveBeenCalled();
+    // And the way out of the question is the half that changes nothing.
+    expect(screen.getByRole("button", { name: "Keep running" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
     await waitFor(() => expect(cancelled).toHaveBeenCalledWith("thread-9"));
     // The run keeps its id under `cancelled`, so this address goes on answering rather than
     // navigating anywhere — and the page says which of the three ends it came to.
     expect(await screen.findByText(/Review 2 · stopped/)).toBeInTheDocument();
     expect(screen.getByText("This review was stopped")).toBeInTheDocument();
+    // The control the reader was standing on has removed itself, so focus goes to the
+    // affordance the stopped state grew rather than falling to `<body>`.
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "Start again" })).toHaveFocus(),
+    );
   });
 });

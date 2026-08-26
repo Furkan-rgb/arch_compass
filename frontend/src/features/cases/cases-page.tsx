@@ -11,7 +11,7 @@ import { Field, Input } from "../../ui/field";
 import { MetaLine, Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
-import { EmptyState, ErrorNotice, LoadingPanel, Spinner } from "../../ui/states";
+import { EmptyState, ErrorNotice, LoadingPanel, Skeleton, Spinner } from "../../ui/states";
 import { Timeline, TimelineItem } from "../../ui/timeline";
 import { useToast } from "../../ui/toast";
 
@@ -72,7 +72,18 @@ export function CasesPage() {
   }
 
   const all = cases.data ?? [];
-  const repositoryFor = (caseId: string) => {
+  /**
+   * Three answers, not two: the name, "no review has used this case", and "not known yet".
+   *
+   * A case has no title of its own, so this name is the whole of a card's identity — and it
+   * comes from a second query the page does not wait for. Returning `null` for both "still
+   * loading" and "genuinely never reviewed" made every card on every load read *Not yet
+   * reviewed*, a definite claim that was usually false, and then rewrote the whole column a
+   * moment later. The charter's rule is that an explicit unknown beats an implied one, so
+   * "not known yet" is `undefined` and is drawn as a placeholder rather than as a sentence.
+   */
+  const repositoryFor = (caseId: string): string | null | undefined => {
+    if (reviews.isPending) return undefined;
     const review = (reviews.data ?? []).find((item) => item.case_id === caseId);
     return review ? repositoryName(review.repository.path) : null;
   };
@@ -114,8 +125,23 @@ export function CasesPage() {
             ))}
           </ul>
 
-          <div className="grid gap-4">
-            {latest ? <CaseSnapshot value={latest} /> : null}
+          {/* `order-first` below `xl`, where this column is stacked *after* the whole case
+              list. Pressing the third of fifteen cards changed a panel a dozen cards below
+              the fold, with no scroll and no announcement, so the press read as doing
+              nothing at all. Above `xl` the grid puts the column back on the right, where the
+              card and the detail it drives are side by side and the order does not matter.
+              The repositories page carries the same class for the same reason. */}
+          <div className="order-first grid gap-4 xl:order-none">
+            {/* Keyed on the case, so moving to another one gives the snapshot — and the
+                scope form inside it — a fresh pair of states. Without the key React kept the
+                instance across a selection change, so an open Set scope form stayed open
+                holding the *previous* case's draft under the new case's header, and Save
+                wrote those values onto the case now on screen. Policy scope decides which
+                policies a review can retrieve at all, so that is the one thing about a case
+                a person still sets by hand, silently misdirected. Closing the form on a
+                selection change is also the honest behaviour: an open form belongs to the
+                record it was opened on. */}
+            {latest ? <CaseSnapshot key={latest.case_id} value={latest} /> : null}
 
             <Panel>
               <PanelHeader
@@ -188,8 +214,26 @@ export function CasesPage() {
                 description="The same case can be reviewed repeatedly as the code changes."
               />
               <PanelBody>
-                {!related.length ? (
-                  <p className="text-sm text-ink-3">No review has been recorded for this case yet.</p>
+                {/* The same three states the card's own heading answers, for the same
+                    reason: a list that has not arrived is not a list that is empty, and a
+                    list that could not be read is neither. */}
+                {reviews.isPending ? (
+                  <div className="flex items-center gap-2 text-sm text-ink-3">
+                    <Spinner label="" /> Reading the review history…
+                  </div>
+                ) : reviews.error ? (
+                  <ErrorNotice
+                    error={reviews.error}
+                    action={
+                      <Button size="sm" variant="secondary" onClick={() => void reviews.refetch()}>
+                        Try again
+                      </Button>
+                    }
+                  />
+                ) : !related.length ? (
+                  <p className="text-sm text-ink-3">
+                    No review has been recorded for this case yet.
+                  </p>
                 ) : (
                   <ul className="grid gap-1.5">
                     {related.map((review) => (
@@ -231,7 +275,8 @@ function CaseCard({
   value: CaseSummary;
   selected: boolean;
   onSelect: () => void;
-  reviewedRepository: string | null;
+  /** The name, `null` where no review has used this case, `undefined` where it is not known yet. */
+  reviewedRepository: string | null | undefined;
 }) {
   return (
     <button
@@ -245,10 +290,16 @@ function CaseCard({
           : "border-rule bg-surface hover:border-rule-strong",
       )}
     >
-      <div className="font-display text-[15px] font-semibold leading-5 text-ink">
+      <div className="flex min-h-5 items-center font-display text-[15px] font-semibold leading-5 text-ink">
         {/* A case has no title of its own to show — what identifies it to a reader is the
-            code it has been used to judge. */}
-        {reviewedRepository || "Not yet reviewed"}
+            code it has been used to judge. While that is still being fetched the card says
+            nothing rather than saying something false; the block is sized to the line it
+            will hold, so nothing moves when the name arrives. */}
+        {reviewedRepository === undefined ? (
+          <Skeleton className="h-3.5 w-32" />
+        ) : (
+          (reviewedRepository ?? "Not yet reviewed")
+        )}
       </div>
       <MetaLine
         className="mt-2"
@@ -383,8 +434,19 @@ function PolicyScopeEditor({ value }: { value: CaseSummary }) {
       ))}
       {save.error ? <ErrorNotice error={save.error} /> : null}
       <div className="flex flex-wrap items-center gap-2">
+        {/* The mark is added beside the word, not swapped for it. Substituting the spinner
+            collapsed the button to a third of its width, moved Cancel beside it, and changed
+            its accessible name from "Save scope" to "Working" — so a reader lost the
+            identity of the thing they had just pressed. This is the same gesture the rest of
+            the system uses for a state: something appears, nothing inverts. */}
         <Button size="sm" type="submit" disabled={save.isPending}>
-          {save.isPending ? <Spinner /> : "Save scope"}
+          {save.isPending ? (
+            <>
+              <Spinner label="" /> Saving scope
+            </>
+          ) : (
+            "Save scope"
+          )}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
           Cancel
@@ -403,31 +465,21 @@ function CaseSnapshot({ value }: { value: CaseSummary }) {
       />
       <PanelBody className="grid gap-4 md:grid-cols-2">
         <PolicyScopeEditor value={value} />
+        {/* The count, not the answers. This panel used to print the newest revision's
+            answers in full, and the Revision history directly beneath it prints every
+            revision's answers including that same one — the two blocks were
+            character-for-character identical markup, one scroll apart, and the duplication
+            grew with the number of answers. The timeline is the record: it is ordered
+            oldest-first and marks the last item `current`, so it is the place an answer is
+            read. What is left here is what the timeline does not repeat — the revision, the
+            timestamp and the policy scope. */}
         <div>
           <Label>Answered · {value.answers.length}</Label>
-          {value.answers.length ? (
-            <ul className="mt-1.5 grid gap-1.5">
-              {value.answers.map((answer, index) => (
-                <li
-                  key={index}
-                  className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
-                >
-                  <span className="block font-semibold text-ink">{answer.question}</span>
-                  {answer.status === "skipped" ? (
-                    <span className="text-ink-3">Explicitly skipped</span>
-                  ) : (
-                    answer.value
-                  )}
-                  <span className="mt-1 block text-[11px] text-ink-3">{answer.actor}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-1.5 text-sm text-ink-3">
-              Nothing asked yet. A case fills in when a judgement turns on something the
-              repository cannot settle.
-            </p>
-          )}
+          <p className="mt-1.5 text-sm text-ink-3">
+            {value.answers.length
+              ? "Read them in the revision history below, beside the review that asked."
+              : "Nothing asked yet. A case fills in when a judgement turns on something the repository cannot settle."}
+          </p>
         </div>
       </PanelBody>
     </Panel>

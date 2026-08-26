@@ -1,10 +1,10 @@
 import { type CSSProperties, useCallback, useEffect, useState } from "react";
 
 import { cn } from "../../lib/cn";
-import { type Tone, strengthOf, verdictOf } from "../../lib/format";
-import { prefersReducedMotion } from "../../lib/motion";
+import { strengthOf, verdictOf } from "../../lib/format";
+import { prefersReducedMotion, useReveal } from "../../lib/motion";
 import { Mark } from "../../ui/mark";
-import { Mono } from "../../ui/meta";
+import { Mono, TONE_TEXT } from "../../ui/meta";
 import { type Bearing, BEARINGS } from "./bearings";
 
 /**
@@ -17,15 +17,12 @@ import { type Bearing, BEARINGS } from "./bearings";
  *
  * Every field is shaped like the record it stands for — see `bearings.ts`, which is where
  * that argument is made in full.
+ *
+ * The tone table comes from `ui/meta` rather than being written out here. This file kept a
+ * private copy, and the copy had already drifted — `neutral` was `text-ink` here and
+ * `text-ink-2` there. Nothing on this page is ever a neutral bearing, which is exactly what
+ * made it the dangerous kind of drift: invisible until the day something is.
  */
-
-const TONE_TEXT: Record<Tone, string> = {
-  neutral: "text-ink",
-  marked: "text-ink",
-  material: "text-material",
-  held: "text-held",
-  cleared: "text-cleared",
-};
 
 /**
  * The showcase interval, and the pause a reader's own choice earns.
@@ -68,11 +65,27 @@ export function useSpecimen() {
   // control somebody pressed.
   const [stopped, setStopped] = useState(false);
   const [steps, setSteps] = useState(0);
+  /**
+   * The pass does not start until the figure has been on screen once.
+   *
+   * The showcase spends itself in six seconds and then stops for good, so *when* those six
+   * seconds run is the whole of whether the feature happens at all. Below `lg` the figure is
+   * stacked under about 780px of copy at phone width, so starting on mount meant the pass
+   * ran, finished and stopped while the map was still a screen below the fold — a control
+   * the reader then meets already spent, having never seen it move. The same applies to
+   * anybody landing mid-page from an anchor.
+   *
+   * `useReveal` is reused rather than a second observer written: it already takes the
+   * reduced-motion and no-observer paths — both of which report "visible" immediately, which
+   * is the path jsdom takes and why the tests need no observer stub.
+   */
+  const { ref: figureRef, revealed: inView } = useReveal<HTMLDivElement>();
 
   const finished = steps >= SHOWCASE_STEPS;
   const showcasing = !stopped && !finished;
 
   useEffect(() => {
+    if (!inView) return;
     if (paused || !showcasing) return;
     if (prefersReducedMotion()) return;
     if (held) {
@@ -84,7 +97,7 @@ export function useSpecimen() {
       setSteps((count) => count + 1);
     }, SHOWCASE_MS);
     return () => clearInterval(timer);
-  }, [paused, held, chose, showcasing]);
+  }, [paused, held, chose, showcasing, inView]);
 
   const select = useCallback((next: number) => {
     setIndex(next);
@@ -106,8 +119,18 @@ export function useSpecimen() {
   return {
     index,
     select,
-    showcasing,
+    /**
+     * The reader's own stop, and deliberately not `!showcasing`.
+     *
+     * The picker's toggle reports this, because a press is the only thing it should ever
+     * claim. `showcasing` also goes false when the pass ends by itself, which it always
+     * does after six seconds — so a control drawn from it filled in and announced
+     * `aria-pressed="true"` on a page nobody had touched.
+     */
+    stopped,
     toggleShowcase,
+    /** Goes on the figure, and is how the showcase knows the figure has been seen. */
+    figureRef,
     bearing: BEARINGS[index],
     /**
      * Spread onto the specimen and onto the picker, and onto nothing larger.
@@ -148,20 +171,27 @@ function Specimen({ bearing, hidden }: { bearing: Bearing; hidden: boolean }) {
       className={cn("col-start-1 row-start-1 flex flex-col", hidden && "invisible")}
     >
       {/* What the verdict rests on. The strength is a glyph and a weight, never a hue: a
-          required policy is the one to read first, not an alarm. */}
+          required policy is the one to read first, not an alarm.
+
+          10px at `0.13em` is the bottom row of the type scale, and there is no row under it:
+          this was 9.5px at `0.14em`, half a pixel below the floor at a tracking the scale
+          does not name — and at this size letterspacing is most of what a label looks like. */}
       <div className="border-b border-rule bg-surface-2 px-4 py-3">
         <Mono
           className={cn(
-            "flex items-center gap-1.5 text-[9.5px] font-semibold uppercase tracking-[0.14em]",
+            "flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.13em]",
             strength.tone === "marked" ? "text-ink" : "text-ink-3",
           )}
         >
           <Mark shape={strength.glyph} className="size-3" />
           {strength.label} · {bearing.origin}
         </Mono>
-        <h3 className="mt-1.5 font-display text-[13.5px] font-semibold leading-[1.36] tracking-tight text-ink">
+        {/* The head of the callout, and the first heading under the page's `h1`. It was an
+            `h3` under nothing, so heading navigation — which is how a screen-reader user
+            surveys a page this long — opened on a level with no parent. */}
+        <h2 className="mt-1.5 font-display text-[13.5px] font-semibold leading-[1.36] tracking-tight text-ink">
           {bearing.policy.title}
-        </h3>
+        </h2>
         <Mono className="mt-1 block text-[10.5px] text-ink-3 [overflow-wrap:anywhere]">
           {bearing.policy.id}
         </Mono>
@@ -186,9 +216,12 @@ function Specimen({ bearing, hidden }: { bearing: Bearing; hidden: boolean }) {
           </Mono>
         </div>
 
-        <h3 className="mt-2 font-display text-sm font-semibold leading-[1.4] text-ink">
+        {/* The claim sentence, not a section head — so it keeps the display face and the
+            weight and gives up the heading level. Two `h3`s per specimen under no `h2` was
+            the outline saying this card had two sections in it; it has one. */}
+        <p className="mt-2 font-display text-sm font-semibold leading-[1.4] text-ink">
           {bearing.finding}
-        </h3>
+        </p>
         <p className="mt-2.5 text-[13px] leading-[1.6] text-ink-2">{bearing.reasoning}</p>
 
         {bearing.hinge ? (
@@ -244,8 +277,14 @@ export function SpecimenCallout({
       aria-label="A policy and the finding it produced"
       // The one lift on the page. A callout floating over the map is the other thing besides
       // a drawer that genuinely leaves the surface.
+      //
+      // `lg` on the radius ladder, because the step names how large the thing is: `md` is a
+      // block inside a panel and this is a panel — a 350x420 card, the most elevated object
+      // on the page, which was wearing tighter corners than the flat docket four screens
+      // down. The inner strips are square and clipped by `overflow-hidden`, so nothing else
+      // moves with it.
       className={cn(
-        "grid overflow-hidden rounded-md border border-rule bg-surface shadow-hero",
+        "grid overflow-hidden rounded-lg border border-rule bg-surface shadow-hero",
         className,
       )}
     >
@@ -267,70 +306,98 @@ export function SpecimenCallout({
 export function SpecimenPicker({
   index,
   onSelect,
-  showcasing,
+  stopped,
   onToggleShowcase,
   hold,
   className,
 }: {
   index: number;
   onSelect: (index: number) => void;
-  /** Whether the pass is still running, which is what the control reports and reverses. */
-  showcasing?: boolean;
+  /** Whether the reader stopped the pass — which is the only thing the toggle may report. */
+  stopped?: boolean;
   onToggleShowcase?: () => void;
   hold?: HoldProps;
   className?: string;
 }) {
   return (
-    <div
-      role="group"
-      aria-label="Example bearings"
-      {...hold}
-      className={cn("flex flex-wrap items-center gap-x-1 gap-y-2", className)}
-    >
-      {BEARINGS.map((bearing, position) => {
-        const verdict = verdictOf(bearing.verdict);
-        const selected = position === index;
-        return (
+    <div role="group" aria-label="Example bearings" {...hold} className={className}>
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-2">
+        {BEARINGS.map((bearing, position) => {
+          const verdict = verdictOf(bearing.verdict);
+          const selected = position === index;
+          return (
+            <button
+              key={bearing.policy.id}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onSelect(position)}
+              // The `ToggleButton` recipe, whole, because this is the same control: what is
+              // on is *raised*, carried by an edge and a rim rather than by a fill. The
+              // selected state was `bg-sunken`, which is 1.09:1 against the hero's canvas in
+              // light — under the 3:1 a state indicator needs, and worse than invisible,
+              // because `bg-sunken` is what the workbench's own toggle paints on *hover*. A
+              // reader who has used the product read the selected verdict as merely hovered.
+              //
+              // `border` sits in the shared half so the unselected chip reserves the same
+              // pixel and nothing shifts as the showcase steps through the three.
+              className={cn(
+                "inline-flex min-h-11 items-center gap-1.5 rounded-sm border px-2.5 font-mono text-[10px] uppercase tracking-[0.13em] transition",
+                selected
+                  ? "border-rule-control bg-control text-ink shadow-rim"
+                  : "border-transparent text-ink-3 hover:bg-sunken hover:text-ink",
+              )}
+            >
+              <Mark shape={verdict.glyph} className={cn("size-[13px]", TONE_TEXT[verdict.tone])} />
+              {verdict.label}
+            </button>
+          );
+        })}
+        {/* Something that moves on its own has to have an off switch, and this one had none:
+            not a control, not a pause on hovering the headline, nothing. It sits in the picker
+            because the picker is already the thing that decides which specimen is on show, and
+            it carries the same 44px floor as its siblings for the same reason they do.
+
+            `sm:ml-auto` rather than `ml-auto`: at the far end of the row is right while the
+            row is one line, and below about 560px it wraps — where an auto margin put a lone
+            chip hard against the right edge of the copy column with nothing beside it, on the
+            width where the picker is the only part of the figure the reader has met yet. */}
+        {onToggleShowcase ? (
           <button
-            key={bearing.policy.id}
             type="button"
-            aria-pressed={selected}
-            onClick={() => onSelect(position)}
+            // One name in both states, with `aria-pressed` carrying which one it is in — the
+            // shape every other toggle in this product takes. A name that swapped to "Play"
+            // would be a second control wearing the first one's box, and pressed would then
+            // have to mean the opposite of what it says.
+            //
+            // What it reports is `stopped`, the reader's own press. It used to report
+            // `!showcasing`, and the pass always ends by itself after six seconds — so the
+            // control silently filled in and announced itself pressed for a state nobody
+            // caused, and then went on being a button named "Pause" that starts things.
+            aria-label="Pause the showcase"
+            aria-pressed={stopped}
+            onClick={onToggleShowcase}
+            // A hairline at rest, which the verdict chips do not need and this does: they
+            // carry a Mark and sit in a set of three, and this is one word of 10px uppercase
+            // grey standing beside a caption in exactly that type. Without a box, the thing
+            // that does something and the thing that says something were drawn identically.
             className={cn(
-              "inline-flex min-h-11 items-center gap-1.5 rounded-sm px-2.5 font-mono text-[10px] uppercase tracking-[0.13em] transition",
-              selected ? "bg-sunken text-ink" : "text-ink-3 hover:text-ink",
+              "inline-flex min-h-11 items-center rounded-sm border px-2.5 font-mono text-[10px] uppercase tracking-[0.13em] transition sm:ml-auto",
+              stopped
+                ? "border-rule-control bg-control text-ink shadow-rim"
+                : "border-rule text-ink-3 hover:border-ink-3 hover:text-ink",
             )}
           >
-            <Mark shape={verdict.glyph} className={cn("size-[13px]", TONE_TEXT[verdict.tone])} />
-            {verdict.label}
+            Pause
           </button>
-        );
-      })}
-      <Mono className="ml-1.5 text-[10px] uppercase tracking-[0.13em] text-ink-3">
+        ) : null}
+      </div>
+      {/* Its own line, under the controls rather than in among them. On one baseline with the
+          Pause toggle it was the same face at the same size in the same ink, so the row read
+          as two captions with a wide gap — and a caption is the one thing a control must not
+          be mistaken for. `px-2.5` pays back the chips' own padding so the words line up. */}
+      <Mono className="mt-1.5 block px-2.5 text-[10px] uppercase tracking-[0.13em] text-ink-3">
         Three verdicts, no score
       </Mono>
-      {/* Something that moves on its own has to have an off switch, and this one had none:
-          not a control, not a pause on hovering the headline, nothing. It sits in the picker
-          because the picker is already the thing that decides which specimen is on show, and
-          it carries the same 44px floor as its siblings for the same reason they do. */}
-      {onToggleShowcase ? (
-        <button
-          type="button"
-          // One name in both states, with `aria-pressed` carrying which one it is in — the
-          // shape every other toggle in this product takes. A name that swapped to "Play"
-          // would be a second control wearing the first one's box, and pressed would then
-          // have to mean the opposite of what it says.
-          aria-label="Pause the showcase"
-          aria-pressed={!showcasing}
-          onClick={onToggleShowcase}
-          className={cn(
-            "ml-auto inline-flex min-h-11 items-center rounded-sm px-2.5 font-mono text-[10px] uppercase tracking-[0.13em] transition",
-            showcasing ? "text-ink-3 hover:text-ink" : "bg-sunken text-ink",
-          )}
-        >
-          Pause
-        </button>
-      ) : null}
     </div>
   );
 }

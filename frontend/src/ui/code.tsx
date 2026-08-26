@@ -33,10 +33,24 @@ export function SourceExcerpt({
   const coloured = highlight(body, resolved);
 
   return (
-    <div className={cn("relative rounded-md border border-rule bg-sunken/70", className)}>
+    <div className={cn("relative rounded-md border border-rule bg-sunken pr-9", className)}>
       {/* On the box rather than inside the scroller: a button positioned inside an
           `overflow-x-auto` element travels with the code when the excerpt is wider than its
           column, and ends up somewhere in the middle of line one.
+
+          The `pr-9` is the other half of that, and it is on the box rather than on the `pre`
+          for the same reason. Reserving the room as padding *inside* the scroller only works
+          while the excerpt already fits: the moment it is wider than its column — which is
+          most of them, inside the readings column on a laptop — the reserved gutter scrolls
+          away to the right and the button lands on top of the `def` line the excerpt was
+          pinned for. A gutter on the box is outside the scrollport, so nothing can travel
+          under it at any scroll position.
+
+          `--control` rather than the block's own ground: a button filled with `--sunken` is
+          the same grey as the code it sits on, so only the icon's strokes said a control was
+          there. `--control` is the token that means "this is operable", and it steps away
+          from the block in the right direction in both themes — which `bg-surface` would not,
+          being brighter than `--sunken` in light and darker in dark.
 
           Selecting forty lines by hand was the alternative, and it takes the line numbers
           with it on any browser that does not honour `user-select: none` in a copy. What
@@ -45,13 +59,18 @@ export function SourceExcerpt({
       <CopyButton
         value={body}
         label="Copy the excerpt"
-        className="absolute right-1 top-1 z-10 bg-sunken"
+        className="absolute right-1 top-1 z-10 border-rule-control bg-control"
       />
       <div className="scrollbar-slim overflow-x-auto">
         <div className="flex min-w-full py-2.5 font-mono text-[12px] leading-[1.65]">
+          {/* `--ink-3` flat, not `text-ink-3/70`. The tier was split into two values precisely
+              so it would clear the AA bar on every ground in both themes; an alpha on top of
+              it composited to `#8b8b8b` on this block in light — 3.0:1 — and threw that
+              guarantee away on the one line of an excerpt that says which lines of the file
+              the claim is about. */}
           <div
             aria-hidden="true"
-            className="shrink-0 select-none px-3 text-right tabular-nums text-ink-3/70"
+            className="shrink-0 select-none px-3 text-right tabular-nums text-ink-3"
           >
             {lines.map((_, index) => (
               <div key={index}>{startLine ? startLine + index : index + 1}</div>
@@ -59,7 +78,7 @@ export function SourceExcerpt({
           </div>
           {/* The excerpt is the file's own text, so it stays selectable and copyable without
               the numbers coming with it. */}
-          <pre className="min-w-0 flex-1 pr-11 text-ink">
+          <pre className="min-w-0 flex-1 text-ink">
             <code
               className={resolved ? `language-${resolved}` : undefined}
               dangerouslySetInnerHTML={{ __html: coloured || " " }}
@@ -87,7 +106,14 @@ export function EvidenceBlock({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-md border border-rule bg-surface", className)}>
+    // A hairline card, with no fill of its own. It used to be `bg-surface`, and its only
+    // ground is the exhibit strip, which is `--surface-2` — so in light it read as a card
+    // lifted off the strip and in dark, where `--surface` is seven values *below*
+    // `--surface-2`, as a well cut into it. One element meaning the opposite thing in the two
+    // themes is the ordering rule at the top of `styles.css` running backwards. The edge
+    // draws the card in both, and the only fill inside it is the excerpt's own `--sunken`,
+    // which steps away from the strip in the theme's own direction.
+    <div className={cn("rounded-md border border-rule", className)}>
       <div className="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5">
         <p className="min-w-0 text-sm leading-6 text-ink">{description}</p>
         {/* The one thing on an evidence block that leads somewhere else. It used to be told

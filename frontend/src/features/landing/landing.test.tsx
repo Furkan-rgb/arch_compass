@@ -121,7 +121,11 @@ describe("the landing page", () => {
     const picker = screen.getByRole("group", { name: "Example bearings" });
     fireEvent.click(within(picker).getAllByRole("button")[1]);
     expect(lit()).toHaveTextContent("orders");
-    expect(within(specimen()).getByText("orders.Repository")).toBeInTheDocument();
+    // The same name the finding section four screens down gives this candidate. The hero and
+    // the exhibit are deliberately the same three, and this one used to be `orders.Repository`
+    // here and `domain.orders` there — the same policy, claim and file, offered under two
+    // qualified names.
+    expect(within(specimen()).getByText("domain.orders")).toBeInTheDocument();
   });
 
   /**
@@ -187,7 +191,11 @@ describe("the landing page", () => {
       // The pass ended where it began, and the reader gets to finish that one.
       act(() => void vi.advanceTimersByTime(6000));
       expect(pressed()).toBe(0);
-      expect(pause()).toHaveAttribute("aria-pressed", "true");
+      // And the toggle claims nothing. It used to report `!showcasing`, which goes false when
+      // the pass ends by itself — so six seconds after load a control nobody had touched
+      // filled in and announced `aria-pressed="true"`. What it reports is the reader's own
+      // press; the next test is the one that presses it.
+      expect(pause()).toHaveAttribute("aria-pressed", "false");
     });
 
     it("stops on the specimen being read when the pause is pressed, and replays it", () => {

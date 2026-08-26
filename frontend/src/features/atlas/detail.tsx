@@ -45,8 +45,7 @@ export function AtlasDetailPanel({
   pathStartNodeId,
   onSetPathStart,
   onTracePath,
-  exploreNote,
-  traceNote,
+  collapsed,
   loading,
 }: {
   node?: AtlasNodeView;
@@ -60,8 +59,15 @@ export function AtlasDetailPanel({
   pathStartNodeId?: string | null;
   onSetPathStart?: (nodeId: string) => void;
   onTracePath?: (targetNodeId: string) => void;
-  exploreNote?: string;
-  traceNote?: string;
+  /**
+   * Whether the column this panel lives in has been given back to the map.
+   *
+   * It renders nothing but its live region when it is, and it is still *rendered* — see the
+   * comment on that region. An aside that unmounts itself when nothing is selected takes the
+   * live region with it, and the state it would unmount in is exactly the state a first arrow
+   * key moves out of.
+   */
+  collapsed?: boolean;
   loading?: boolean;
 }) {
   const relationships = node
@@ -73,7 +79,14 @@ export function AtlasDetailPanel({
   const byId = new Map(nodes.map((item) => [item.id, item]));
 
   return (
-    <aside className="min-w-0 space-y-4 overflow-y-auto border-t border-rule p-4 lg:border-l lg:border-t-0">
+    <aside
+      // Collapsed, the aside keeps nothing but its live region: no border, no padding, no
+      // content — a zero-height row beside a canvas that has been given the whole width back.
+      className={cn(
+        "min-w-0 overflow-y-auto",
+        !collapsed && "space-y-4 border-t border-rule p-4 lg:border-l lg:border-t-0",
+      )}
+    >
       {/**
        * One sentence, and nothing else, is what changes out loud.
        *
@@ -95,7 +108,7 @@ export function AtlasDetailPanel({
           : ""}
       </p>
 
-      {!node ? (
+      {collapsed ? null : !node ? (
         <p className="text-sm leading-6 text-ink-2">
           Select an element to read what the atlas stored about it — what it reaches, what
           reaches it, and what was measured of it.
@@ -119,7 +132,12 @@ export function AtlasDetailPanel({
             </Mono>
           </div>
 
-          <PathRef path={node.path} />
+          {/* The span as data, not joined into the path string. `PathRef` takes the three
+              apart precisely so the copy value is the `path:line` an editor's go-to-file box
+              accepts while the screen shows the readable range — the atlas was the one call
+              site that handed it "file.py:10-40" as a path, which defeated all three of its
+              jobs at once: the copy, the `--ink-3` demotion of the span, and the editor href. */}
+          <PathRef path={node.path} line={node.line} endLine={node.endLine} />
 
           {node.description ? (
             <p className="text-sm leading-6 text-ink-2">{node.description}</p>
@@ -206,14 +224,14 @@ export function AtlasDetailPanel({
                   </Button>
                 ))}
               </div>
-              {/* What the last one came back with, including when that was nothing. A press that
-                  changes the map not at all is indistinguishable from a press that did not
-                  work. */}
-              {exploreNote ? (
-                <p aria-live="polite" className="mt-2 text-[12px] leading-5 text-ink">
-                  {exploreNote}
-                </p>
-              ) : null}
+              {/* What the last one came back with is written above the map rather than here.
+
+                  It lived in this section, which exists only when a card is selected — so a
+                  search that matched nothing on the map answered into a block that was not
+                  rendered, and the reader who pressed Find with nothing selected got no answer
+                  at all. It also appeared under a heading meaning "explore from this card"
+                  when it was frequently about something else. `AtlasExplorer` draws it in the
+                  strip above the canvas now, where the request was made from. */}
               {/* Every one of those is a query against the atlas this review pinned, so what comes
                   back is what the repository held when it was read — never a fresh look. */}
               <p className="mt-2 text-[11px] leading-4 text-ink-3">
@@ -246,15 +264,16 @@ export function AtlasDetailPanel({
                   {pathStartNodeId === node.id ? "The path starts here" : "Use as the path start"}
                 </Button>
               )}
-              {traceNote ? (
-                <p aria-live="polite" className="mt-2 text-[12px] leading-5 text-ink">
-                  {traceNote}
-                </p>
-              ) : null}
+              {/* The answer to a trace is written above the map with every other exploration's,
+                  for the reason the section above gives. */}
             </Section>
           )}
 
-          <Section title="Relationships">
+          {/* No "Relationships" heading over "Reaches · 4" and "Reached by · 2": all three were
+              the same 10px uppercase recipe, so the panel's deepest nesting was its
+              flattest-looking, and the outer label added no fact the two inner ones did not
+              already carry. The section rule is what says a block starts here. */}
+          <Section>
             <RelationshipGroup
               title="Reaches"
               relationships={outgoing}
@@ -300,12 +319,15 @@ export function AtlasDetailPanel({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** A block, with the rule that starts it and — where the block needs naming — its label. */
+function Section({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <section className="border-t border-rule pt-3">
-      <Mono className="mb-2 block text-[10px] uppercase tracking-[0.13em] text-ink-3">
-        {title}
-      </Mono>
+      {title ? (
+        <Mono className="mb-2 block text-[10px] uppercase tracking-[0.13em] text-ink-3">
+          {title}
+        </Mono>
+      ) : null}
       {children}
     </section>
   );
@@ -385,10 +407,14 @@ function RelationshipRow({
         className={cn(
           "flex min-h-8 pointer-coarse:min-h-11 w-full items-baseline justify-between gap-2",
           "rounded-sm px-1.5 text-left transition hover:bg-sunken",
-          "disabled:pointer-events-none disabled:opacity-45",
+          // Drawn rather than dimmed, so the colour is set on the row and inherited by the name
+          // inside it. A row whose other end is not on this map is still a name the reader
+          // should be able to read, and at 45% it fell under the bar the ink ramp is measured
+          // against.
+          "text-ink disabled:pointer-events-none disabled:text-ink-3",
         )}
       >
-        <span className="truncate text-[13px] font-medium text-ink">
+        <span className="truncate text-[13px] font-medium">
           {other?.label || truncate(otherId, 18)}
         </span>
         <Mono className="shrink-0 text-[10px] uppercase tracking-[0.13em] text-ink-3">

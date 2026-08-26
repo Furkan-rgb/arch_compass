@@ -8,10 +8,19 @@ import { cn } from "../lib/cn";
  *
  * What this replaces is the `title` attribute, which the product reached for thirty times
  * and which is not an interface: it appears after a delay the reader cannot change, is drawn
- * by the operating system in a font that belongs to no design system, never appears for a
- * keyboard, and never appears at all on a touch screen. Where a `title` was the *only* route
- * to a piece of information — a truncated path, what a control does — that information was
- * unreachable for anyone not using a mouse.
+ * by the operating system in a font that belongs to no design system, and never appears for a
+ * keyboard. Where a `title` was the *only* route to a piece of information — a truncated
+ * path, what a control does — that information was unreachable from the keyboard entirely.
+ *
+ * **It does not fix touch, and this docstring used to claim it did.** Radix's tooltip opens
+ * on hover and on focus and does not open on a tap, by design, which is the same behaviour
+ * `title` has. So on a phone or a tablet the two places the claim named as the *only* route
+ * — the theme toggle's three-state sentence and the model chips' role-and-state note — are
+ * still unreachable for a sighted touch user, though both do carry the sentence in
+ * `aria-label`, so a screen reader gets it. The correction matters more than the gap: an
+ * uncorrected claim is why the next component reaches for `Tooltip` believing touch is
+ * handled. Where a tooltip is the only route to something, put the sentence on screen below
+ * `sm`, or drive `open` from a tap on a coarse pointer at that call site.
  *
  * `title` is left alone where it duplicates something already on screen or already in the
  * accessible name. A tooltip repeating a visible label is a second thing to dismiss.

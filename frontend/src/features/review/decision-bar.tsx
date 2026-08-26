@@ -272,34 +272,21 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
         {current ? <DispositionBadge disposition={current.disposition} /> : null}
       </div>
 
-      {/* When it was decided, and what was said. `wrap-anywhere` because the reason is free
-          text somebody pasted, and the bar is the narrowest column on a phone.
+      {/* The discrepancy leads, because on a re-raised candidate it is the thing the badge
+          above is about to be contradicted by. `experience.md` states the order plainly — what
+          the team decided, what it was decided against, what ArchCompass now says — and this
+          block was third on the bar, under a normally-toned `Accepted` badge and a full
+          sentence about when the record was made. Nothing in either of those reads `stale`,
+          so the first two things a reader met were the claim and not the correction.
 
-          It used to lead with `current.author`, set in ink as though it were a name. Every
-          decision this product records carries the author `"user"`, so it printed a person
-          called user, and the name travelled into the immutable record and into every future
-          review's comparison. The content rule is explicit that an explicit unknown outranks
-          an implied one, and a fake name is worse than a blank — so until there is an
-          identity to record, the sentence says what is actually known: this branch, and
-          when. The field stays on the wire, where a real identity will arrive. */}
-      <p className="mt-1.5 max-w-[58ch] text-sm leading-6 text-ink-2 wrap-anywhere">
-        {current ? (
-          <>
-            Recorded on this branch on {absoluteTime(current.decided_at)}.
-            {current.reasoning ? (
-              <span className="mt-1 block text-ink-3">“{current.reasoning}”</span>
-            ) : null}
-          </>
-        ) : (
-          "Nobody has decided this."
-        )}
-      </p>
-
+          The timestamp is folded in here rather than said twice: on a stale decision "the
+          team decided this on…" *is* the "what the team decided" clause. */}
       {stale && current ? (
         <div className="mt-3 border-l-2 border-held pl-3.5">
           <Label className="text-held">Decided against a different verdict</Label>
           <p className="mt-1.5 max-w-[58ch] text-[13px] leading-6 text-ink-2">
-            The team decided this when ArchCompass called it{" "}
+            The team decided this on {absoluteTime(current.decided_at)}, when ArchCompass called
+            it{" "}
             <span className="font-semibold text-ink">
               {verdictOf(current.finding_verdict).label.toLowerCase()}
             </span>
@@ -313,24 +300,57 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
         </div>
       ) : null}
 
-      {/* The controls. Deliberately not pinned.
+      {/* When it was decided, and what was said. `wrap-anywhere` because the reason is free
+          text somebody pasted, and the bar is the narrowest column on a phone.
 
-          This was `sticky bottom-0`, and it was inert: `finding-detail.tsx` wraps the article
-          in `overflow-hidden` — it has to, because the article is `rounded-lg` and its last
-          child paints a background into the corner — and an `overflow` ancestor becomes the
-          scrollport for anything sticky inside it, so the bar pinned to a box that never
-          scrolls.
+          It used to lead with `current.author`, set in ink as though it were a name. Every
+          decision this product records carries the author `"user"`, so it printed a person
+          called user, and the name travelled into the immutable record and into every future
+          review's comparison. The content rule is explicit that an explicit unknown outranks
+          an implied one, and a fake name is worse than a blank — so until there is an
+          identity to record, the sentence says what is actually known: this branch, and
+          when. The field stays on the wire, where a real identity will arrive. */}
+      {!current ? (
+        <p className="mt-1.5 text-sm leading-6 text-ink-2">Nobody has decided this.</p>
+      ) : (
+        <>
+          {stale ? null : (
+            <p className="mt-1.5 text-sm leading-6 text-ink-2">
+              Recorded on this branch on {absoluteTime(current.decided_at)}.
+            </p>
+          )}
+          {current.reasoning ? (
+            <p className="mt-1.5 max-w-[58ch] text-sm leading-6 text-ink-3 wrap-anywhere">
+              “{current.reasoning}”
+            </p>
+          ) : null}
+        </>
+      )}
 
-          It was removed rather than repaired, because the reason for pinning it went away.
-          A floating bar was compensating for a finding long enough that the decision fell off
-          the bottom of it; folding measurement, policies and provenance behind honest closed
-          states is what actually fixed that, and it cut the article by roughly a quarter. The
-          decision now sits a short scroll from the verdict that prompts it. `A`, `P` and `W`
-          reach it from anywhere on the page without scrolling at all.
+      {/* The controls. Not pinned, and that is a defect rather than a decision.
 
-          If a finding ever grows long enough that this stops being true, the fix is to make
-          the bar a direct child of the article and drop the `overflow-hidden` in favour of
-          rounding the last child — not to re-add a declaration the ancestor cancels. */}
+          This was `sticky bottom-0`, and it was inert: the docket wraps each open row's
+          article in an `overflow-hidden` `<ul>` — in `docket.tsx`, not this file or
+          `finding-detail.tsx` as this comment used to claim; it has to, because the article is
+          `rounded-lg` and its last child paints a background into the corner — and an
+          `overflow` ancestor becomes the scrollport for anything sticky inside it, so the bar
+          pinned to a box that never scrolls.
+
+          It was removed rather than repaired, on the argument that folding measurement,
+          policies and provenance behind honest closed states had cut the article by roughly a
+          quarter and left the decision a short scroll from the verdict that prompts it. That
+          argument has been measured and it does not hold: at 1440x900 the row header sits at
+          page y≈414 and these three buttons at y≈1,959, which is about 1.7 viewport heights of
+          evidence a reader who made their mind up in the Judged block did not need. `A`, `P`
+          and `W` reach the decision from anywhere without scrolling, and that shortcut is the
+          only reason this is survivable — the charter's queue is worked by people who decide
+          things, and the deciding is the least findable thing on the surface.
+
+          The route is known and it is not this file's alone to take: move this block out of
+          the wrapper in `docket.tsx` to be a direct child of the `<article>`, drop the
+          `overflow-hidden` from the `<ul>` in favour of rounding the last child's article, and
+          then `sticky bottom-0 z-10 border-t border-rule-strong bg-surface` here actually
+          pins. Re-adding the declaration on its own would only recreate the inert version. */}
       <div className="mt-3.5 border-t border-rule bg-surface pt-3.5">
         {/* Deliberate wrapping, not accidental. At 390px the three labels plus their key caps
             do not fit on one line, and letting flex-wrap decide gives "Accept and act" and
@@ -343,8 +363,19 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
         >
           {CHOICES.map((choice) => {
             const isWaive = choice.id === "waive";
-            // The ink fill says "this is what stands", not "do this". Which of the three a
-            // team should take is not ArchCompass's to suggest.
+            // What stands is drawn as an edge appearing, not as a fill inverting.
+            //
+            // This comment used to say "the ink fill says 'this is what stands', not 'do
+            // this'", and it was describing a fill that had stopped being ink: `primary` is
+            // `--accent`, the one hue the product has, and it means *look here*. Spending it
+            // on the record of a decision already taken put the loudest object in a settled
+            // row on the thing that needs no attention at all — a grey `Accepted` badge
+            // whispering above a dark-red `Accept and act` shouting in the alarm colour.
+            //
+            // So all three are peers, which they are, and the standing one carries `border-ink`
+            // — the gesture `ToggleButton` and the segmented control already use for "this one
+            // is on". The `DispositionBadge` above remains the word half. Which of the three a
+            // team should take is still not ArchCompass's to suggest.
             const recorded = current?.disposition === choice.id && !stale;
             return (
               <button
@@ -362,10 +393,11 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
                     : mutate({ disposition: choice.id, reasoning: null })
                 }
                 className={cn(
-                  buttonClass(recorded ? "primary" : "secondary", "md"),
+                  buttonClass("secondary", "md"),
                   // 44px rather than the control default of 40: this is the row of the page a
                   // phone is most likely to be aimed at with a thumb.
                   "min-h-11 px-3",
+                  recorded && "border-ink hover:border-ink",
                   choice.id === "accept" && "col-span-2 sm:col-span-1",
                 )}
               >
@@ -513,7 +545,13 @@ function DecisionHistory({ branchId, finding }: { branchId: string; finding: Fin
         if (event.currentTarget.open) setAsked(true);
       }}
     >
-      <summary className="flex min-h-11 list-none items-center gap-2 rounded-sm transition focus-visible:-outline-offset-2">
+      {/* The same recipe the other two folds in this slice use. It had `transition` with
+          nothing to transition and no `hover:` at all, so the only thing saying it was
+          pressable was a chevron and the `cursor: pointer` the base layer gives every
+          `summary` — a reader not moving the pointer across those sixteen pixels got nothing
+          back. `hover:bg-sunken` rather than `--surface-2`, which is five values in light and
+          therefore not a state. */}
+      <summary className="flex min-h-11 list-none items-center gap-2 rounded-md px-2 py-2 transition hover:bg-sunken focus-visible:-outline-offset-2">
         <Label className="min-w-0 flex-1 text-left">
           Decided before{history.data ? ` · ${history.data.length}` : ""}
         </Label>

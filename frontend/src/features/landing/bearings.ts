@@ -71,7 +71,13 @@ export const BEARINGS: Bearing[] = [
     },
     origin: "bundled corpus",
     retrieved: 5,
-    candidate: "orders.Repository",
+    // `domain.orders`, which is what `case-file.ts` calls the same candidate — the hero and
+    // the finding section are deliberately the same three, and this one was the odd one out:
+    // `orders.Repository` here, `domain.orders` four screens down, both in mono, both offered
+    // as the qualified name the machine produced. The other two match exactly. A reader who
+    // recognised the specimen and then found the same policy, claim and file in the exhibit
+    // was being told it was a different thing.
+    candidate: "domain.orders",
     verdict: "held",
     finding: "The orders domain imports the persistence adapter directly",
     reasoning:

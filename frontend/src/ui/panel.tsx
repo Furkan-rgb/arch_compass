@@ -11,7 +11,8 @@ export function Panel({
   className,
   as: Tag = "section",
   tone = "raised",
-}: {
+  ...props
+}: HTMLAttributes<HTMLElement> & {
   children: ReactNode;
   className?: string;
   as?: ElementType;
@@ -19,6 +20,7 @@ export function Panel({
 }) {
   return (
     <Tag
+      {...props}
       className={cn(
         "rounded-lg border",
         // The rim is one inset hairline of light along the top edge — no blur, no offset,
@@ -31,7 +33,13 @@ export function Panel({
         tone === "flat" && "border-rule bg-surface",
         // A sunken or marked region is set *into* a panel, so it gets no rim: a rim on an
         // inset would say the opposite of what the tone is for.
-        tone === "sunken" && "border-rule bg-sunken/60",
+        //
+        // `bg-sunken`, not `bg-sunken/60`. Sixty per cent of `#ebebeb` over a `#f5f5f5` canvas
+        // lands at `#efefef` — six values, an unnamed grey, and a tone that does nothing in
+        // light; the same declaration in dark composites to `#131313`, nineteen values, and
+        // reads correctly. A tone that only works in one theme is not a tone. It stays apart
+        // from `marked` by its border, which is the distinction the pair was always carrying.
+        tone === "sunken" && "border-rule bg-sunken",
         tone === "marked" && "border-rule-strong bg-sunken",
         className,
       )}
@@ -41,37 +49,68 @@ export function Panel({
   );
 }
 
+/**
+ * The strip that names a panel, and the one place the elevation ramp had collapsed.
+ *
+ * This painted no ground of its own, so on every panel in the product the header, the body
+ * and any clickable row inside it were byte-identical `#ffffff` separated by one hairline —
+ * nothing read as a container and nothing read as a target. `--surface-2` is the token the
+ * system already had for exactly this and was using almost nowhere: *a strip inside a panel*.
+ *
+ * The step is deliberately small. `#ffffff` to `#fafafa` is five values, which is enough for
+ * a division a reader is not asked to notice and nowhere near enough for a state that has to
+ * appear under a pointer — so a row inside a panel hovers to `--sunken` and never to this.
+ * The full ramp and the argument for it are at the top of `styles.css`.
+ *
+ * `rounded-t-lg` for the reason `PanelFooter` carries `rounded-b-lg`: this is now the other
+ * part of a panel that paints a fill to the edge, and a square fill inside a 14px corner
+ * grows a small grey ear.
+ *
+ * `as` because a panel nested under another panel's heading is an `h3`, and a page that
+ * renders three of these at two depths emits sibling `h2`s and a flat outline. It is the same
+ * escape hatch `Label` below has, for the same reason: a rule that is easier to break than to
+ * obey is a rule that gets broken.
+ */
 export function PanelHeader({
   title,
   description,
   actions,
   className,
   id,
+  as: Heading = "h2",
 }: {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   className?: string;
   id?: string;
+  as?: ElementType;
 }) {
   return (
     <div
       className={cn(
-        "flex flex-wrap items-start justify-between gap-3 border-b border-rule px-4 py-3.5 sm:px-5",
+        "flex flex-wrap items-start justify-between gap-3 rounded-t-lg border-b border-rule bg-surface-2 px-4 py-3.5 sm:px-5",
         className,
       )}
     >
       <div className="min-w-0">
-        <h2 id={id} className="font-display text-[15px] font-semibold tracking-tight text-ink">
+        <Heading id={id} className="font-display text-[15px] font-semibold tracking-tight text-ink">
           {title}
-        </h2>
+        </Heading>
         {description ? (
           // `wrap-anywhere` because this slot is where a workspace path ends up, and
           // `/Users/…/.archcompass/sources/audiobook_studio-4d76f8ca9623` is one word as far
           // as the line breaker is concerned — wider than a phone, and nothing a narrow box
           // can do about it. Breaking mid-path reads worse than truncating it, and better
           // than a page that scrolls sideways.
-          <p className="mt-1 text-xs leading-5 text-ink-3 wrap-anywhere">{description}</p>
+          //
+          // `max-w-[62ch]` because this was the widest unmeasured line in the product and the
+          // smallest type on the surface: 883px of 12px text on a 1440 panel, about 150
+          // characters, at the size a line is hardest to return from. The `min-w-0` wrapper
+          // keeps the actions column independent, so the measure costs the header nothing.
+          <p className="mt-1 max-w-[62ch] text-xs leading-5 text-ink-3 wrap-anywhere">
+            {description}
+          </p>
         ) : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
@@ -86,16 +125,20 @@ export function PanelBody({ children, className }: { children: ReactNode; classN
 /**
  * `rounded-b-lg` because the panel is no longer square.
  *
- * The footer is the only part of a panel that paints a background all the way to the edge,
- * so it is the only part that notices the 14px corner. Without it the tint squares off
- * outside the panel's own curve and the bottom two corners grow a small grey ear. The panel
+ * A footer paints a background all the way to the edge, so it is one of the two parts of a
+ * panel that notice the 14px corner — `PanelHeader` is the other, now that it has a ground of
+ * its own. Without it the tint squares off outside the panel's own curve and the bottom two
+ * corners grow a small grey ear. The panel
  * cannot solve this with `overflow-hidden`: focus rings are drawn with `outline-offset`, and
  * a full-bleed row inside a panel would have half its ring clipped away.
  */
 export function PanelFooter({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
-      className={cn("rounded-b-lg border-t border-rule bg-sunken/40 px-4 py-3.5 sm:px-5", className)}
+      // `bg-surface-2` rather than `bg-sunken/40`: the alpha composited to `#f7f7f7` in light,
+      // a value in neither ramp, and to `#141414` in dark — which is `--surface-2` reached by
+      // accident. A footer is a strip inside a panel, which is what the token is named for.
+      className={cn("rounded-b-lg border-t border-rule bg-surface-2 px-4 py-3.5 sm:px-5", className)}
     >
       {children}
     </div>

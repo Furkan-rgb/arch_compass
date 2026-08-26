@@ -196,7 +196,9 @@ describe("what still wants a person", () => {
     render(wrap(<ReviewsPage />, client()));
     expect(await screen.findByText("2 things want you")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Awaiting answers" }));
+    // Named with its count: every status chip now says how many revisions it would return,
+    // so a chip that would return none cannot be pressed.
+    fireEvent.click(screen.getByRole("button", { name: "Awaiting answers 1" }));
 
     // Review 1 is on screen now and it is still a superseded snapshot: what it raised was
     // carried into review 2, which is filtered out, not transferred to the row left standing.

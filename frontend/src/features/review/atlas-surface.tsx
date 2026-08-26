@@ -8,6 +8,7 @@ import type { components } from "../../openapi.generated";
 import { Button } from "../../ui/button";
 import { Mark } from "../../ui/mark";
 import { TONE_TEXT } from "../../ui/meta";
+import { Label } from "../../ui/panel";
 import { ErrorNotice } from "../../ui/states";
 import { AtlasExplorer } from "../atlas/explorer";
 import type {
@@ -200,9 +201,11 @@ export function reviewAtlasNodes(results: AtlasQueryResult[], review: Review): A
       id: node.node_id,
       label: splitQualified(node.qualified_name).leaf || node.qualified_name,
       qualified: node.qualified_name,
-      path: node.location
-        ? `${node.path}:${node.location.start_line}-${node.location.end_line}`
-        : node.path,
+      // The span travels beside the path rather than inside it: `PathRef` is what composes the
+      // two, and it composes them differently for the screen and for the clipboard.
+      path: node.path,
+      line: node.location?.start_line,
+      endLine: node.location?.end_line,
       kind: node.node_type,
       isPublic: node.is_public,
       tone: finding ? verdictOf(finding.verdict).tone : undefined,
@@ -341,25 +344,35 @@ function operationOf(operation: AtlasOperation) {
  */
 function AtlasLegend({ counts, className }: { counts: Map<string, number>; className?: string }) {
   return (
-    <dl className={cn("flex flex-wrap items-center gap-x-5 gap-y-2", className)}>
-      {VERDICT_ORDER.map((verdict) => {
-        const descriptor = verdictOf(verdict);
-        return (
-          <div key={verdict} className="inline-flex items-center gap-1.5">
-            <Mark
-              shape={descriptor.glyph}
-              className={cn("size-[13px]", TONE_TEXT[descriptor.tone])}
-            />
-            <dt className="font-mono text-[10px] uppercase tracking-[0.13em] text-ink-3">
-              {descriptor.label}
-            </dt>
-            <dd className="font-mono text-[12px] font-semibold tabular-nums text-ink">
-              {counts.get(verdict) ?? 0}
-            </dd>
-          </div>
-        );
-      })}
-    </dl>
+    <div className={cn("min-w-0", className)}>
+      {/* Which counts these are, said on screen rather than only in the comment above.
+          The review's own "0 material · 6 held · 0 cleared" sits a hand's width up the page,
+          and two identical rows of numbers meaning different things is how a legend reads as
+          the dashboard the charter rules out. */}
+      <Label as="p" className="mb-1.5">
+        On the map
+      </Label>
+      <dl
+        className="flex flex-wrap items-center gap-x-5 gap-y-2"
+        aria-label="Verdicts drawn on the map"
+      >
+        {VERDICT_ORDER.map((verdict) => {
+          const descriptor = verdictOf(verdict);
+          return (
+            <div key={verdict} className="inline-flex items-center gap-1.5">
+              <Mark
+                shape={descriptor.glyph}
+                className={cn("size-[13px]", TONE_TEXT[descriptor.tone])}
+              />
+              <Label as="dt">{descriptor.label}</Label>
+              <dd className="font-mono text-[12px] font-semibold tabular-nums text-ink">
+                {counts.get(verdict) ?? 0}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
   );
 }
 
@@ -745,7 +758,10 @@ export function AtlasSurface({
         onResetExplorations={resetMap}
         header={
           <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-rule px-3 py-3">
-            <p className="max-w-[54ch] text-sm leading-6 text-ink-2">
+            {/* 62ch, the measure `design-system.md` fixes for prose. At 54 this — the longest
+                paragraph on the surface, and a sentence carrying up to three caveats — was
+                broken into more lines than it needs, directly above the map. */}
+            <p className="max-w-[62ch] text-sm leading-6 text-ink-2">
               What this review examined, in the structure it found it in. Every card and every
               connector is read from the atlas the review was judged against — never from the
               repository as it stands now.

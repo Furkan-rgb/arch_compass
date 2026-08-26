@@ -1577,8 +1577,11 @@ describe("the review workbench", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /Ask/ }));
     const panel = screen.getByRole("tabpanel");
 
+    // The unscoped family is empty, which the surface now says as a line of guidance under
+    // the ask box rather than as a centred 205px empty state above it: an announcement that
+    // nothing has happened does not outrank the control that makes something happen.
     expect(
-      await within(panel).findByText("No questions asked yet"),
+      await within(panel).findByText(/Ask what the review found/),
     ).toBeInTheDocument();
     expect(
       within(panel).queryByText("It asks which side of the seam owns the schema."),

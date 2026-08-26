@@ -10,30 +10,45 @@ import { NODE_HEIGHT, NODE_WIDTH } from "./layout";
 export const MIN_ZOOM = 0.15;
 
 /**
- * The size the label on a card is set at, and the smallest a reader should be asked to read it.
+ * The sizes a card's two text rows are set at, and the smallest a reader should be asked to
+ * read.
  *
- * The first is `.atlas-node__label`'s own `font-size`; the second is the floor the comment
- * below has always named. They are here rather than in the stylesheet because the fit control
- * is arithmetic on them, and a number the code cannot see is a number the code cannot honour.
+ * The first two are `.atlas-node__label`'s and `.atlas-node__meta`'s own `font-size`; the
+ * third is the floor the comment below has always named. They are here rather than in the
+ * stylesheet because the fit control and the card's own truncation are arithmetic on them,
+ * and a number the code cannot see is a number the code cannot honour. The two files are one
+ * decision: move a size in `styles.css` and the constant beside it has to move with it.
  */
 export const LABEL_SIZE = 13;
+export const META_SIZE = 10;
 export const MIN_LABEL_SIZE = 8;
+
+/** `.atlas-node__meta`'s own `letter-spacing`, in em. Tracking is most of what a row costs. */
+export const META_TRACKING = 0.06;
+
+/** `.atlas-clusters text`, the same pair, for the same reason. */
+export const CLUSTER_LABEL_SIZE = 14;
+export const CLUSTER_LABEL_TRACKING = 0.13;
 
 /**
  * The scale a card stops being readable below, and therefore the floor on the *automatic* fit.
  *
- * A card is 190 by 78 with a 13px label. Below about this the map becomes a picture of where
- * things are rather than of what they are — which is a legitimate thing to want, and the zoom
- * control goes there. It is not what a surface should choose on the reader's behalf before
- * they have looked at anything.
+ * A card is 190 by 78 with a 13px label over a 10px meta row. Below about this the map becomes
+ * a picture of where things are rather than of what they are — which is a legitimate thing to
+ * want, and the zoom control goes there. It is not what a surface should choose on the
+ * reader's behalf before they have looked at anything.
  *
- * Derived rather than asserted. This was `0.45` under a comment naming seven pixels as the
- * floor, which is 5.85 — the number and the reason for it had drifted apart, and since a
- * review's neighbourhood lays out larger than the canvas, that drifted number *was* the
- * default view of the Atlas on a desktop. Dividing one constant by the other is what stops
- * them drifting again: move either size and the floor follows.
+ * Derived rather than asserted, and derived from the *smallest* row rather than the largest.
+ * It was `0.45` under a comment naming seven pixels as the floor, which is 5.85; dividing
+ * `MIN_LABEL_SIZE` by `LABEL_SIZE` fixed that drift but kept the assumption that the 13px
+ * label is the smallest thing on a card. It is not — the meta row carries the namespace and
+ * the *word half of the verdict*, and at 0.615 a 10px row landed at 6.2px, so the default
+ * view of this surface had the hue carrying the verdict on its own. That is the one thing the
+ * charter says a hue may never do. Against `META_SIZE` the smallest row on the card lands at
+ * eight pixels and the label at 10.4. Fewer cards fit at rest, which is the trade the fit
+ * control's own comment in `viewport.ts` already accepts in writing.
  */
-export const READABLE_ZOOM = MIN_LABEL_SIZE / LABEL_SIZE;
+export const READABLE_ZOOM = MIN_LABEL_SIZE / META_SIZE;
 export const MAX_ZOOM = 1.8;
 export const ZOOM_STEP = 0.15;
 
@@ -82,6 +97,27 @@ export function clamp(value: number, minimum: number, maximum: number) {
 /** How text is cut to fit a card, and how a relationship kind becomes a class name. */
 export function truncate(value: string, length: number) {
   return value.length > length ? `${value.slice(0, length - 1)}…` : value;
+}
+
+/**
+ * How wide one character of IBM Plex Mono is, in user units, at a size and a tracking.
+ *
+ * Every string drawn on the canvas is cut to a character count, and a count is only ever
+ * right for the size it was chosen against. A cluster's name ran a hundred units past the
+ * enclosure it was naming because `34` had been picked for a font-size that moved twice
+ * afterwards, and the card's meta row overprinted itself for the same reason. So a budget is
+ * measured rather than remembered: 0.6em is the family's advance, and mono is the property of
+ * every glyph having the same one.
+ */
+export const MONO_ADVANCE = 0.6;
+
+export function monoAdvance(size: number, tracking = 0) {
+  return size * (MONO_ADVANCE + tracking);
+}
+
+/** How many characters fit in `width` user units at that size, never fewer than one. */
+export function fitCharacters(width: number, size: number, tracking = 0) {
+  return Math.max(1, Math.floor(width / monoAdvance(size, tracking)));
 }
 
 export function edgeKindClass(kind: string) {

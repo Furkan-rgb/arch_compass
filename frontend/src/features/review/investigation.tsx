@@ -118,22 +118,35 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
                 </span>
                 <span className="text-[11px] leading-5 text-ink-3">{resultExtent(item.result)}</span>
               </p>
-              <pre className="mt-1 max-h-64 overflow-auto rounded-md border border-rule bg-surface px-3 py-2">
-                <code className="font-mono text-[11px] leading-5 text-ink-2">{item.result}</code>
+              {/* `--sunken`, which is the ramp's name for a code block, rather than
+                  `--surface`. Its container is a fold body on `--surface-2`, and `--surface`
+                  is five values *above* that in light and seven *below* it in dark — so one
+                  block read as raised in one theme and as a hole cut into the fold in the
+                  other. `--sunken` steps away from the ground in the theme's own direction in
+                  both.
+
+                  It only scrolls in one axis now. A grep result is capped at 256px and a
+                  2000-character line ran off the side as well, with the overlay scrollbars a
+                  Mac hides until they are touched — so the block simply ended, mid-line,
+                  against a rule, which is the failure `scrollbar-slim` exists to prevent. */}
+              <pre className="scrollbar-slim mt-1 max-h-64 overflow-auto rounded-md border border-rule bg-sunken px-3 py-2">
+                <code className="whitespace-pre-wrap font-mono text-[11px] leading-5 text-ink-2 wrap-anywhere">
+                  {item.result}
+                </code>
               </pre>
             </li>
           ))}
         </ul>
       ) : null}
       {investigation.closing ? (
-        <p className="mt-3 max-w-[62ch] text-[13px] leading-6 text-ink-2 wrap-anywhere">
+        <p className="mt-3 max-w-[46ch] text-[13px] leading-6 text-ink-2 wrap-anywhere">
           {investigation.closing}
         </p>
       ) : null}
       {investigation.withheld ? (
         /* The application's own sentence, verbatim: it names the way back rather than
            describing a fault, and paraphrasing it would lose the instruction. */
-        <p className="mt-3 max-w-[62ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+        <p className="mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
           {investigation.withheld}
         </p>
       ) : null}
@@ -147,7 +160,7 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
            the second branch unreachable: a stored review from before the field existed has
            `termination: null`, which is exactly the case the sentence is for, and it was
            the one case that silently rendered nothing. */
-        <p className="mt-3 max-w-[62ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+        <p className="mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
           {investigation.termination
             ? `The lookups stopped early — ${ending(investigation.termination)}. What the review
                concluded was reached from what had been gathered by then.`

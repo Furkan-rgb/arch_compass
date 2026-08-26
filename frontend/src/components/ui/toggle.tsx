@@ -20,7 +20,10 @@ import { cn } from "@/lib/utils";
  * The border is what carries the state, not the fill. In light the control film *is* the
  * panel colour — both are white — so a filled-versus-unfilled distinction is invisible there
  * however it is written. An edge that appears is legible in both themes, which is the test a
- * state has to pass here: one gesture, not one colour.
+ * state has to pass here: one gesture, not one colour. That edge is `--rule-control` rather
+ * than `--rule-strong`, because it is the whole affordance and a 1.41:1 hairline is under the
+ * 3:1 a boundary a reader has to find is held to — the same move `secondary` and
+ * `ToggleButton` made, and the reason all three still look like one control.
  */
 const toggleVariants = cva(
   cn(
@@ -28,9 +31,26 @@ const toggleVariants = cva(
     "font-semibold transition duration-150",
     "border-transparent bg-transparent text-ink-3",
     "hover:bg-sunken hover:text-ink",
-    "data-[state=on]:border-rule-strong data-[state=on]:bg-control data-[state=on]:text-ink data-[state=on]:shadow-rim",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20",
-    "disabled:pointer-events-none disabled:opacity-40",
+    "data-[state=on]:border-rule-control data-[state=on]:bg-control data-[state=on]:text-ink data-[state=on]:shadow-rim",
+    // No `outline-none` and no ring of its own. The registry shipped
+    // `focus-visible:ring-ink/20`, which composites to 1.57:1 — under the 3:1 an indicator is
+    // held to — and, worse, it turned off the one focus rule the product declares in
+    // `@layer base` to do it. Two focus treatments in one interface, and the weaker of them
+    // won wherever this component was used. The base ink outline paints a switch now, exactly
+    // as it paints a `Button`.
+    //
+    // Off is drawn, not dimmed, for the reason `ui/button.tsx` sets out at length: an alpha
+    // composites the label *and* its ground toward whatever is behind them, so `opacity-40`
+    // took a switch that is telling you a count is zero down to about 1.9:1 — the least
+    // readable text on the strip, and the one the reader was meant to be told.
+    //
+    // The recipe is `ToggleButton`'s rather than `Button`'s, and the difference matters here:
+    // a button's off state takes the control film because a button is a filled control at
+    // rest, while this one's resting state has no fill at all. Painting the film on a
+    // *disabled* switch would draw the state that means on. So it keeps the unpressed look,
+    // loses the pointer, and sets its label at `--ink-3`, which `tokens.test.ts` measures at
+    // 5:1 or better on every ground in both themes.
+    "disabled:pointer-events-none disabled:border-transparent disabled:bg-transparent disabled:text-ink-3 disabled:shadow-none",
   ),
   {
     variants: {

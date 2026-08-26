@@ -1,11 +1,22 @@
-import type { CSSProperties } from "react";
+import { useMemo, useRef, type CSSProperties } from "react";
 
 import { splitQualified, type Tone } from "../../lib/format";
 import { Button } from "../../ui/button";
 import { Mark } from "../../ui/mark";
-import { distance, edgeKindClass, edgePath, truncate } from "./geometry";
+import {
+  CLUSTER_LABEL_SIZE,
+  CLUSTER_LABEL_TRACKING,
+  META_SIZE,
+  META_TRACKING,
+  distance,
+  edgeKindClass,
+  edgePath,
+  fitCharacters,
+  monoAdvance,
+  truncate,
+} from "./geometry";
 import type { AtlasEdgeView, AtlasNodeView } from "./graph";
-import { NODE_HEIGHT, NODE_WIDTH, type AtlasLayout } from "./layout";
+import { NODE_HEIGHT, NODE_WIDTH, type AtlasClusterRegion, type AtlasLayout } from "./layout";
 import { surfaceFor } from "./surface";
 import type { AtlasPulse } from "./pulse";
 import type { AtlasViewport } from "./viewport";
@@ -41,6 +52,33 @@ const TONE_MARK: Record<Tone, "alert" | "pause" | "check" | "hollow"> = {
   held: "pause",
   cleared: "check",
 };
+
+/** The card's own left and right margin, and the gap `dx` puts between the kind and the verdict. */
+const CARD_INSET = 18;
+const VERDICT_GAP = 7;
+
+/** Where a cluster's label starts inside its enclosure, and therefore its margin on both sides. */
+const CLUSTER_INSET = 16;
+
+/**
+ * A cluster's name and how many cards it holds, cut to the region it is drawn inside.
+ *
+ * The enclosure is sized from the cards in it and the label was cut to a fixed thirty-four
+ * characters, which is a budget with no relationship to that width: a two-card column is 246
+ * units across and a thirty-four character package name is about 350, so the name ran a
+ * hundred units past the region it names, over whatever cards sat to the right. The count is
+ * measured into the same budget rather than added after it, because the count is the part that
+ * tells two same-named regions apart.
+ */
+function clusterCaption(cluster: AtlasClusterRegion) {
+  const count = ` · ${cluster.nodeIds.length}`;
+  const room = fitCharacters(
+    cluster.width - CLUSTER_INSET * 2,
+    CLUSTER_LABEL_SIZE,
+    CLUSTER_LABEL_TRACKING,
+  );
+  return `${truncate(cluster.label, Math.max(4, room - count.length))}${count}`;
+}
 
 /**
  * Why the map is blank, and the way back.
@@ -112,12 +150,40 @@ export function AtlasCanvas({
   /**
    * Reading order: down the map, then across. `navigateNode` walks it, `Home` and `End` are
    * its two ends, and the first card in it is where the keyboard comes in.
+   *
+   * Memoised because a pan re-renders this component on every scroll frame and a full sort of
+   * every card is not something to pay for when nothing about the cards has moved. It changes
+   * only when the graph or its placement does.
    */
-  const sorted = [...graph.nodes].sort((left, right) => {
-    const leftPosition = positions.get(left.id) || { x: 0, y: 0 };
-    const rightPosition = positions.get(right.id) || { x: 0, y: 0 };
-    return leftPosition.y - rightPosition.y || leftPosition.x - rightPosition.x;
-  });
+  const sorted = useMemo(
+    () =>
+      [...graph.nodes].sort((left, right) => {
+        const leftPosition = positions.get(left.id) || { x: 0, y: 0 };
+        const rightPosition = positions.get(right.id) || { x: 0, y: 0 };
+        return leftPosition.y - rightPosition.y || leftPosition.x - rightPosition.x;
+      }),
+    [graph, positions],
+  );
+
+  /** The drawn minimap, measured to map a click through its letterbox rather than round it. */
+  const minimapRef = useRef<SVGSVGElement>(null);
+
+  /**
+   * Which region each card sits in, so the card can say so in its accessible name.
+   *
+   * The enclosures are `aria-hidden` on the canvas and correctly so — an SVG path is not
+   * something to announce — but that left the layer saying which package or module a card
+   * belongs to reachable only by looking at the picture, and the detail panel that calls
+   * itself the map's only text equivalent never mentions a region either. The fact travels on
+   * the card instead, which is the route a keyboard reader is already walking.
+   */
+  const clusterLabels = useMemo(() => {
+    const byNode = new Map<string, string>();
+    for (const cluster of layout.clusters) {
+      for (const nodeId of cluster.nodeIds) byNode.set(nodeId, cluster.label);
+    }
+    return byNode;
+  }, [layout.clusters]);
 
   /**
    * The card that holds the tab stop while nothing is selected.
@@ -203,12 +269,18 @@ export function AtlasCanvas({
     edge.sourceId === selected?.id ||
     edge.targetId === selected?.id ||
     highlightedEdges.has(edge.id);
-  const selectedNeighbours = new Set(
-    selected
-      ? graph.edges
-          .filter((edge) => edge.sourceId === selected.id || edge.targetId === selected.id)
-          .map((edge) => (edge.sourceId === selected.id ? edge.targetId : edge.sourceId))
-      : [],
+  // Memoised for the same reason `sorted` is: a pass over every edge on every scroll frame is
+  // work that a pan cannot possibly have changed the answer to.
+  const selectedNeighbours = useMemo(
+    () =>
+      new Set(
+        selected
+          ? graph.edges
+              .filter((edge) => edge.sourceId === selected.id || edge.targetId === selected.id)
+              .map((edge) => (edge.sourceId === selected.id ? edge.targetId : edge.sourceId))
+          : [],
+      ),
+    [graph, selected],
   );
   const isRaisedNode = (node: AtlasNodeView) =>
     node.id !== selected?.id &&
@@ -235,11 +307,25 @@ export function AtlasCanvas({
     const position = positions.get(node.id);
     if (!position) return null;
     const active = node.id === selected?.id;
-    const stroke = node.tone ? TONE_STROKE[node.tone] : "var(--rule)";
+    /**
+     * An unjudged card's edge, one step up from the hairline the rest of the system separates
+     * with.
+     *
+     * On the Structure lens almost every card is unjudged, so almost every card on screen was
+     * a white box on a near-white ground behind a border a reader could not resolve — 1.14:1
+     * in light — and the map read as floating labels rather than as objects. `--rule-strong`
+     * does not reach 3:1 either, and the honest note beside that is that a card's real edge is
+     * its fill interrupting the grid. It is still the right step: `design-system.md`'s own
+     * line is that a rule separates and a border belongs to something you could pick up, and
+     * this card is a `role="button"`. What it is not is `--ink-3` — on the Structure lens that
+     * would outline every card at 5.86:1 and out-shout the toned cards the tone system exists
+     * to make loud.
+     */
+    const stroke = node.tone ? TONE_STROKE[node.tone] : "var(--rule-strong)";
     // The label starts where the mark leaves off, and a card with no verdict has no mark to
     // leave room for — a fixed indent on every card would open a column of nothing down the
     // side of a map that is mostly unjudged.
-    const labelX = node.tone ? 40 : 18;
+    const labelX = node.tone ? 40 : CARD_INSET;
     const kind = node.kind.replaceAll("_", " ");
     const leaf = truncate(node.label, node.tone ? 17 : 20);
     /**
@@ -252,6 +338,22 @@ export function AtlasCanvas({
      */
     const namespace =
       leaf === node.label ? "" : splitQualified(node.qualified).namespace.split(".").at(-1) || "";
+    /**
+     * How much of a meta row fits, measured against the room the card actually has.
+     *
+     * Three strings shared the lower baseline on fixed character budgets — the kind from the
+     * left, the verdict after it, and a signal count anchored right — with nothing measuring
+     * between them, so a judged card that had raised a signal drew the verdict word and the
+     * count on top of one another. The count has gone to the detail panel, where it is
+     * qualified by what each signal *is*; what is left is measured. The budget starts at the
+     * indent rather than at the card's edge, so a toned card's row is cut for the mark beside
+     * it instead of running under it.
+     */
+    const metaRoom = NODE_WIDTH - labelX - CARD_INSET;
+    const verdictRoom = node.verdictLabel
+      ? monoAdvance(META_SIZE, META_TRACKING) * node.verdictLabel.length + VERDICT_GAP
+      : 0;
+    const region = clusterLabels.get(node.id);
     return (
       <g
         key={node.id}
@@ -263,17 +365,28 @@ export function AtlasCanvas({
         role="button"
         tabIndex={active || node.id === keyboardEntry ? 0 : -1}
         aria-pressed={active}
-        /* The whole qualified name, and the verdict in the word rather than in the hue.
-           This read `${node.label}, ${node.kind}, judged` — the leaf, already cut to
-           seventeen characters, and one word that said the same thing for a material finding
-           and a cleared one. `orders` is not an identity when three packages have one, and a
-           colour never carries meaning alone. */
-        aria-label={`${node.qualified}, ${kind}${
+        /* The whole qualified name, the region the map drew round it, and the verdict in the
+           word rather than in the hue. This read `${node.label}, ${node.kind}, judged` — the
+           leaf, already cut to seventeen characters, and one word that said the same thing for
+           a material finding and a cleared one. `orders` is not an identity when three
+           packages have one, and a colour never carries meaning alone.
+
+           The region is here because the enclosures are `aria-hidden` and belong that way, so
+           without it the whole grouping layer of the map was reachable only by looking at it. */
+        aria-label={`${node.qualified}, ${kind}${region ? `, in ${region}` : ""}${
           node.verdictLabel ? `, ${node.verdictLabel}` : ""
         }`}
-        className={`atlas-node ${active ? "atlas-node--active" : ""} ${
-          highlightedNodes.has(node.id) ? "atlas-node--path" : ""
-        }`}
+        /* The kernel's placement arrives as a settling rather than as a swap.
+           `placement.ts` paints the synchronous layout first and replaces it a few hundred
+           milliseconds later with the kernel's, and every card was somewhere else at once,
+           with the camera refitting under it — the reader's first impression of the surface
+           was the map being pulled out from under them. A `transform` on a card changes only
+           when the placement does: a pan moves the scroll offset and a zoom resizes the SVG,
+           and neither touches this. The system's own curve, at the duration `--animate-expand`
+           opens a row with, and the global reduced-motion block collapses it to nothing. */
+        className={`atlas-node transition-transform duration-[240ms] ease-[cubic-bezier(0.22,0.7,0.3,1)] ${
+          active ? "atlas-node--active" : ""
+        } ${highlightedNodes.has(node.id) ? "atlas-node--path" : ""}`}
         transform={`translate(${position.x} ${position.y})`}
         onPointerDown={(event) => {
           // Keep card activation separate from the canvas pan gesture, which captures
@@ -346,32 +459,29 @@ export function AtlasCanvas({
         )}
         {namespace ? (
           <text className="atlas-node__meta" x={labelX} y={16}>
-            {truncate(namespace, 22)}
+            {truncate(namespace, fitCharacters(metaRoom, META_SIZE, META_TRACKING))}
           </text>
         ) : null}
         <text className="atlas-node__label" x={labelX} y={31}>
           {leaf}
         </text>
-        {/* The verdict beside the kind, which is the slot the signal count leaves free on
-            most cards and which is wide enough for both on the rest. A card had a hue on its
-            border and a mark inside it and nowhere at all did it say Material, Held or
-            Cleared — the hue was carrying the meaning by itself, which is the one thing the
-            charter says a hue may never do. */}
-        <text className="atlas-node__meta" x={18} y={59}>
-          {truncate(kind, node.verdictLabel ? 12 : 20)}
+        {/* The verdict beside the kind, on the whole width the card has now that the signal
+            count is not competing for it. A card had a hue on its border and a mark inside it
+            and nowhere at all did it say Material, Held or Cleared — the hue was carrying the
+            meaning by itself, which is the one thing the charter says a hue may never do.
+
+            `labelX`, not the card's own inset: this line used to start twenty-two units left
+            of the two above it, so every card carrying a verdict — the ones the Judged lens
+            exists to show — had two of its three rows on one left edge and the third hanging
+            under the mark. */}
+        <text className="atlas-node__meta" x={labelX} y={59}>
+          {truncate(kind, fitCharacters(metaRoom - verdictRoom, META_SIZE, META_TRACKING))}
           {node.verdictLabel ? (
-            <tspan className="atlas-node__verdict" dx="7">
+            <tspan className="atlas-node__verdict" dx={VERDICT_GAP}>
               {node.verdictLabel}
             </tspan>
           ) : null}
         </text>
-        {/* A ternary rather than `&&`: a card carrying no signal has a count of zero, and
-            `0 &&` renders the zero as the card's own caption. */}
-        {node.signalCount ? (
-          <text className="atlas-node__meta" x={NODE_WIDTH - 18} y={59} textAnchor="end">
-            {node.signalCount} signals
-          </text>
-        ) : null}
       </g>
     );
   };
@@ -390,13 +500,20 @@ export function AtlasCanvas({
         onPointerMove={view.pan}
         onPointerUp={view.endPan}
         onPointerCancel={view.endPan}
-        onScroll={view.updateViewport}
+        /* Coalesced to a frame: a drag writes the scroll offset directly, and a scroll event
+           per pointermove is a render of every card, every edge and the minimap. */
+        onScroll={view.scheduleViewportUpdate}
         onClick={view.deselectBackground}
       >
         {graph.nodes.length ? (
           <svg
             role="group"
-            aria-label="The repository's structure, as this review read it"
+            /* Not "the repository", and not "as this review read it" either. The first is the
+               claim the surface's own header exists to deny — a map that let a reader believe
+               it showed the repository as it stands now would be the more dangerous kind of
+               wrong — and the second hardcodes a review into a component that knows nothing
+               about reviews. What this draws is the graph its caller handed it. */
+            aria-label="The structure this map was given"
             viewBox={`${-offsetX} ${-offsetY} ${worldWidth} ${worldHeight}`}
             width={worldWidth * zoom}
             height={worldHeight * zoom}
@@ -456,8 +573,8 @@ export function AtlasCanvas({
                     height={cluster.height}
                     rx="14"
                   />
-                  <text x={cluster.x + 16} y={cluster.y + 22}>
-                    {truncate(cluster.label, 34)} · {cluster.nodeIds.length}
+                  <text x={cluster.x + CLUSTER_INSET} y={cluster.y + 22}>
+                    {clusterCaption(cluster)}
                   </text>
                 </g>
               ))}
@@ -504,6 +621,33 @@ export function AtlasCanvas({
              actually emptied it is worse than a blank map: the reader believes the sentence
              and stops looking for the control they just pressed. */
           <div className="atlas-empty">
+            {/* The wait, drawn as what is coming rather than described.
+
+                The review context read is the largest thing this surface fetches — a real one
+                is a couple of megabytes — and it was answered by one centred grey line in an
+                otherwise empty area up to 900px tall, under a full row of controls a reader
+                could already operate over nothing. Cards at the card's own proportions, on the
+                card's own ground, say what the shape of the answer will be. `--control` and
+                not `--sunken`, because the canvas is `--sunken` now and a skeleton in the
+                colour of the ground it sits on is not a skeleton. */}
+            {loading ? (
+              <div aria-hidden="true" className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                {Array.from({ length: 6 }, (_, index) => (
+                  <div
+                    key={index}
+                    className="animate-shimmer rounded-[10px] border border-rule bg-control"
+                    style={{
+                      width: NODE_WIDTH / 2,
+                      height: NODE_HEIGHT / 2,
+                      // Staggered so the field reads as a map arriving rather than as one
+                      // block pulsing. Reduced motion collapses every duration to nothing,
+                      // which leaves six still cards — which is the point of them.
+                      animationDelay: `${index * 90}ms`,
+                    }}
+                  />
+                ))}
+              </div>
+            ) : null}
             <p>{loading ? "Reading the atlas…" : empty.sentence}</p>
             {!loading && empty.action ? (
               <Button variant="secondary" size="sm" onClick={empty.action.onAction}>
@@ -529,7 +673,6 @@ export function AtlasCanvas({
           aria-label="Graph minimap; click to recentre"
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
-            const bounds = event.currentTarget.getBoundingClientRect();
             // A keyboard activation has no pointer behind it, and a click reported at the
             // origin used to jump the camera to the top-left corner. Enter on a control
             // labelled "recentre" means the middle of the map, which is what it now does.
@@ -537,13 +680,26 @@ export function AtlasCanvas({
               view.centreOn(worldWidth / 2, worldHeight / 2);
               return;
             }
-            view.centreOn(
-              ((event.clientX - bounds.left) / bounds.width) * worldWidth,
-              ((event.clientY - bounds.top) / bounds.height) * worldHeight,
-            );
+            /* Measured against the picture, not against the box holding it.
+
+               The minimap is a fixed 3:2 button and the SVG inside it letterboxes to the
+               world's own ratio under the default `xMidYMid meet` — for a layout floored at
+               920x430 that is about fifteen dead pixels above and below the drawing, so a
+               third of the vertical travel was mapped to the wrong world point on a control
+               whose label promises to recentre. Reproducing `meet` here rather than setting
+               `preserveAspectRatio="none"` keeps the locator the same shape as the map it is
+               a locator for. The SVG rather than the button, because the button's rect
+               includes the hairline border the drawing does not sit inside. */
+            const drawing = minimapRef.current;
+            if (!drawing) return;
+            const bounds = drawing.getBoundingClientRect();
+            const scale = Math.min(bounds.width / worldWidth, bounds.height / worldHeight);
+            const left = bounds.left + (bounds.width - worldWidth * scale) / 2;
+            const top = bounds.top + (bounds.height - worldHeight * scale) / 2;
+            view.centreOn((event.clientX - left) / scale, (event.clientY - top) / scale);
           }}
         >
-          <svg viewBox={`0 0 ${worldWidth} ${worldHeight}`} aria-hidden="true">
+          <svg ref={minimapRef} viewBox={`0 0 ${worldWidth} ${worldHeight}`} aria-hidden="true">
             {graph.edges.map((edge) => {
               const source = positions.get(edge.sourceId);
               const target = positions.get(edge.targetId);

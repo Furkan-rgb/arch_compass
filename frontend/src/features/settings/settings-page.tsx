@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import {
   api,
@@ -194,26 +194,28 @@ export function SettingsPage() {
         eyebrow="Runtime"
         title="Models"
         description="The model that judges architecture and the model that retrieves policy are set separately."
+        // One action, and it is the only thing on this header that acts on the workspace. The
+        // theme switch used to sit here beside it: an unlabelled three-way control about
+        // colour, first in the tab order of a page called Models, carrying nothing but an
+        // `aria-label`. It is a per-browser preference exactly like the editor scheme, so it
+        // is now in the section that already explains what per-browser means.
         actions={
-          <>
-            {/* A provider is probed when this page asks for the catalog, and never again.
-                Starting Ollama after the page had painted needed a browser reload. */}
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={rechecking}
-              onClick={() => void refresh()}
-            >
-              {/* The label is printed right beside it. */}
-              {rechecking ? (
-                <Spinner label="" />
-              ) : (
-                <RefreshIcon aria-hidden="true" className="size-3.5" />
-              )}
-              Re-check providers
-            </Button>
-            <ThemeChoice />
-          </>
+          /* A provider is probed when this page asks for the catalog, and never again.
+             Starting Ollama after the page had painted needed a browser reload. */
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={rechecking}
+            onClick={() => void refresh()}
+          >
+            {/* The label is printed right beside it. */}
+            {rechecking ? (
+              <Spinner label="" />
+            ) : (
+              <RefreshIcon aria-hidden="true" className="size-3.5" />
+            )}
+            Re-check providers
+          </Button>
         }
       />
 
@@ -461,61 +463,87 @@ function grouped(providers: ProviderAvailability[], choices: Choice[]): Group[] 
   ];
 }
 
+/**
+ * The theme, under a label somebody can read.
+ *
+ * It is not a `Field`, and that is the one thing here worth explaining: `Field` labels a
+ * control with `<label htmlFor>`, which associates with a form element and does nothing at
+ * all pointing at a group of buttons. So the label is a `<span>` the group names with
+ * `aria-labelledby` — the same association `Field` makes, spelled the way a group can make
+ * it — set in `Field`'s own type so the two rows in this panel read as one form.
+ */
 function ThemeChoice() {
   const { preference, setPreference } = useTheme();
+  const id = useId();
   return (
-    <div
-      role="group"
-      aria-label="Colour theme"
-      className="flex gap-1 rounded-md border border-rule bg-surface p-1"
-    >
-      {/* `ToggleButton` rather than the `bg-ink text-canvas` this hand-rolled: the one toggle
-          recipe the design system retired by name — *a toggle that is on is raised, not
-          inverted* — and the only control on the page that missed the coarse-pointer floor. */}
-      {(["light", "dark", "system"] as const).map((option) => (
-        <ToggleButton
-          key={option}
-          pressed={preference === option}
-          onClick={() => setPreference(option)}
-          className="capitalize"
-        >
-          {option}
-        </ToggleButton>
-      ))}
+    <div className="min-w-0">
+      <span id={id} className="block text-xs font-semibold text-ink">
+        Theme
+      </span>
+      <div
+        role="group"
+        aria-labelledby={id}
+        // The track is `--sunken`, which is what a set of alternatives sits in everywhere else
+        // in the system — `ToggleGroup variant="segment"` and the solid tab strip. It used to
+        // be `bg-surface`, which was legible in the page header and is the panel's own colour
+        // now that the control lives inside one.
+        className="mt-1.5 flex w-fit gap-0.5 rounded-sm border border-rule bg-sunken p-0.5"
+      >
+        {/* `ToggleButton` rather than the `bg-ink text-canvas` this hand-rolled: the one toggle
+            recipe the design system retired by name — *a toggle that is on is raised, not
+            inverted* — and the only control on the page that missed the coarse-pointer floor. */}
+        {(["light", "dark", "system"] as const).map((option) => (
+          <ToggleButton
+            key={option}
+            pressed={preference === option}
+            onClick={() => setPreference(option)}
+            className="capitalize"
+          >
+            {option}
+          </ToggleButton>
+        ))}
+      </div>
     </div>
   );
 }
 
 /**
- * Which editor a path on this machine opens in, which is what turns every path in a review
- * into somewhere to go.
+ * The two settings that belong to the browser rather than to the workspace.
  *
+ * Which editor a path opens in is what turns every path in a review into somewhere to go:
  * `ui/meta.tsx` has offered an *open* control beside every source path for as long as there
  * has been a scheme to build one from, and nothing anywhere wrote the scheme — so the
- * affordance existed and never once appeared. It is a per-machine fact rather than a
- * workspace one, and off until somebody says otherwise; `lib/editor.ts` argues both at length.
+ * affordance existed and never once appeared. It is a per-machine fact rather than a workspace
+ * one, and off until somebody says otherwise; `lib/editor.ts` argues both at length.
+ *
+ * The theme is the same kind of fact and the page used to give the two opposite treatments.
+ * The editor got this section, with a left column that says *kept in this browser rather than
+ * in the workspace* — which is the sentence that explains the theme as well. The theme got the
+ * header's actions slot beside *Re-check providers*, a workspace action, with an `aria-label`
+ * and nothing visible to say what it was. One sentence covers both, so both are under it.
  */
 function EditorChoice() {
   const [scheme, setScheme] = useState<EditorScheme>(readEditorScheme);
   return (
     <section className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)] xl:gap-6">
       <div className="xl:sticky xl:top-20 xl:self-start">
-        <Label>Opens the source</Label>
+        <Label>Kept in this browser</Label>
         <h2 className="mt-1.5 font-display text-xl font-semibold tracking-tight text-ink">
           This machine
         </h2>
         <p className="mt-2 text-sm leading-6 text-ink-3">
-          Kept in this browser rather than in the workspace. Two people reading the same review
-          may run different editors, and one of them may be reading it over SSH where no local
-          path resolves at all.
+          Neither of these is part of the workspace. Two people reading the same review may run
+          different editors and want different themes, and one of them may be reading it over
+          SSH where no local path resolves at all.
         </p>
       </div>
       <Panel>
         <PanelHeader
-          title="Open in editor"
-          description="Every source path in a review grows an open control once an editor is named."
+          title="Theme and editor"
+          description="How this browser draws a review, and where a source path in one opens."
         />
-        <PanelBody>
+        <PanelBody className="grid gap-4">
+          <ThemeChoice />
           <Field
             label="Editor"
             hint="Nothing is offered by default. A link that silently fails costs a click to discover and looks like the product being broken."
@@ -669,11 +697,25 @@ function ProviderSection({
   const { provider, models, count } = group;
   const available = provider.available;
   return (
-    <Panel tone={available ? "raised" : "flat"}>
+    // `sunken`, not `flat`. The panel was trying to say "this provider has nothing for you" by
+    // stepping down the elevation ramp, and it could not: the only thing separating `flat`
+    // from `raised` is `shadow-rim`, and `--rim` is `transparent` in light on purpose. So in
+    // the light theme a live provider and a dead one were the same white panel with the same
+    // hairline, and the entire signal fell on the dot and the badge — the two things quietened
+    // below. A recess reads in both themes, and it says the right thing: a provider offering
+    // nothing is not a panel, it is a hole where one would be.
+    <Panel tone={available ? "raised" : "sunken"}>
       <PanelHeader
         title={
           <span className="flex items-center gap-2">
-            <StatusDot tone={available ? "cleared" : "material"} />
+            {/* Weight, not hue. A provider that is not answering is not a verdict, and
+                `--material` *is* the accent — so a workspace with two API keys unset opened
+                this page with two red dots and two red badges on it, while the page's actual
+                choices, the model tiles, carried no accent at all. That is a fifth job for the
+                one hue the system has, and `ui/states.tsx` names this exact case: a fact about
+                your configuration is a standing note, never a grade. `marked` is `--ink` and
+                `neutral` is `--ink-3`, which is the ramp the doc asks for at no chroma. */}
+            <StatusDot tone={available ? "marked" : "neutral"} />
             {provider.label || provider.provider}
           </span>
         }
@@ -689,9 +731,12 @@ function ProviderSection({
                   : plural(count, "model")}
               </span>
             ) : (
-              <Badge tone="material" glyph="alert">
-                Unavailable
-              </Badge>
+              // No glyph and no hue. The caution triangle belongs to the sign register, which
+              // is for what is *graded* — the model's three verdicts and a review's own state
+              // — and an unset API key is graded by nobody. `dashed` would be no better: that
+              // is the scale register, and an availability is not a position on a scale. So
+              // the word carries it, and `provider.detail` beside it carries the cure.
+              <Badge tone="neutral">Unavailable</Badge>
             )}
             {/* When the probe ran, which is the difference between "Ollama is not running"
                 and "Ollama was not running when this page was built". */}

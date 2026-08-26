@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LABEL_SIZE, MIN_LABEL_SIZE, READABLE_ZOOM } from "./geometry";
+import { LABEL_SIZE, META_SIZE, MIN_LABEL_SIZE, READABLE_ZOOM } from "./geometry";
 import type { AtlasEdgeView, AtlasNodeView } from "./graph";
 import { PULSE_STORAGE_KEY, readPulse, writePulse } from "./pulse";
 import { NODE_HEIGHT, NODE_WIDTH, layoutAtlas } from "./layout";
@@ -386,16 +386,28 @@ describe("the drawn surface", () => {
  * `READABLE_ZOOM` was `0.45` under a comment naming seven pixels as the point a label stops
  * being one — and 13 × 0.45 is 5.85. A number that has drifted from the reason for it is the
  * kind of thing only arithmetic notices, so the arithmetic is here.
+ *
+ * It then drifted a second way, which is what the third assertion now catches. Dividing by
+ * `LABEL_SIZE` held the *label* over eight pixels and said nothing about the meta row beneath
+ * it — the row carrying the namespace and the word half of the verdict — so at 0.615 the one
+ * thing on a card that says "Held" in words rendered at 6.2px while the border said it in a
+ * hue. A colour never carries meaning alone, so the floor is measured against the smallest row
+ * the card draws rather than the largest.
  */
 describe("the readable floor", () => {
   it("never fits to a zoom the card's own label cannot survive", () => {
     expect(LABEL_SIZE * READABLE_ZOOM).toBeGreaterThanOrEqual(MIN_LABEL_SIZE);
   });
 
-  it("is derived from the label rather than asserted beside it", () => {
-    // The value it used to hold, kept as the thing this test exists to refuse.
+  it("never fits to a zoom the verdict word cannot survive either", () => {
+    expect(META_SIZE * READABLE_ZOOM).toBeGreaterThanOrEqual(MIN_LABEL_SIZE);
+  });
+
+  it("is derived from the smallest row rather than asserted beside it", () => {
+    // The two values it used to hold, kept as the things this test exists to refuse.
     expect(LABEL_SIZE * 0.45).toBeLessThan(MIN_LABEL_SIZE);
-    expect(READABLE_ZOOM).toBeCloseTo(MIN_LABEL_SIZE / LABEL_SIZE, 10);
+    expect(META_SIZE * (MIN_LABEL_SIZE / LABEL_SIZE)).toBeLessThan(MIN_LABEL_SIZE);
+    expect(READABLE_ZOOM).toBeCloseTo(MIN_LABEL_SIZE / META_SIZE, 10);
   });
 });
 

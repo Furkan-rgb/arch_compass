@@ -7,24 +7,32 @@ import { cn } from "../../lib/cn";
 import { runPollInterval, useRunsBecomeReviews } from "../../lib/runs";
 import { plural, repositoryName } from "../../lib/format";
 import { Button, ButtonLink } from "../../ui/button";
-import { CheckIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
-import { ErrorNotice, Skeleton, Spinner } from "../../ui/states";
+import { ErrorNotice, LiveRegion, Skeleton, Spinner } from "../../ui/states";
 import { rememberChoice, rememberedChoice } from "./choice";
 import { RepositoryPicker } from "./repository-picker";
+import { REVIEW_PHASES } from "./run-progress";
 import { ScopePicker, filesInScope, useRepositoryTree } from "./scope-picker";
 
-/** Graph events, said the way a reader would describe the step. */
-const PIPELINE = [
-  ["Repository", "Parsed into a deterministic atlas — nodes, edges, metrics, signals."],
-  ["Candidates", "Structural patterns detected by rule, not by the model."],
-  ["Policies", "Retrieved per candidate, with the retrieval recorded."],
-  ["Judgement", "The model decides what the evidence means, inside the policy it was given."],
-  ["Clarification", "Only what the repository genuinely cannot answer."],
-  ["Review", "Recorded as an immutable revision with its own delta."],
-] as const;
+/**
+ * What each phase does, said the way a reader would describe it.
+ *
+ * The six phases themselves — their names and their order — belong to `run-progress.tsx`,
+ * which draws the same six as the live progress list a press of this page's button leads to.
+ * They were two hand-written lists until that list stopped being a log of graph nodes, and
+ * two lists of six are two promises that drift; keying this one by `REVIEW_PHASES` means a
+ * phase added there fails to compile until this page has a sentence for it.
+ */
+const PIPELINE: Record<(typeof REVIEW_PHASES)[number]["title"], string> = {
+  Repository: "Parsed into a deterministic atlas — nodes, edges, metrics, signals.",
+  Candidates: "Structural patterns detected by rule, not by the model.",
+  Policies: "Retrieved per candidate, with the retrieval recorded.",
+  Judgement: "The model decides what the evidence means, inside the policy it was given.",
+  Clarification: "Only what the repository genuinely cannot answer.",
+  Review: "Recorded as an immutable revision with its own delta.",
+};
 
 /**
  * Two spellings of one path, as far as this page can tell.
@@ -224,7 +232,15 @@ export function StartPage() {
   // The tree's failure belongs here too. The button used to stay enabled and red beside a
   // notice reading "That repository could not be read", offering to review something the
   // workspace has already said it cannot open.
-  const blocked = !chosen || phase !== "idle" || !ready || tree.isError;
+  //
+  // What is deliberately *not* in here any more is `phase !== "idle"`. Marking the button
+  // inactive while it works dressed the whole control — the spinner and the phase label
+  // included — in the off recipe, so the page's only progress signal through its longest wait
+  // was drawn in the tier that means "you cannot press this". Working is not the same fact as
+  // blocked: it is said with `aria-busy` and with the demoted variant, and a second press is
+  // dropped inside `start()` rather than by taking the control away.
+  const blocked = !chosen || !ready || tree.isError;
+  const working = phase !== "idle";
 
   /**
    * Hand the review to the workspace and go and watch it.
@@ -235,6 +251,10 @@ export function StartPage() {
    * that survives a reload.
    */
   async function start() {
+    // The re-entry guard the `inactive` flag used to provide. A click that arrives while the
+    // repository is being indexed would otherwise index it a second time and hand the
+    // workspace two runs of one commit.
+    if (phase !== "idle") return;
     setPhase("indexing");
     setFailure(null);
     try {
@@ -310,7 +330,12 @@ export function StartPage() {
               {root ? (
                 <div className="mt-4 flex flex-wrap items-center gap-2 rounded-md border border-rule-strong bg-sunken px-3 py-2.5">
                   <span className="text-xs font-semibold text-ink">Selected</span>
-                  <Mono className="min-w-0 flex-1 truncate text-[12px] text-ink">{root}</Mono>
+                  {/* The strip that confirms which repository the run will read, so the
+                      whole path has to be recoverable from it. Two sibling checkouts
+                      differing only in a middle segment truncate to the same string. */}
+                  <Mono title={root} className="min-w-0 flex-1 truncate text-[12px] text-ink">
+                    {root}
+                  </Mono>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -326,10 +351,27 @@ export function StartPage() {
             </PanelBody>
           </Panel>
 
+          {/* Deliberately still a raised panel, even though it holds nothing operable until
+              step 1 is answered. Sinking it was the obvious move and it inverts between
+              themes: `PanelHeader` paints `--surface-2`, so on a `--sunken` body the strip
+              that names the panel lands *lighter* than the panel in light and *darker* in
+              dark, and the elevation contract's own words for that are "a tone that only
+              works in one theme is not a tone". What step 2 owed the reader was the sixty
+              pixels of explanation it was spending on somebody with no folders on screen,
+              and that is what the description below withholds. */}
           <Panel>
             <PanelHeader
               title="2 · How much of it to read"
-              description="Left-out folders are not parsed, not detected in, and not judged. The counts are Python files, counted recursively."
+              // The description only once there is something to describe. Sixty pixels
+              // explaining what a folder's file count means is spent on somebody who has no
+              // folders on screen and nothing to act on — this panel's body says "Choose a
+              // repository first" until step 1 is answered, and that is the whole of what
+              // step 2 has to say at that moment.
+              description={
+                chosen
+                  ? "Left-out folders are not parsed, not detected in, and not judged. The counts are Python files, counted recursively."
+                  : undefined
+              }
             />
             <PanelBody>
               <ScopePicker root={chosen} excluded={excluded} onChange={setExcluded} />
@@ -370,8 +412,12 @@ export function StartPage() {
                     unlabelled default click. */}
                 <Button
                   size="lg"
-                  variant={running ? "secondary" : "primary"}
+                  // Demoted while it works, not dimmed — and the accent goes with the
+                  // demotion, which is the point: `--accent-fill` belongs to a primary action
+                  // that can be taken, and for the length of an index this one cannot be.
+                  variant={running || working ? "secondary" : "primary"}
                   inactive={blocked}
+                  aria-busy={working || undefined}
                   aria-describedby={reasonId}
                   onClick={start}
                 >
@@ -394,6 +440,15 @@ export function StartPage() {
                 <span id={reasonId} className="text-xs leading-5 text-ink-3">
                   {reason}
                 </span>
+                {/* Pressing Run review used to produce silence for the several minutes that
+                    follow. The phase lives in the button's own label and in an
+                    `aria-describedby` target, and a screen reader re-reads neither: not the
+                    accessible name of the control it is already standing on, and not a
+                    description that changed underneath it. So both turns of the click —
+                    indexing, then starting — are announced, by the same component
+                    `RunProgress` uses one route later, so the two halves of one press are
+                    said in one voice. */}
+                <LiveRegion>{phase === "idle" ? "" : PHASE_LABEL[phase]}</LiveRegion>
               </div>
               {failure ? (
                 <div className="mt-3">
@@ -416,18 +471,31 @@ export function StartPage() {
             positioning addressed to somebody who has already chosen to use the product and
             is trying to start a job. The landing page carries it, which is where a reader
             who has not decided yet actually is. */}
-        <Panel tone="sunken">
+        {/* Pinned on a wide screen, because the aside's content ends a third of the way down
+            a column the form runs the whole length of — so the reference material scrolled
+            away from the step it is a reference for, and left the largest empty region on the
+            page diagonally above the primary action. */}
+        <Panel tone="sunken" className="xl:sticky xl:top-20 xl:self-start">
           <PanelBody>
             <Label>How a review runs</Label>
             <ol className="mt-3 grid gap-3.5">
-              {PIPELINE.map(([title, text], index) => (
-                <li key={title} className="flex gap-3">
-                  <span className="mt-0.5 font-mono text-[11px] font-bold text-ink">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
+              {REVIEW_PHASES.map((phase) => (
+                <li key={phase.title} className="flex gap-3">
+                  {/* A dot rather than `01`–`06`. The form beside this counts 1, 2 and then a
+                      panel with no number at all, and the six stages here are not the form's
+                      two steps subdivided — so a reader who had counted to 2 met a second,
+                      unrelated ordinal sequence and looked for the 3 that connects them.
+                      Nobody cites a stage by number; the list is already ordered by being a
+                      list, and the marker only has to say where a row begins. */}
+                  <span
+                    aria-hidden="true"
+                    className="mt-2 size-1.5 shrink-0 rounded-full bg-ink-3"
+                  />
                   <span>
-                    <span className="block text-sm font-semibold text-ink">{title}</span>
-                    <span className="mt-0.5 block text-xs leading-5 text-ink-3">{text}</span>
+                    <span className="block text-sm font-semibold text-ink">{phase.title}</span>
+                    <span className="mt-0.5 block text-xs leading-5 text-ink-3">
+                      {PIPELINE[phase.title]}
+                    </span>
                   </span>
                 </li>
               ))}
@@ -560,7 +628,14 @@ function ModelReadiness({
                 className="size-3.5 shrink-0 animate-breathe rounded-full border-2 border-rule-strong"
               />
             ) : model ? (
-              <CheckIcon className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
+              // A solid dot, not a tick. The tick belongs to the sign register — what is
+              // *graded*, the model's three verdicts and a review's own state — and the two
+              // sentences above this one say in as many words that chosen or not chosen is a
+              // step in a flow rather than a grade. A reader who has worked a docket has
+              // learnt that a tick means `cleared`, and these were the only glyphs in the Run
+              // panel. Solid, breathing outline, dashed outline is one step on a scale and
+              // says nothing about whether anything is any good.
+              <span aria-hidden="true" className="size-3.5 shrink-0 rounded-full bg-ink-3" />
             ) : (
               <span
                 aria-hidden="true"
@@ -573,7 +648,12 @@ function ModelReadiness({
           {asking ? (
             <Skeleton className="mt-1.5 h-3 w-32" />
           ) : (
-            <Mono className={cn("mt-1 block truncate text-[12px]", !model && "text-ink")}>
+            // A model id is regularly wider than half this panel, and its sibling in
+            // Settings already carries the whole of it on the hover.
+            <Mono
+              title={model}
+              className={cn("mt-1 block truncate text-[12px]", !model && "text-ink")}
+            >
               {model ?? "not chosen yet"}
             </Mono>
           )}
@@ -582,7 +662,13 @@ function ModelReadiness({
       {!ready && !asking ? (
         <p className="text-xs leading-5 text-ink-2 sm:col-span-2">
           Both are needed before a review can run.{" "}
-          <Link to="/settings" className="font-semibold text-mark underline underline-offset-2">
+          {/* Ink, not `--mark`. `--mark` is the way back to *the source a claim came from* —
+              a file, a policy, a cited finding — and `/settings` is none of the three; it is
+              ordinary navigation. Spending the accent's fourth job here also left this one
+              panel rendering two inline links in two colours with no rule a reader could
+              infer, beside "Watch it" and the two `CaseNote` buttons, all of which are ink
+              with an underline. */}
+          <Link to="/settings" className="font-semibold text-ink underline underline-offset-2">
             Choose models
           </Link>
           .
