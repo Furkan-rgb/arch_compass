@@ -326,7 +326,9 @@ def test_no_page_scrolls_sideways_on_a_phone(page, workspace_url: str) -> None: 
 
 
 def test_the_header_call_to_action_stands_down_on_a_phone(page, workspace_url: str) -> None:  # type: ignore[no-untyped-def]
-    """It wrapped onto two lines and squeezed the wordmark against the menu button.
+    """The landing header's call to action stands down; the workspace topbar's does not.
+
+    It wrapped onto two lines and squeezed the wordmark against the menu button.
 
     Asserted through the rendered result rather than the class list, because the class list
     said it was hidden while the cascade said otherwise: `hidden` on a component that sets
@@ -343,9 +345,26 @@ def test_the_header_call_to_action_stands_down_on_a_phone(page, workspace_url: s
     assert _visible(page.get_by_role("link", name="Review a repository").first)
 
     page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
-    assert page.locator("header").get_by_role("link", name="New review").count() == 0
+    # The workspace topbar keeps its call to action at every width, which is the opposite of
+    # what the landing header above does, and the difference is deliberate. A visitor reading
+    # the landing page has the same link a screen below; somebody working has this bar and
+    # nothing else, and the drawer is two taps. Below `sm` the wordtext beside the mark gives
+    # up its room to pay for it — the chrome stops saying which product it is, which was
+    # weighed and chosen rather than overlooked.
+    #
+    # So what is asked is not that the link stands down. It is that buying the room did not
+    # break the bar's shape: the link is there, the bar does not wrap or scroll inside itself,
+    # and the page does not go sideways. That is the guard this assertion used to be.
+    assert _visible(page.locator("header").get_by_role("link", name="New review"))
+    # `.first`, because the page's own `PageHeader` is a `<header>` too and the bar is the
+    # one the shell renders above it. The bar itself is that header's single row.
+    bar = page.locator("header").first.locator("> div").first
+    assert bar.evaluate("e => e.scrollWidth <= e.clientWidth")
+    assert page.evaluate(
+        "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth"
+    )
 
-    # And back at a width that has room for it.
+    # And at a width that has room for the wordtext too.
     page.set_viewport_size({"width": 1440, "height": 960})
     assert _visible(page.locator("header").get_by_role("link", name="New review"))
 

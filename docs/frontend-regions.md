@@ -23,7 +23,7 @@ to every surface including the one that needed the width most.
 
 | Name | What it is | Where |
 | --- | --- | --- |
-| **Topbar** | The sticky 48px bar: wordmark, the six nav links above `lg`, search, model chips, theme toggle, New review. Dark in both themes — the one chrome in the product that does not invert, which is why its controls speak in the `band` tokens rather than `ink`/`surface`. | [shell.tsx](../frontend/src/app/shell.tsx) |
+| **Topbar** | The sticky 48px bar: wordmark, the six nav links above `lg`, search, model chips, theme toggle, New review. Dark in both themes — the one chrome in the product that does not invert, which is why its controls speak in the `band` tokens rather than `ink`/`surface`. **New review is in the bar at every width**, including the phone, and below `sm` the wordtext beside the mark gives up its room to pay for it: somebody working has this bar and nothing else, and the drawer is two taps. That is the opposite of the landing header, whose call to action does stand down on a phone — a visitor there has the same link a screen below. | [shell.tsx](../frontend/src/app/shell.tsx) |
 | **Navigation drawer** | The nav as a column, below `lg`, with the workspace path under it. | [shell.tsx](../frontend/src/app/shell.tsx) |
 | **Command palette** | ⌘K. Everything the nav lists, plus every review and every repository by name. The reason the sidebar could go. | [command-palette.tsx](../frontend/src/ui/command-palette.tsx) |
 | **Page area** | Everything below the topbar. A document route gets a measured column; the review page is handed the viewport. | [shell.tsx](../frontend/src/app/shell.tsx) |
