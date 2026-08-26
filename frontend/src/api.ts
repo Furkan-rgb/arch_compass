@@ -18,6 +18,15 @@ export type PolicySourceRegistration = Schema["PolicySourceRegistration"];
 export type DecisionDisposition = Schema["DecisionDisposition"];
 export type Decision = Schema["DecisionResponse"];
 export type ReviewConversation = Schema["ReviewConversationResponse"];
+/**
+ * One question's reply, as the round submits it.
+ *
+ * `drafted_by` is the client's to set and the client's alone: it says the value is, word
+ * for word, wording an agent offered and the reviewer accepted without changing it. Only
+ * this side saw both the draft and what was sent, so only this side can tell the two apart
+ * — and a server that inferred it would be guessing at who wrote the sentence.
+ */
+export type SubmittedAnswer = Schema["SubmittedAnswerRequest"];
 export type CaseSummary = Schema["archcompass__presentation__web__routes__cases__CaseResponse"];
 export type ReviewCase = Schema["archcompass__presentation__web__routes__reviews__CaseResponse"];
 /** Which policies a case can retrieve. The one thing about a case a person still sets. */
@@ -197,7 +206,7 @@ export const api = {
    */
   answer: (
     reviewId: string,
-    answers: Array<{ question_id: string; status: "answered" | "skipped"; value?: string | null }>,
+    answers: SubmittedAnswer[],
     stop = false,
   ) =>
     request<Review>(`/api/reviews/${encode(reviewId)}/answers`, {
@@ -226,7 +235,7 @@ export const api = {
    */
   answerRun: (
     reviewId: string,
-    answers: Array<{ question_id: string; status: "answered" | "skipped"; value?: string | null }>,
+    answers: SubmittedAnswer[],
     stop = false,
   ) =>
     request<ReviewRun>(`/api/reviews/${encode(reviewId)}/answers/runs`, {
@@ -473,10 +482,17 @@ export const api = {
     request<ReviewConversation[]>(`/api/review-conversations?review_id=${encode(reviewId)}`, {
       abort,
     }),
-  createConversation: (reviewId: string) =>
+  /**
+   * Open a thread — over the whole review, or over one question it is waiting on.
+   *
+   * `questionId` is what makes it the second. A thread scoped to a question is shown the
+   * findings that question is holding up, in full, rather than every finding in the review
+   * in outline, and it may offer wording for the answer box.
+   */
+  createConversation: (reviewId: string, questionId = "") =>
     request<ReviewConversation>("/api/review-conversations", {
       method: "POST",
-      body: JSON.stringify({ review_id: reviewId }),
+      body: JSON.stringify({ review_id: reviewId, question_id: questionId }),
     }),
   deleteConversation: (conversationId: string) =>
     request<void>(`/api/review-conversations/${encode(conversationId)}`, { method: "DELETE" }),

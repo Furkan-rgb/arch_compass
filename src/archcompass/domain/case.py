@@ -120,6 +120,25 @@ class Answer:
     #: rather than as revision zero: a case revision is one or more, so nothing can mistake
     #: it for a real one, and a reader can group what it cannot place under the case itself.
     case_revision: int = 0
+    #: The model that drafted these exact words, where a person accepted a draft unchanged.
+    #: "" wherever the words are the person's own — typed, picked from the offered options,
+    #: or edited from a draft before submitting.
+    #:
+    #: `actor` cannot say this and must not be made to. It answers *who answered*, and the
+    #: answer is still theirs: they were shown a draft, they could have changed a word of it,
+    #: and they submitted it. What this adds is that nobody wrote it.
+    #:
+    #: It exists because of a loop that would otherwise close silently. A reader stuck on a
+    #: question can chat to an agent that reads this review, and that agent may draft an
+    #: answer; the answer enters the case; the case moves verdicts. Without this field a
+    #: model's own reasoning comes back to it as the team's intent, and every surface in the
+    #: product would say a person had supplied it. Stated, never weighed: `case_text` puts
+    #: it in front of a judgement as a fact and gives no instruction about it.
+    #:
+    #: Set only on an exact match with the draft. A person who changed anything wrote the
+    #: sentence, and a record calling their words a model's would be the same lie pointing
+    #: the other way.
+    drafted_by: str = ""
 
     def __post_init__(self) -> None:
         require_text(self.actor, "answer actor")
@@ -127,6 +146,9 @@ class Answer:
             raise ValueError("an answered question must have a value")
         if self.status is AnswerStatus.SKIPPED and self.value is not None:
             raise ValueError("a skipped question cannot have a value")
+        # A skip has no words in it, so nothing can have drafted them.
+        if self.status is AnswerStatus.SKIPPED and self.drafted_by:
+            raise ValueError("a skipped question cannot carry a drafted answer")
 
 
 @dataclass(frozen=True, slots=True)

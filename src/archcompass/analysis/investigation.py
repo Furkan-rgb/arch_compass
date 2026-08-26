@@ -74,6 +74,17 @@ MAX_RESULT_CHARACTERS = 2_500
 #: asked for as one span would crowd out the judgement this lookup exists to improve.
 MAX_READ_LINES = 80
 
+
+def _clamped(result: str) -> str:
+    """One result cut to the ceiling, saying that it was cut and at what."""
+
+    if len(result) <= MAX_RESULT_CHARACTERS:
+        return result
+    note = "\n... truncated: this result was cut at "
+    keep = MAX_RESULT_CHARACTERS - len(note) - 20
+    return result[:keep] + note + f"{MAX_RESULT_CHARACTERS} characters."
+
+
 _SEARCH_CODE = "search_code"
 _DESCRIBE_CODE = "describe_code"
 _RELATED_CODE = "related_code"
@@ -439,12 +450,19 @@ class AtlasInvestigator:
             result = f"That request was not a valid lookup: {error.error_count()} problems."
         # Clamped here, once, so it cannot be forgotten by whichever tool is added next, and
         # recorded clamped because the clamped text is what the model was actually shown.
-        if len(result) > MAX_RESULT_CHARACTERS:
-            note = "\n... truncated: this result was cut at "
-            keep = MAX_RESULT_CHARACTERS - len(note) - 20
-            result = result[:keep] + note + f"{MAX_RESULT_CHARACTERS} characters."
+        result = _clamped(result)
         self._transcript.append(RecordedLookup(name, dict(arguments), result))
         return result
+
+    def record(self, name: str, arguments: Mapping[str, object], result: str) -> None:
+        """A lookup something else answered, kept in the same order as the ones here.
+
+        Clamped by the same ceiling as an answer of this investigator's own. A file read is
+        the longest thing any tool returns, and a record that bounded only the answers it
+        happened to produce itself would be bounded by whichever tool was cheapest.
+        """
+
+        self._transcript.append(RecordedLookup(name, dict(arguments), _clamped(result)))
 
     def _answer(self, name: str, arguments: Mapping[str, object]) -> str:
         if name == _SEARCH_CODE:

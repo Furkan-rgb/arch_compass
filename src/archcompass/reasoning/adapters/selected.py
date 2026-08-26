@@ -33,17 +33,16 @@ from archcompass.reasoning.adapters.deterministic import (
     DeterministicSynopsist,
 )
 from archcompass.reasoning.adapters.factory import build_chat_model
-from archcompass.reasoning.adapters.judge_tools import JudgeToolbox
 from archcompass.reasoning.adapters.langchain import (
     LangChainArchitectureJudge,
     LangChainQuestionGenerator,
     LangChainReviewAnswerer,
     LangChainReviewSynopsist,
 )
+from archcompass.reasoning.adapters.review_tools import ReviewToolbox
 from archcompass.reasoning.ports import (
     ConversationAnswer,
     ConversationMessage,
-    InvestigatorSource,
     SelectedReasoningModel,
 )
 from archcompass.reasoning.records import (
@@ -164,7 +163,7 @@ class SelectedLangChainJudge:
     def __init__(
         self,
         selected: SelectedLangChainChatModel,
-        toolbox: JudgeToolbox | None = None,
+        toolbox: ReviewToolbox | None = None,
     ) -> None:
         self._selected = selected
         self._toolbox = toolbox
@@ -268,22 +267,24 @@ class SelectedLangChainReviewAnswerer:
     def __init__(
         self,
         selected: SelectedLangChainChatModel,
-        investigators: InvestigatorSource | None = None,
+        toolbox: ReviewToolbox | None = None,
     ) -> None:
         self._selected = selected
-        self._investigators = investigators
+        self._toolbox = toolbox
 
     def answer(
         self,
         review: Review,
         history: tuple[ConversationMessage, ...],
         question: str,
+        *,
+        about: Question | None = None,
     ) -> ConversationAnswer:
         if _is_deterministic(self._selected):
-            return DeterministicAnswerer(self._investigators).answer(
-                review, history, question
+            return DeterministicAnswerer(self._toolbox).answer(
+                review, history, question, about=about
             )
-        with self._selected.in_use() as (model, _):
-            return LangChainReviewAnswerer(model, self._investigators).answer(
-                review, history, question
-            )
+        with self._selected.in_use() as (model, identity):
+            return LangChainReviewAnswerer(
+                model, self._toolbox, model_identity=identity
+            ).answer(review, history, question, about=about)

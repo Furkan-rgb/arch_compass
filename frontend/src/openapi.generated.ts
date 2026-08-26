@@ -19,6 +19,7 @@ export interface components {
     "actor": string;
     "answered_at": string;
     "case_revision"?: number;
+    "drafted_by"?: string;
   };
     "AnswerStatus": "answered" | "skipped";
     "AtlasEdge": {
@@ -176,6 +177,8 @@ export interface components {
     "text": string;
     "supporting_candidate_ids": Array<string>;
     "investigation": components["schemas"]["RecordedInvestigationResponse"] | null;
+    "suggested_answer"?: string;
+    "model_identity"?: string;
   };
     "ConversationMessageResponse": {
     "question": string;
@@ -515,11 +518,13 @@ export interface components {
   };
     "ReviewConversationCreateRequest": {
     "review_id": string;
+    "question_id"?: string;
   };
     "ReviewConversationResponse": {
     "id": string;
     "review_id": string;
     "messages": Array<components["schemas"]["ConversationMessageResponse"]>;
+    "question_id"?: string;
   };
     "ReviewQuestionRequest": {
     "question": string;
@@ -646,13 +651,14 @@ export interface components {
     "status": components["schemas"]["AnswerStatus"];
     "value"?: string | null;
     "actor"?: string;
+    "drafted_by"?: string;
   };
     "SubsystemSummaryQuery": {
     "kind": "subsystem_summary";
     "node_id": string;
     "limit"?: number;
   };
-    "Termination": "natural_end" | "model_call_limit" | "lookup_limit" | "investigation_size_limit" | "provider_error" | "wall_clock_limit" | "repeated_tool_call";
+    "Termination": "natural_end" | "model_call_limit" | "lookup_limit" | "investigation_size_limit" | "provider_error" | "wall_clock_limit" | "repeated_tool_call" | "malformed_judgement";
     "WorkspaceModels": {
     "reasoning"?: components["schemas"]["ModelIdentity"] | null;
     "embedding"?: components["schemas"]["EmbeddingIdentity"] | null;

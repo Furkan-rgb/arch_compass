@@ -32,7 +32,7 @@ from archcompass.reasoning.adapters.deep_judge import (
     MAX_IDENTICAL_TOOL_CALLS,
     DeepArchitectureJudge,
 )
-from archcompass.reasoning.adapters.judge_tools import OfferedTools
+from archcompass.reasoning.adapters.review_tools import OfferedTools
 
 _REPOSITORY = RepositoryRef(
     id="r", path=Path("/tmp/reviewed"), branch_id="b", content_id="fingerprint"
@@ -202,8 +202,8 @@ class _Toolbox:
         self.executed: list[dict[str, object]] = []
         self._answer = answer
 
-    def for_subject(self, subject: ReviewedSubject) -> OfferedTools:
-        del subject
+    def for_review(self, repository: RepositoryRef, atlas: RepositoryAtlas) -> OfferedTools:
+        del repository, atlas
 
         def grep(pattern: str, path: str = "") -> str:
             self.executed.append({"pattern": pattern, "path": path})
@@ -230,8 +230,8 @@ class _Toolbox:
 
 
 class _NoToolbox:
-    def for_subject(self, subject: ReviewedSubject) -> OfferedTools:
-        del subject
+    def for_review(self, repository: RepositoryRef, atlas: RepositoryAtlas) -> OfferedTools:
+        del repository, atlas
         return OfferedTools(withheld="This review holds no analysed structure.")
 
 

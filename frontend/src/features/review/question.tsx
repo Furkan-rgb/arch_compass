@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 
-import type { Finding, Question } from "../../api";
+import type { Finding, Question, Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { humanise, plural } from "../../lib/format";
 import { Tag } from "../../ui/badge";
 import { Textarea } from "../../ui/field";
 import { Mono } from "../../ui/meta";
+import { QuestionHelp } from "./question-help";
 
 /**
  * One proposed answer.
@@ -61,25 +62,36 @@ function ChoiceRow({
 export function QuestionItem({
   question,
   affected,
+  review,
   value,
   writingOwn,
   skipped,
+  asking,
   onChoose,
   onWriteOwn,
   onWrite,
+  onAsking,
+  onUseDraft,
   onToggleSkip,
   className,
 }: {
   question: Question;
   /** The findings this question was raised against, resolved by the round. */
   affected: Finding[];
+  /** The whole snapshot, because the help panel's agent answers about this review. */
+  review: Review;
   value: string;
   /** The reviewer has said none of the proposals fit; the box is theirs. */
   writingOwn: boolean;
   skipped: boolean;
+  /** What is half-typed into the help panel, held by the page rather than by this. */
+  asking: string;
   onChoose: (option: string) => void;
   onWriteOwn: () => void;
   onWrite: (value: string) => void;
+  onAsking: (value: string) => void;
+  /** Wording the reviewer took from the agent, with the model that wrote it. */
+  onUseDraft: (text: string, model: string) => void;
   onToggleSkip: () => void;
   className?: string;
 }) {
@@ -165,6 +177,18 @@ export function QuestionItem({
           placeholder="Add the architectural context that is not visible in the code…"
         />
       ) : null}
+
+      {/* Below every way of answering and above the skip, which is where it belongs in the
+          order somebody actually works: pick one, write one, work out what is being asked,
+          or say you cannot. Putting it above the options would offer help before the reader
+          knew whether they needed any. */}
+      <QuestionHelp
+        question={question}
+        review={review}
+        draft={asking}
+        onDraft={onAsking}
+        onUseAnswer={onUseDraft}
+      />
 
       <button
         type="button"

@@ -37,13 +37,45 @@ export type RoundAnswers = {
    */
   own: Set<string>;
   setOwn: Dispatch<SetStateAction<Set<string>>>;
+  /**
+   * What has been half-typed into a question's help panel, per question.
+   *
+   * Here for the same reason the answers are. The panel lives inside a question that steps
+   * out of the way when you move to the next one, and somebody two sentences into asking
+   * "what does this even mean" should find those two sentences when they come back.
+   */
+  asking: Record<string, string>;
+  setAsking: Dispatch<SetStateAction<Record<string, string>>>;
+  /**
+   * Wording an agent offered that the reviewer took, per question, with who wrote it.
+   *
+   * Kept so the round can tell an accepted draft from a sentence somebody wrote. It is not
+   * the value: the value is in `values`, under the reviewer's hand, and this is the thing
+   * it is compared against when the round is submitted. Change one word and the comparison
+   * fails, which is the point — the words are then theirs.
+   */
+  drafts: Record<string, { text: string; model: string }>;
+  setDrafts: Dispatch<SetStateAction<Record<string, { text: string; model: string }>>>;
 };
 
 export function useRoundAnswers(): RoundAnswers {
   const [values, setValues] = useState<Record<string, string>>({});
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
   const [own, setOwn] = useState<Set<string>>(new Set());
-  return { values, setValues, skipped, setSkipped, own, setOwn };
+  const [asking, setAsking] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, { text: string; model: string }>>({});
+  return {
+    values,
+    setValues,
+    skipped,
+    setSkipped,
+    own,
+    setOwn,
+    asking,
+    setAsking,
+    drafts,
+    setDrafts,
+  };
 }
 
 /**
@@ -238,7 +270,18 @@ export function ClarificationRound({
   bare?: boolean;
 }) {
   const client = useQueryClient();
-  const { values, setValues, skipped, setSkipped, own, setOwn } = answers;
+  const {
+    values,
+    setValues,
+    skipped,
+    setSkipped,
+    own,
+    setOwn,
+    asking,
+    setAsking,
+    drafts,
+    setDrafts,
+  } = answers;
   // Null until the reviewer moves it themselves. The round opens on the first row that wants
   // a person, and which row that is changes as the round is worked — so it is derived rather
   // than seeded, and a stored id cannot go stale against a round that came back shorter.
@@ -300,10 +343,16 @@ export function ClarificationRound({
         review.questions.map((question) => {
           const value = values[question.id]?.trim();
           const skip = skipped.has(question.id) || !value;
+          const draft = drafts[question.id];
           return {
             question_id: question.id,
             status: skip ? ("skipped" as const) : ("answered" as const),
             value: skip ? null : value,
+            // Only where what is being submitted is, word for word, what the agent offered.
+            // Change anything and the sentence is the reviewer's — which is why this is a
+            // comparison rather than a flag set when they pressed the button. Pressing it
+            // and then rewriting the whole thing is the ordinary way this is used.
+            drafted_by: !skip && draft && draft.text.trim() === value ? draft.model : "",
           };
         }),
         stop,
@@ -347,6 +396,31 @@ export function ClarificationRound({
       return next;
     });
     openNextAfter(questionId);
+  }
+
+  /**
+   * Take the agent's wording into the answer box, as the reviewer's to change.
+   *
+   * It lands exactly where a sentence they typed would, and it takes the menu off the same
+   * way writing your own does — the wording is not one of the offered options, and leaving
+   * an option selected under it would show a radio and a box disagreeing about the answer.
+   *
+   * The row deliberately does not move on. Everywhere else in the round, settling a question
+   * opens the next one that wants a person; here it must not, because nothing has been
+   * settled yet. The reader has words in front of them to read, edit or delete, and a round
+   * that scrolled away at that moment would have answered the question for them.
+   */
+  function useDraft(questionId: string, text: string, model: string) {
+    setOpened(questionId);
+    setValues((current) => ({ ...current, [questionId]: text }));
+    setOwn((current) => new Set(current).add(questionId));
+    setSkipped((current) => {
+      if (!current.has(questionId)) return current;
+      const next = new Set(current);
+      next.delete(questionId);
+      return next;
+    });
+    setDrafts((current) => ({ ...current, [questionId]: { text, model } }));
   }
 
   function chooseOwn(questionId: string) {
@@ -447,14 +521,20 @@ export function ClarificationRound({
               affected={review.findings.filter((finding) =>
                 question.candidate_ids.includes(finding.candidate.id),
               )}
+              review={review}
               value={values[question.id] || ""}
               writingOwn={own.has(question.id)}
               skipped={skipped.has(question.id)}
+              asking={asking[question.id] || ""}
               onChoose={(option) => choose(question.id, option)}
               onWriteOwn={() => chooseOwn(question.id)}
               onWrite={(value) =>
                 setValues((current) => ({ ...current, [question.id]: value }))
               }
+              onAsking={(value) =>
+                setAsking((current) => ({ ...current, [question.id]: value }))
+              }
+              onUseDraft={(text, model) => useDraft(question.id, text, model)}
               onToggleSkip={() => toggleSkip(question.id)}
             />
           </RoundRow>

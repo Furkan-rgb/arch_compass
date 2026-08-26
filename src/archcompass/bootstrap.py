@@ -71,12 +71,12 @@ from archcompass.policies.retrieval import corpus_fingerprint
 from archcompass.policies.service import PolicyService
 from archcompass.reasoning.adapters.deterministic import DETERMINISTIC_MODEL_IDENTITY
 from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
-from archcompass.reasoning.adapters.judge_tools import JudgeToolbox
 from archcompass.reasoning.adapters.openrouter import DESCRIPTOR as OPENROUTER_DESCRIPTOR
 from archcompass.reasoning.adapters.providers import (
     DETERMINISTIC_DESCRIPTOR,
     OLLAMA_DESCRIPTOR,
 )
+from archcompass.reasoning.adapters.review_tools import ReviewToolbox
 from archcompass.reasoning.adapters.selected import (
     SelectedLangChainChatModel,
     SelectedLangChainJudge,
@@ -477,12 +477,20 @@ def build_runtime(
     core_finding_cache = SQLiteCoreFindingCache(core_database.transaction)
     core_conversations = SQLiteCoreConversationRepository(core_database.transaction)
     selected_chat = SelectedLangChainChatModel(model_catalog_service)
+    # What a pass over a review may reach for: the atlas, the reviewed revision's files, and
+    # the policy corpus. One instance for both callers — a judgement deciding a candidate and
+    # a reader asking about one — because it is one set of bounds and a second construction
+    # is how two of them start to differ.
+    #
+    # `freshness` is not optional here. It is the guard that refuses a file read against a
+    # working tree that has moved on from the atlas, and the conversation used to be built
+    # without one: every lookup it made was answered, and nothing checked that the lines it
+    # read were the lines the review was judged from.
+    review_toolbox = ReviewToolbox(AtlasInvestigatorSource(queries, freshness), bundled_corpus())
     review_conversation_service = CoreReviewConversationService(
         reviews=core_reviews,
         conversations=core_conversations,
-        answerer=SelectedLangChainReviewAnswerer(
-            selected_chat, AtlasInvestigatorSource(queries)
-        ),
+        answerer=SelectedLangChainReviewAnswerer(selected_chat, review_toolbox),
     )
     checkpoint_connection = sqlite3.connect(
         canonical_workspace / WORKSPACE_STATE_DIRECTORY / "review-checkpoints.db",
@@ -525,9 +533,6 @@ def build_runtime(
             )
         return selected.provider == "fake"
 
-    # What a judgement may reach for while it decides.
-    judge_toolbox = JudgeToolbox(AtlasInvestigatorSource(queries, freshness), bundled_corpus())
-
     graph = build_review_graph(
         ReviewWorkflowCapabilities(
             context=SQLiteContextLoader(
@@ -550,7 +555,7 @@ def build_runtime(
                 deterministic_mode=deterministic_retrieval_mode,
             ),
             judge=CachingArchitectureJudge(
-                SelectedLangChainJudge(selected_chat, judge_toolbox),
+                SelectedLangChainJudge(selected_chat, review_toolbox),
                 core_finding_cache,
                 model_identity=selected_model_identity,
                 prompt_identity=selected_prompt_identity,

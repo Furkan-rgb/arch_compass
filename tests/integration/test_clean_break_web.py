@@ -168,6 +168,32 @@ def test_clean_break_api_resumes_the_same_graph_without_elicited_from(
         assert waiting["retrieval_manifest"]
         assert "elicited_from" not in waiting
 
+        # A reader who cannot make sense of a question asks about that question, on the
+        # review that is stopped waiting for it. The thread is scoped to the question, and
+        # the scope survives the round trip — without it the agent would be answering about
+        # forty findings instead of the one the question is holding up.
+        asked_about = waiting["questions"][0]["id"]
+        scoped = client.post(
+            "/api/review-conversations",
+            json={"review_id": waiting["id"], "question_id": asked_about},
+        )
+        assert scoped.status_code == 201, scoped.text
+        assert scoped.json()["question_id"] == asked_about
+        helped = client.post(
+            f"/api/review-conversations/{scoped.json()['id']}/messages",
+            json={"question": "What is this question actually asking?"},
+        )
+        assert helped.status_code == 200, helped.text
+        assert waiting["questions"][0]["text"] in helped.json()["messages"][-1]["answer"]["text"]
+
+        # A thread about a question the review never asked cannot be answered later, so it
+        # is refused when it is opened rather than one round trip after it mattered.
+        unknown = client.post(
+            "/api/review-conversations",
+            json={"review_id": waiting["id"], "question_id": "question-nobody-asked"},
+        )
+        assert unknown.status_code == 422, unknown.text
+
         resumed = client.post(
             f"/api/reviews/{waiting['id']}/answers",
             json={"answers": [], "stop": True},

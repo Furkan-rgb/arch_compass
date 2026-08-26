@@ -295,7 +295,7 @@ def test_the_model_is_told_where_the_filesystem_is_rooted(repository: Path) -> N
     about what to decide.
     """
 
-    from archcompass.reasoning.adapters.judge_tools import FILESYSTEM_ROOT_NOTE
+    from archcompass.reasoning.adapters.review_tools import FILESYSTEM_ROOT_NOTE
 
     middleware = FilesystemMiddleware(
         backend=ReviewedRevisionBackend(_source(repository, revision=None)),

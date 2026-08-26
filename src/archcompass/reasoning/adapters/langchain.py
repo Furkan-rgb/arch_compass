@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
+from functools import partial
 from typing import Any, Final, Literal, cast
 
 from langchain_core.exceptions import OutputParserException
@@ -33,15 +34,12 @@ from archcompass.domain import (
 from archcompass.domain.errors import ModelOutputValidationError
 from archcompass.ports.capabilities import ReviewedSubject, ReviewSynopsis
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
+from archcompass.reasoning.adapters.review_tools import ReviewToolbox
 from archcompass.reasoning.adapters.tool_loop import (
     investigate_with_tools,
     recorded_investigation,
 )
-from archcompass.reasoning.ports import (
-    ConversationAnswer,
-    ConversationMessage,
-    InvestigatorSource,
-)
+from archcompass.reasoning.ports import ConversationAnswer, ConversationMessage
 from archcompass.reasoning.records import JUDGE_PROMPT_IDENTITY
 from archcompass.retrying import call_with_retry
 
@@ -262,6 +260,22 @@ def case_text(case: ArchitectureCase, *, judging: bool = True) -> str:
                     "question": item.question.text,
                     "status": item.status.value,
                     "value": item.value,
+                    # Present only where it is true, so an ordinary answer carries no extra
+                    # key and the common case reads as it always did.
+                    #
+                    # It is here because of a loop that would otherwise close silently: a
+                    # reader stuck on a question can ask an agent about it, that agent may
+                    # draft wording, and the wording they accept becomes the intent this
+                    # judgement is weighed against. A model reading its own draft back as
+                    # the team's position, with nothing saying so, is a review confirming
+                    # itself.
+                    #
+                    # Stated and not weighed. There is deliberately no instruction attached
+                    # — no "trust this less", no "discount it" — because what a person
+                    # accepted unchanged is still what they told us, and every attempt in
+                    # this file to tell a model how much to weigh something has a comment
+                    # above it recording the misfire.
+                    **({"drafted_by": item.drafted_by} if item.drafted_by else {}),
                 }
                 for item in case.answers
             ]
@@ -969,9 +983,10 @@ CONVERSATION_CONTRACT = (
     "establish, say what would have to be true and which finding's evidence would settle "
     "it. Say the review cannot answer only when it lacks the facts the question needs — "
     "never merely because the question asks for judgement.\n\n"
-    "You are told where each piece of evidence sits, but not what the code at those lines "
-    "says. So describe a fix as structure and placement, cite the locations, and do not "
-    "write a patch as though you had read the file.\n\n"
+    "The findings tell you where each piece of evidence sits, not what the code at those "
+    "lines says. Unless you have read it yourself, describe a fix as structure and "
+    "placement, cite the locations, and do not write a patch as though you had the file "
+    "open.\n\n"
     "Cite the findings you relied on. In your prose, name one by its backticked "
     "participant, the way the listing does. In `candidate_ids`, return the bracketed "
     "identifier of each one you used, copied exactly — an identifier you were not shown "
@@ -984,11 +999,11 @@ CONVERSATION_CONTRACT = (
 #: wherever no toolbox was offered, and a contract that says it anyway teaches a model to
 #: claim it checked.
 CONVERSATION_LOOKUPS = (
-    "You can also ask this repository structural questions directly — what implements "
-    "something, what depends on it, what calls it, what tests it, and what the code at a "
-    "named part of it says. Use that where the review does not settle a question and the "
-    "structure would. A fact still has to come from the review or from something you "
-    "actually looked up; say which."
+    "You can also ask this repository about itself directly — what implements something, "
+    "what depends on it, what calls it, what tests it, what the code at a named part of it "
+    "says, and the files themselves as they stood at the revision under review. Use that "
+    "where the review does not settle a question and the code would. A fact still has to "
+    "come from the review or from something you actually looked up; say which."
 )
 
 
@@ -1117,6 +1132,36 @@ def _conversation_evidence_text(evidence: Evidence) -> str:
     return f"{evidence.description} ({where}){note}"
 
 
+def _exchange_sections(
+    history: Sequence[ConversationMessage],
+    transcript: str,
+    question: str,
+    *,
+    asked: str,
+) -> list[str]:
+    """The tail both conversation prompts end on: what was said here, and what was asked now.
+
+    One copy because it is a format a model reads. Two would let the two conversations come
+    to disagree about how a thread's own history is presented, and nothing would notice —
+    the drift would show up as one of them answering worse.
+
+    `asked` names the last section. A thread about the review calls it the question; a
+    thread about a clarification question cannot, because a section further up is already
+    called that and the two are not the same question.
+    """
+
+    sections: list[str] = []
+    if history:
+        sections.append(
+            "WHAT HAS ALREADY BEEN ASKED HERE\n"
+            + "\n".join(f"Q: {item.question}\nA: {item.answer.text}" for item in history)
+        )
+    if transcript:
+        sections.append(f"WHAT YOU LOOKED UP\n{transcript}")
+    sections.append(f"{asked}\n{question}")
+    return sections
+
+
 def conversation_prompt(
     review: Review,
     history: Sequence[ConversationMessage],
@@ -1172,14 +1217,164 @@ def conversation_prompt(
             _conversation_finding_text(finding) for finding in review.findings
         )
     )
-    if history:
+    sections.extend(_exchange_sections(history, transcript, question, asked="QUESTION"))
+    return "\n\n".join(sections)
+
+
+# The contract for a reader who cannot make sense of a question they have been asked.
+#
+# It is the narrowest conversation in the product and the one with the most at stake. A
+# review that asked has stopped, and the answer it is waiting for becomes part of the case —
+# it is judged against, it moves verdicts, and the workspace attributes what moved to the
+# person who wrote it. So the failure to design against is not a vague answer. It is a
+# fluent one that talks somebody into an intent they do not hold.
+#
+# Hence the split this contract turns on: explain the question, offer words for an answer,
+# and never decide which answer is right. The judgement wrote the question because the code
+# could not settle it — a model reading the same code cannot settle it either, and one that
+# sounds as though it has is the review asking and answering itself.
+CLARIFICATION_CONTRACT = (
+    "An architecture review has stopped to ask somebody a question, and they are asking "
+    "you about the question itself. They are not stuck for an opinion. They are stuck on "
+    "what is being asked, or why, or what turns on it.\n\n"
+    "Answer those three. What the question is asking, in the plainest words it can be put "
+    "in. Why judging this candidate needed a person — name the finding and what it is "
+    "waiting on. What each answer would change: say what the review would likely conclude "
+    "if the answer were one thing and if it were another, so the reader can see the "
+    "consequence of their own reply before they make it.\n\n"
+    "Do not decide the answer. The question exists because the code cannot settle it, and "
+    "you are reading the same code — a preference dressed as a finding is this whole "
+    "review asking itself the question it stopped to ask a person. Never say which answer "
+    "is likelier, more usual, or better practice, and never argue for one. Where the "
+    "repository does settle it, that is different and worth saying plainly: say what you "
+    "found, and that the question may be one they can answer from it or skip.\n\n"
+    "Facts about this codebase come from the findings you were shown or from something you "
+    "actually looked up, and you say which. Do not invent a module, a call site or a name. "
+    "Where you cannot tell, say so — a question a reader cannot answer is a fair outcome "
+    "and skipping it explicitly is a first-class reply.\n\n"
+    "Cite the findings you used. In `candidate_ids`, copy the bracketed identifier of each "
+    "one exactly; an identifier you were not shown is dropped. Write prose a person reads "
+    "in one pass: no headings, no bullets, no restating the question before answering it."
+)
+
+#: What the agent may put in the reader's own answer box, and the whole of what it may do
+#: with it. Kept apart from the contract because it is the one instruction that changes if
+#: the reader has already said what they think — a draft offered over the top of somebody's
+#: own sentence is not a shortcut, it is an argument.
+CLARIFICATION_DRAFT_RULE = (
+    "You may offer wording in `suggested_answer`, and offering none is the ordinary case. "
+    "It is words for an answer the reader has already reached, never the answer itself: use "
+    "it when this exchange has established what they mean and the only thing left is saying "
+    "it in the terms the review needs. Write it in their voice, as one or two plain "
+    "sentences of intent — 'we expect a second implementation within the year, so the port "
+    "stays' — and never as a recommendation, a caveat or a summary of this conversation.\n\n"
+    "Leave it empty whenever they have not said what they mean, whenever your own answer "
+    "just told them the repository settles it, and whenever the honest reply is that they "
+    "have to decide. A draft offered in place of a decision they have not made would be "
+    "put to the review as their intent, and it would be a fabrication.\n\n"
+    "It is a proposal and nothing else. It reaches an editable box, they change it or "
+    "discard it, and they submit the round themselves."
+)
+
+#: Added only where the reader's repository can actually be asked. Two toolboxes, said
+#: in one sentence apiece: the atlas answers resolved structure, and the filesystem answers
+#: what the code says at the revision the review was judged from.
+CLARIFICATION_LOOKUPS = (
+    "You can ask this repository about itself before you answer. The structural tools "
+    "resolve what implements something, what depends on it and what it reaches for; the "
+    "filesystem tools read the code as it stood at the revision under review. Use them "
+    "where a fact about the code would make the question clearer, and especially to check "
+    "whether the repository already settles what is being asked. Say which of your "
+    "sentences came from a lookup."
+)
+
+
+class ClarificationAnswerOutput(BaseModel):
+    answer: str = Field(min_length=1)
+    candidate_ids: list[str] = Field(default_factory=list[str])
+    #: Wording offered for the reader's own answer box. Empty is the ordinary case and the
+    #: default: the schema must not make a model feel it owes a draft on every turn.
+    suggested_answer: str = ""
+
+
+def clarification_prompt(
+    review: Review,
+    about: Question,
+    history: Sequence[ConversationMessage],
+    question: str,
+    *,
+    transcript: str = "",
+    can_look: bool = False,
+    for_lookups: bool = False,
+) -> str:
+    """The one prompt a conversation about a clarification question is written from.
+
+    Deliberately not `conversation_prompt` with a section added. The difference is which
+    findings are listed, not how each is written: this shows the one or two the question is
+    holding up, where that prompt shows every finding in the review. Both render a finding
+    the same way, through `_conversation_finding_text` — a second renderer here would be the
+    same fields in a different order, drifting from the one anybody was reading.
+
+    The narrowing is the point. A reader stuck on a question is looking at one question, and
+    forty findings around it is context spent on candidates nobody asked about.
+    """
+
+    named = {str(candidate_id) for candidate_id in about.candidate_ids}
+    concerned = [finding for finding in review.findings if str(finding.candidate.id) in named]
+    sections = [
+        # The loop sends the contract as a system message, so the turn that opens it would
+        # otherwise state the rules twice. Same reasoning as `conversation_prompt`.
+        *(
+            ()
+            if for_lookups
+            else (
+                CLARIFICATION_CONTRACT
+                + (f"\n\n{CLARIFICATION_LOOKUPS}" if can_look else "")
+                + f"\n\n{CLARIFICATION_DRAFT_RULE}",
+            )
+        ),
+        f"THE QUESTION THE REVIEW IS ASKING\n{about.text}\nabout: {about.facet.value}",
+    ]
+    if about.options:
         sections.append(
-            "WHAT HAS ALREADY BEEN ASKED HERE\n"
-            + "\n".join(f"Q: {item.question}\nA: {item.answer.text}" for item in history)
+            "ANSWERS THE REVIEW PROPOSED, which the reader may pick, edit or ignore\n"
+            + "\n".join(f"  - {option}" for option in about.options)
+            # Said out loud because a model shown a menu treats it as the answer space, and
+            # this one is not: the round always offers writing your own, and a reply that
+            # pushed a reader towards one of two chips would be narrowing a question the
+            # product deliberately left open.
+            + "\n\nThese are the model's guesses at likely answers, not the choices "
+            "available. The reader may write anything, and saying so is part of your job "
+            "where none of these fit what they mean."
         )
-    if transcript:
-        sections.append(f"WHAT YOU LOOKED UP\n{transcript}")
-    sections.append(f"QUESTION\n{question}")
+    if concerned:
+        sections.append(
+            "THE FINDINGS THIS QUESTION IS HOLDING UP\n"
+            + "\n\n".join(_conversation_finding_text(finding) for finding in concerned)
+        )
+    else:
+        # A question whose candidates are not among the findings — a snapshot that carried
+        # the question forward past the round that raised it. Said, rather than left as an
+        # empty section, because the difference between "no finding" and "a finding I was
+        # not shown" is the difference between two very different answers.
+        sections.append(
+            "The candidates this question was raised against are not among this review's "
+            "findings, so you cannot see what it is holding up. Say that rather than "
+            "reasoning about which finding it might be."
+        )
+    sections.append(f"CASE\n{case_text(review.case, judging=False)}")
+    others = [item for item in review.questions if item.id != about.id]
+    if others:
+        sections.append(
+            # Context and not material. A reader stuck on question two is entitled to know
+            # that four more are waiting, and an agent that answered about the wrong one
+            # would be answering a question nobody asked.
+            "THE OTHER QUESTIONS IN THIS ROUND, which are not what you are being asked "
+            "about\n" + "\n".join(f"  - {item.text}" for item in others)
+        )
+    sections.extend(
+        _exchange_sections(history, transcript, question, asked="WHAT THE READER TYPED")
+    )
     return "\n\n".join(sections)
 
 
@@ -1215,50 +1410,81 @@ class LangChainReviewAnswerer:
     does this finding mean", "which of these first" — and a forced call there spends a round
     trip asking the repository about the review's own words. Where the question *is* about
     the repository, the model reaches for the toolbox itself.
+
+    The toolbox is the judgement's own — the atlas, the policy corpus, and the four
+    read-only filesystem tools over the revision the review was judged from. A reader asking
+    "is this port really implemented once" is asking what a judgement asks, and answering it
+    from a weaker toolbox than the judgement had would produce an answer the review could
+    not have reached.
     """
 
     def __init__(
         self,
         model: BaseChatModel,
-        investigators: InvestigatorSource | None = None,
+        toolbox: ReviewToolbox | None = None,
+        *,
+        model_identity: str = "",
     ) -> None:
         self._model = model
-        self._investigators = investigators
+        self._toolbox = toolbox
+        self._model_identity = model_identity
 
     def answer(
         self,
         review: Review,
         history: tuple[ConversationMessage, ...],
         question: str,
+        *,
+        about: Question | None = None,
     ) -> ConversationAnswer:
         offered = (
             None
-            if self._investigators is None
-            else self._investigators.for_review(review.repository, review.atlas)
+            if self._toolbox is None
+            else self._toolbox.for_review(review.repository, review.atlas)
         )
         investigator = None if offered is None else offered.investigator
+        can_look = investigator is not None
+        # One `opening` builder for both turns, chosen once. The looking turn and the
+        # answering turn have to be shown the same thing about the same subject, and two
+        # call sites picking a prompt apiece is how they would stop being.
+        prompt = (
+            partial(clarification_prompt, review, about, history, question)
+            if about is not None
+            else partial(conversation_prompt, review, history, question)
+        )
         transcript = ""
-        if investigator is not None:
+        if investigator is not None and offered is not None:
             transcript = investigate_with_tools(
                 self._model,
                 investigator,
-                system=CONVERSATION_CONTRACT + "\n\n" + CONVERSATION_LOOKUPS,
-                opening=conversation_prompt(
-                    review, history, question, can_look=True, for_lookups=True
+                system=(
+                    CLARIFICATION_CONTRACT + "\n\n" + CLARIFICATION_LOOKUPS
+                    if about is not None
+                    else CONVERSATION_CONTRACT + "\n\n" + CONVERSATION_LOOKUPS
                 ),
-                subject="a reader's question about this review",
+                opening=prompt(can_look=True, for_lookups=True),
+                subject=(
+                    "a question the review is waiting on"
+                    if about is not None
+                    else "a reader's question about this review"
+                ),
                 force_first=False,
+                # Everything the toolbox offers that the loop does not already build for
+                # itself, which is the policy corpus. Filtered by what the investigator
+                # answers rather than by a list of names: the loop binds every tool the
+                # investigator has, and a name written down here would be a second opinion
+                # about that — one that, when it disagreed, would bind the same tool twice.
+                also=[
+                    tool
+                    for tool in offered.tools
+                    if tool.name not in {spec.name for spec in investigator.tools}
+                ],
+                middleware=offered.middleware,
             )
         output = structured_output(
             self._model,
-            ConversationAnswerOutput,
-            conversation_prompt(
-                review,
-                history,
-                question,
-                transcript=transcript,
-                can_look=investigator is not None,
-            ),
+            ClarificationAnswerOutput if about is not None else ConversationAnswerOutput,
+            prompt(transcript=transcript, can_look=can_look),
             subject="a grounded answer",
         )
         return ConversationAnswer(
@@ -1270,6 +1496,12 @@ class LangChainReviewAnswerer:
                 withheld="" if offered is None else offered.withheld,
                 atlas_fingerprint=review.repository.content_id,
             ),
+            suggested_answer=(
+                output.suggested_answer.strip()
+                if isinstance(output, ClarificationAnswerOutput)
+                else ""
+            ),
+            model_identity=self._model_identity,
         )
 
 

@@ -1,10 +1,13 @@
+import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import type { Review } from "../../api";
+import { api, type Review, type ReviewConversation } from "../../api";
 import { absoluteTime, plural } from "../../lib/format";
+import { ChevronDown } from "../../ui/icons";
 import { Mark } from "../../ui/mark";
 import { Label } from "../../ui/panel";
 import { Notice } from "../../ui/states";
+import { ConversationExchange } from "./conversation-thread";
 import { awaitsAnswers } from "./docket-rules";
 
 type Answer = Review["case"]["answers"][number];
@@ -112,8 +115,64 @@ function standingOf(review: Review): string {
   return "Asked, and never answered.";
 }
 
+/**
+ * What was worked out about one question, kept beside what was answered to it.
+ *
+ * A reader who could not make sense of a question asks an agent about it in the round, and
+ * what comes back is the reasoning behind the answer they then gave — which finding was
+ * waiting, what the code turned out to say, what each answer would have changed. Thrown
+ * away when the round closed, the record would keep the reply and lose the reason for it.
+ *
+ * Closed, and absent where there is nothing. The answer is the record; this is the working.
+ */
+function QuestionThread({
+  thread,
+  review,
+}: {
+  thread: ReviewConversation;
+  review: Review;
+}) {
+  if (!thread.messages.length) return null;
+  return (
+    <details className="group mt-2 border-t border-rule pt-2">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2">
+        <Label className="min-w-0 flex-1">
+          {plural(thread.messages.length, "question")} asked about this question
+        </Label>
+        <ChevronDown className="size-4 shrink-0 text-ink-3 transition group-open:rotate-180" />
+      </summary>
+      <ol className="mt-2 grid gap-4">
+        {thread.messages.map((message, index) => (
+          <li key={`${message.asked_at}-${index}`}>
+            <ConversationExchange message={message} review={review} />
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
 export function ClarificationsSurface({ review }: { review: Review }) {
   const rounds = useMemo(() => roundsOf(review), [review]);
+  /**
+   * The threads this snapshot holds, by the question each is about.
+   *
+   * This snapshot's, and deliberately not the lineage's. A conversation is filed against
+   * the review that was asking, and a review is immutable — so a round answered on an
+   * earlier snapshot keeps its working there, reachable from the revision rail, rather than
+   * being copied forward into a record that did not hold it.
+   */
+  const conversations = useQuery({
+    queryKey: ["conversations", review.id],
+    queryFn: () => api.conversations(review.id),
+  });
+  const threads = useMemo(() => {
+    const byQuestion = new Map<string, ReviewConversation>();
+    for (const item of conversations.data ?? []) {
+      if (item.question_id) byQuestion.set(item.question_id, item);
+    }
+    return byQuestion;
+  }, [conversations.data]);
 
   if (!rounds.length) {
     return (
@@ -202,7 +261,21 @@ export function ClarificationsSurface({ review }: { review: Review }) {
                     </p>
                     <p className="mt-1 text-[11px] text-ink-3">
                       {answer.actor} · {absoluteTime(answer.answered_at)}
+                      {/* Said where it is true and nowhere else. These are words an agent
+                          offered and this person submitted without changing one of them —
+                          still their answer, because they read it and could have written
+                          anything, and still worth a reader knowing that nobody typed it.
+                          Anything they edited is not marked, because then they did. */}
+                      {answer.drafted_by ? (
+                        <> · wording drafted by {answer.drafted_by}, submitted unchanged</>
+                      ) : null}
                     </p>
+                    {threads.has(answer.question.id) ? (
+                      <QuestionThread
+                        thread={threads.get(answer.question.id)!}
+                        review={review}
+                      />
+                    ) : null}
                   </div>
                 </div>
               </li>
@@ -224,6 +297,9 @@ export function ClarificationsSurface({ review }: { review: Review }) {
                       <p className="mt-0.5 text-[13px] leading-6 text-ink-3">
                         {standingOf(review)}
                       </p>
+                      {threads.has(question.id) ? (
+                        <QuestionThread thread={threads.get(question.id)!} review={review} />
+                      ) : null}
                     </div>
                   </div>
                 </Notice>

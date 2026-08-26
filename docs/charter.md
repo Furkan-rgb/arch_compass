@@ -53,12 +53,22 @@ candidate carries pinned source excerpts, measurements that state their own natu
 limits, and a detection rationale. The model is given evidence and asked what it means. It
 is never asked what a verdict should rest on.
 
-There are two places a model is allowed to choose what it looks at, and both are the same
-bargain. A judgement that would stop the review and ask a person may first put read-only
+There are three places a model is allowed to choose what it looks at, and all three are the
+same bargain. A judgement that would stop the review and ask a person may first put read-only
 questions to the repository, because a question the code already answers is not worth an
-interruption; and a reader asking a follow-up about a finished review is answered through the
-same toolbox. Both are permitted only because every lookup is recorded with its arguments and
-its answer, and shown.
+interruption; a reader asking a follow-up about a finished review is answered through the same
+toolbox; and a reader who cannot make sense of a question the review is *waiting on* can ask
+about that question, with the same toolbox again. All three are permitted only because every
+lookup is recorded with its arguments and its answer, and shown.
+
+The third has one further rule, and it is the one that keeps it inside this commitment. It may
+explain a question and it may not decide it. The question exists because the code could not
+settle it, an agent reading the same code cannot settle it either, and an answer becomes the
+team's intent the moment it is recorded — so nothing there says which answer is likelier or
+argues for one. Where it does offer wording, that wording goes into the reader's own box for
+them to change and submit; where they submit it unchanged the case records which model wrote
+it, and every judgement that reads the case afterwards is told. Nothing about this is inferred:
+wording somebody edited is theirs, and is recorded as theirs.
 
 What that pass may do is bounded precisely. It changes whether a question is asked, and it
 may change the verdict — but only by handing what it found back to the same judge, which

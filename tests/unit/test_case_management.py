@@ -126,3 +126,29 @@ def test_writing_a_different_revision_over_one_already_stored_is_an_error(
     assert cases.record(stored) == stored
     with pytest.raises(CaseRevisionConflictError):
         cases.record(answered)
+
+
+def test_a_skipped_question_cannot_carry_a_drafted_answer() -> None:
+    """A skip has no words in it, so nothing can have drafted them.
+
+    The stamp says these exact words were an agent's and the person submitted them
+    unchanged. On a skip there are no words, and a record carrying both would describe
+    something that did not happen.
+    """
+
+    question = Question.create(
+        text="Who owns this boundary?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=1,
+    )
+
+    with pytest.raises(ValueError, match="drafted"):
+        Answer(
+            question,
+            AnswerStatus.SKIPPED,
+            None,
+            "reader",
+            utc_now(),
+            drafted_by="google:gemini-3-pro",
+        )

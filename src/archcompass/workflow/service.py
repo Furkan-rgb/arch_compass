@@ -78,6 +78,11 @@ class SubmittedAnswer:
     status: AnswerStatus
     value: str | None = None
     actor: str = "user"
+    #: The model that drafted these exact words, where the submitter accepted a draft
+    #: unchanged. "" wherever the words are their own — which the client decides by
+    #: comparing what it submits against what it was offered, because it is the only party
+    #: that saw both. See `Answer.drafted_by` for why the record keeps it at all.
+    drafted_by: str = ""
 
 
 #: The node that produces a verdict: one candidate's turn through the per-candidate
@@ -479,6 +484,10 @@ class ReviewWorkflowService:
                 value=by_id[question.id].value if question.id in by_id else None,
                 actor=by_id[question.id].actor if question.id in by_id else "user",
                 answered_at=utc_now(),
+                # An omitted question is a skip, and a skip has no words to have drafted.
+                drafted_by=(
+                    by_id[question.id].drafted_by if question.id in by_id else ""
+                ),
             )
             for question in waiting.questions
         )

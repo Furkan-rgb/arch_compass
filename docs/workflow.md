@@ -109,6 +109,36 @@ What it looked at is kept. Every tool call, its arguments and the exact answer b
 evidence: `Finding.evidence` is what the detector pinned, and nothing a judgement read is
 promoted into it.
 
+The same toolbox answers a reader. `ReviewToolbox` is built once and used by both callers —
+a judgement deciding a candidate, and a conversation held against a review — because it is
+one set of bounds and a second construction is how two of them start to differ. The
+conversation's lookups are recorded the same way: the atlas tools write themselves into the
+transcript as they answer, and everything else the agent is given, filesystem included, is
+written there by the loop that wrapped the call. A lookup nobody recorded did not happen.
+
+## Asking about a question
+
+A reader who cannot make sense of a question the review is waiting on opens a thread about
+that question, from the round itself. It is a `ReviewConversation` with a `question_id` on
+it, and the scope is what makes it a different prompt: the findings that question is holding
+up, in full with their hinges and evidence, rather than every finding in the review in
+outline. The thread is filed against the snapshot that asked, so it stays with the round on
+the Rounds surface and does not follow the case forward.
+
+What it may do is bounded by one rule the contract states four ways: **explain the question,
+never decide it**. The question exists because the code could not settle it; an agent reading
+the same code cannot settle it either, and an answer becomes the team's intent the moment it
+is recorded. So it says what is being asked, which finding is waiting, and what each answer
+would change — and it never says which answer is likelier. "The repository already settles
+this" is a first-class outcome, and the honest next move there is an explicit skip.
+
+It may offer wording in `suggested_answer`, which reaches the reader's own answer box as
+editable text. Nothing submits on their behalf. Where they submit it byte for byte unchanged,
+`Answer.drafted_by` records which model wrote it and `case_text` puts that in front of every
+later judgement — because otherwise a model reads its own draft back as the team's position
+with nothing saying so. Edit a word and the stamp is not set: the sentence is then theirs.
+The fact is stated and never weighed; no prompt tells a judgement what to make of it.
+
 ## Clarification and rejudgement
 
 When a round has questions, an immutable `awaiting_answers` review is composed and recorded

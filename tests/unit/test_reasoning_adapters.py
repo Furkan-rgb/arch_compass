@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Final
@@ -39,12 +40,15 @@ from archcompass.domain.errors import ModelOutputValidationError, ProviderError
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
 from archcompass.reasoning.adapters.factory import build_embeddings
 from archcompass.reasoning.adapters.langchain import (
+    CLARIFICATION_CONTRACT,
     CONVERSATION_CONTRACT,
     LangChainArchitectureJudge,
     LangChainQuestionGenerator,
     LangChainReviewAnswerer,
     PolicyBearingOutput,
     QuestionOutput,
+    case_text,
+    clarification_prompt,
     conversation_prompt,
     judgement_prompt,
     question_prompt,
@@ -1097,3 +1101,170 @@ def test_the_task_message_no_longer_repeats_what_the_schema_says() -> None:
     # `recommended_response`, a hosted model attached one to held and cleared findings often
     # enough to exhaust the repair and fail the judgement.
     assert "only a material finding recommends a response" in JUDGEMENT_INSTRUCTION
+
+
+def _waiting_review(tmp_path: Path) -> tuple[Review, Question]:
+    """A review stopped on one question, with the finding that question is holding up."""
+
+    review = _answered_review(tmp_path)
+    held = replace(
+        review.findings[0],
+        verdict=Verdict.HELD,
+        reasoning="Whether a second provider is expected decides this.",
+        recommended_response=None,
+        hinge="whether a second provider is expected",
+    )
+    question = Question.create(
+        text="Is a second synthesis provider expected?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=(str(held.candidate.id),),
+        round=1,
+        options=("Yes, next quarter", "No, one is all there will be"),
+    )
+    return (
+        replace(
+            review,
+            findings=(held,),
+            questions=(question,),
+            status=ReviewStatus.AWAITING_ANSWERS,
+        ),
+        question,
+    )
+
+
+def test_a_thread_about_a_question_is_shown_that_question_and_what_it_holds_up(
+    tmp_path: Path,
+) -> None:
+    """The narrow prompt, and the reason it is not `conversation_prompt` with a header.
+
+    A reader stuck on a question needs one question in depth: the finding it is waiting on,
+    the hinge that produced it, and the evidence. The review-wide prompt is the opposite
+    trade — every finding, shallow — and would bury the one thing this thread is about.
+    """
+
+    review, question = _waiting_review(tmp_path)
+
+    prompt = clarification_prompt(review, question, (), "What is this asking?")
+
+    assert "Is a second synthesis provider expected?" in prompt
+    assert "whether a second provider is expected" in prompt
+    assert f"[{review.findings[0].candidate.id}]" in prompt
+    assert "src/audiobook/synthesis/pipeline.py:42-48" in prompt
+
+
+def test_a_thread_about_a_question_may_not_decide_it(tmp_path: Path) -> None:
+    """The one rule this whole surface turns on.
+
+    The question exists because the code could not settle it. An agent reading the same code
+    cannot settle it either, and one that sounds as though it has is the review answering
+    the question it stopped to ask a person — recorded afterwards as the team's intent.
+    """
+
+    assert "Do not decide the answer." in CLARIFICATION_CONTRACT
+    assert "never say which answer is likelier" in CLARIFICATION_CONTRACT.casefold()
+
+
+def test_the_proposed_answers_are_offered_as_guesses_rather_than_as_the_choices(
+    tmp_path: Path,
+) -> None:
+    """A menu shown to a model is read as the answer space, and this one is not.
+
+    The round always offers writing your own, so an agent that pushed a reader towards one
+    of two chips would be narrowing a question the product deliberately left open.
+    """
+
+    review, question = _waiting_review(tmp_path)
+
+    prompt = clarification_prompt(review, question, (), "What is this asking?")
+
+    assert "Yes, next quarter" in prompt
+    assert "not the choices available" in prompt
+
+
+def test_wording_offered_for_an_answer_comes_back_as_a_proposal(tmp_path: Path) -> None:
+    review, question = _waiting_review(tmp_path)
+    answerer = LangChainReviewAnswerer(
+        StructuredModel(
+            {
+                "answer": "It asks whether the seam is being held open for a second one.",
+                "candidate_ids": [],
+                "suggested_answer": "We expect a second provider next quarter.",
+            }
+        ),  # type: ignore[arg-type]
+        model_identity="fake:test",
+    )
+
+    answer = answerer.answer(review, (), "What is this asking?", about=question)
+
+    assert answer.suggested_answer == "We expect a second provider next quarter."
+    assert answer.model_identity == "fake:test"
+
+
+def test_a_review_wide_thread_is_offered_no_wording_at_all(tmp_path: Path) -> None:
+    """There is nowhere to put it. A thread about the review has no answer box under it, so
+    a draft there would be words with no question to answer — and the Ask surface would have
+    to decide what to do with them."""
+
+    review = _answered_review(tmp_path)
+    answerer = LangChainReviewAnswerer(
+        StructuredModel(
+            {"answer": "Resolve it through a factory.", "candidate_ids": []}
+        )  # type: ignore[arg-type]
+    )
+
+    answer = answerer.answer(review, (), "How would it be fixed?")
+
+    assert answer.suggested_answer == ""
+
+
+def test_a_drafted_answer_says_so_where_the_judgement_can_read_it() -> None:
+    """The loop that would otherwise close in silence.
+
+    An agent drafts the answer, the reader accepts it, and it reaches the next judgement as
+    the team's intent. A model reading its own draft back with nothing marking it is a
+    review confirming itself — so the fact is stated. It is not weighed: there is no
+    instruction attached telling the judgement what to make of it.
+    """
+
+    question = Question.create(
+        text="Is a second provider expected?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=1,
+    )
+    case = ArchitectureCase.create().with_answer(
+        Answer(
+            question,
+            AnswerStatus.ANSWERED,
+            "We expect a second provider next quarter.",
+            "user",
+            utc_now(),
+            drafted_by="google:gemini-3-pro",
+        )
+    )
+
+    text = case_text(case)
+
+    assert "google:gemini-3-pro" in text
+    assert "drafted_by" in text
+
+
+def test_an_answer_somebody_wrote_carries_no_draft_stamp() -> None:
+    """The common case, and the one the comparison protects.
+
+    Only wording accepted byte for byte is marked. Everything else — typed, picked from the
+    options, or edited from a draft — is the person's own sentence, and a record calling it
+    a model's would be the same lie pointing the other way.
+    """
+
+    question = Question.create(
+        text="Is a second provider expected?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=1,
+    )
+    case = ArchitectureCase.create().with_answer(
+        Answer(question, AnswerStatus.ANSWERED, "No, one is all there will be.", "user", utc_now())
+    )
+
+    assert "drafted_by" not in case_text(case)

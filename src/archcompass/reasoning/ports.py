@@ -27,7 +27,10 @@ a reader asking "where else is this used?" have the same problem, and a second t
 the second one would have been a second set of bounds to get wrong.
 
 **Answering a reader** — `ReviewConversation` and the store behind it, for the chat held
-against a review that has already been written."""
+against a review. Two scopes, one thread type: about the review as a whole, or about one
+clarification question it is waiting on. The second is why the first exists at all — a
+question a reader cannot make sense of is a question they cannot answer, and a review that
+asked it is stopped until they do."""
 
 from __future__ import annotations
 
@@ -39,6 +42,7 @@ from typing import Protocol
 
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain import (
+    Question,
     RecordedInvestigation,
     RepositoryAtlas,
     RepositoryRef,
@@ -255,6 +259,19 @@ class SourceInvestigator(Protocol):
         """Every call made through this investigator, in the order they were made."""
         ...
 
+    def record(self, name: str, arguments: Mapping[str, object], result: str) -> None:
+        """Append a lookup this investigator did not run, so the record stays one record.
+
+        The tools a pass is offered do not all come from here. The filesystem over the
+        reviewed revision is mounted by middleware and answers for itself, and a lookup that
+        answered a model without reaching the transcript is exactly the unverifiable evidence
+        the charter refuses — so whatever mounted it hands the call back through this.
+
+        Never call this for a tool `call` ran: that one is already in the transcript, and a
+        second entry would report one question asked twice.
+        """
+        ...
+
     def conclude(self, closing: str, termination: Termination) -> None:
         """Close the record: what the pass said, and why its execution ended.
 
@@ -383,6 +400,20 @@ class ConversationAnswer:
     #: holds a handful of messages that are read together, not a docket of forty rows
     #: that are scanned.
     investigation: RecordedInvestigation | None = None
+    #: Words this answer offers the reader to submit as their own, on a conversation held
+    #: about a clarification question. "" everywhere else, and "" here too wherever the
+    #: agent had nothing to propose — which is the honest outcome whenever what the reader
+    #: is stuck on is the question rather than the answer.
+    #:
+    #: A proposal and never a submission. Nothing in this product records an answer on a
+    #: person's behalf: this reaches the answer box as editable text under their hand, and
+    #: the round is still submitted by them.
+    suggested_answer: str = ""
+    #: Which model wrote this answer. Carried for one reason: where the reader accepts the
+    #: wording above unchanged, this is what the case records as having drafted it, and a
+    #: provenance stamp assembled by the client from anything less exact would be a guess
+    #: about authorship. "" on an answer stored before the field existed.
+    model_identity: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -397,6 +428,14 @@ class ReviewConversation:
     id: str
     review_id: str
     messages: tuple[ConversationMessage, ...] = ()
+    #: The clarification question this thread is about, where it is about one. "" is a
+    #: conversation about the review as a whole — which is what the Ask surface opens, and
+    #: what every conversation stored before this field existed was.
+    #:
+    #: Held on the conversation rather than passed per message because it is what the
+    #: thread *is*. A reader stuck on question two asks three things about question two,
+    #: and a scope re-declared on each of them is a scope that can disagree with itself.
+    question_id: str = ""
 
 
 class ConversationStore(Protocol):
@@ -415,4 +454,15 @@ class ReviewAnswerer(Protocol):
         review: Review,
         history: tuple[ConversationMessage, ...],
         question: str,
-    ) -> ConversationAnswer: ...
+        *,
+        about: Question | None = None,
+    ) -> ConversationAnswer:
+        """One answer to what a reader typed, over the review they have open.
+
+        `about` narrows it to a clarification question the review is waiting on. Two
+        different jobs behind one signature, deliberately: the reader is asking about the
+        same review with the same toolbox either way, and the only thing that changes is
+        what the model is shown and what it is allowed to do about it. A second port would
+        have been a second set of bounds to keep in step.
+        """
+        ...

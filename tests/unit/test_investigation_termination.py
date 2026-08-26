@@ -47,6 +47,17 @@ class _Nothing:
     def transcript(self) -> tuple[object, ...]:
         return ()
 
+    @property
+    def tools(self) -> tuple[object, ...]:
+        """Nothing to offer, which is also nothing that records itself.
+
+        The bounds read this to tell the tools it answers from the ones mounted beside it —
+        the filesystem, the policy corpus — because those answer without touching the
+        transcript and have to be written into it as they go.
+        """
+
+        return ()
+
 
 _NOTHING = _Nothing()
 

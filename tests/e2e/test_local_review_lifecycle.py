@@ -28,7 +28,7 @@ from archcompass.domain import Termination
 from archcompass.policies.adapters.bundled import bundled_corpus
 from archcompass.ports.capabilities import ReviewedSubject
 from archcompass.reasoning.adapters.factory import embedding_identity
-from archcompass.reasoning.adapters.judge_tools import JudgeToolbox
+from archcompass.reasoning.adapters.review_tools import ReviewToolbox
 from archcompass.reasoning.adapters.selected import (
     SelectedLangChainChatModel,
     SelectedLangChainJudge,
@@ -248,7 +248,7 @@ def test_a_judgement_checks_this_repository_with_this_model(
     subject = ReviewedSubject(repository=review.repository, atlas=review.atlas)
     judge = SelectedLangChainJudge(
         SelectedLangChainChatModel(local_runtime.model_catalog_service),
-        JudgeToolbox(
+        ReviewToolbox(
             AtlasInvestigatorSource(local_runtime.query_service),
             bundled_corpus(),
         ),

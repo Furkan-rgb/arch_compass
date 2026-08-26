@@ -428,3 +428,69 @@ def test_every_tool_the_toolbox_advertises_is_one_it_can_answer(tmp_path: Path) 
     }
     for name in sorted(advertised):
         assert "There is no tool called" not in investigator.call(name, {})
+
+
+def test_a_tool_the_investigator_did_not_answer_still_reaches_the_transcript(
+    tmp_path: Path,
+) -> None:
+    """The filesystem answers for itself, and a lookup nobody recorded did not happen.
+
+    The atlas tools go through `investigator.call`, which writes as it answers. The four
+    read-only filesystem tools are mounted by their vendor's middleware and answer without
+    touching the investigator at all — so a judgement or a conversation that read six files
+    would show a transcript of whatever it happened to ask the *atlas*, and the reader would
+    be told that was everything it looked at. That is exactly the unverifiable evidence the
+    charter refuses, and it is what `wrap_tool_call` is for.
+    """
+
+    from types import SimpleNamespace
+
+    from archcompass.reasoning.adapters.tool_loop import _InvestigationBounds
+
+    investigator = _investigator(tmp_path)
+    bounds = _InvestigationBounds(investigator, forced=None, subject="a test")
+    request = SimpleNamespace(
+        tool_call={"name": "read_file", "args": {"file_path": "/app/ports.py"}, "id": "1"}
+    )
+
+    bounds.wrap_tool_call(
+        request, lambda _: SimpleNamespace(content="class Sink(Protocol): ...")
+    )
+
+    assert [item.tool for item in investigator.transcript] == ["read_file"]
+    assert investigator.transcript[0].arguments == {"file_path": "/app/ports.py"}
+    assert investigator.transcript[0].result == "class Sink(Protocol): ..."
+
+
+def test_a_tool_the_investigator_answered_is_not_recorded_twice(tmp_path: Path) -> None:
+    """`call` has already written it, and a second entry would report one question as two."""
+
+    from types import SimpleNamespace
+
+    from archcompass.reasoning.adapters.tool_loop import _InvestigationBounds
+
+    investigator = _investigator(tmp_path)
+    bounds = _InvestigationBounds(investigator, forced=None, subject="a test")
+    request = SimpleNamespace(tool_call={"name": "flagged_signals", "args": {}, "id": "1"})
+
+    bounds.wrap_tool_call(
+        request,
+        lambda _: SimpleNamespace(content=investigator.call("flagged_signals", {})),
+    )
+
+    assert [item.tool for item in investigator.transcript] == ["flagged_signals"]
+
+
+def test_a_lookup_answered_elsewhere_is_clamped_like_any_other(tmp_path: Path) -> None:
+    """A file read is the longest thing any tool returns.
+
+    The ceiling is on the record, and a record bounded only where it happened to produce the
+    answer itself would be bounded by whichever tool was cheapest.
+    """
+
+    investigator = _investigator(tmp_path)
+
+    investigator.record("read_file", {"file_path": "/big.py"}, "x" * 10_000)
+
+    assert len(investigator.transcript[0].result) <= MAX_RESULT_CHARACTERS
+    assert "truncated" in investigator.transcript[0].result

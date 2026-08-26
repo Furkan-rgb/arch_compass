@@ -366,7 +366,7 @@ describe("the review workbench", () => {
     await waitFor(() =>
       expect(answer).toHaveBeenCalledWith(
         "review-1",
-        [{ question_id: "question-1", status: "skipped", value: null }],
+        [{ question_id: "question-1", status: "skipped", value: null, drafted_by: "" }],
         false,
       ),
     );
@@ -484,11 +484,13 @@ describe("the review workbench", () => {
             question_id: "question-1",
             status: "answered",
             value: "The domain owns it and adapters implement its ports",
+            drafted_by: "",
           },
           {
             question_id: "question-2",
             status: "answered",
             value: "Yes, next quarter.",
+            drafted_by: "",
           },
         ],
         false,
@@ -630,6 +632,7 @@ describe("the review workbench", () => {
             question_id: "question-1",
             status: "answered",
             value: "The platform team owns it.",
+            drafted_by: "",
           },
         ],
         true,
@@ -665,6 +668,7 @@ describe("the review workbench", () => {
             question_id: "question-1",
             status: "answered",
             value: "The domain owns it and adapters implement its ports",
+            drafted_by: "",
           },
         ],
         true,
@@ -706,6 +710,7 @@ describe("the review workbench", () => {
             question_id: "question-1",
             status: "answered",
             value: "Neither — it is a shared kernel.",
+            drafted_by: "",
           },
         ],
         true,
@@ -1376,6 +1381,269 @@ describe("the review workbench", () => {
     );
     fireEvent.click(within(panel).getByRole("button", { name: "Discard" }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith("conversation-1"));
+  });
+
+  it("asks about a question the reviewer cannot make sense of, scoped to that question", async () => {
+    // A question you cannot parse is a question you cannot answer, and until this existed
+    // the only ways out were to guess, to skip, or to leave the review stopped. The scope is
+    // the point: the agent is shown the finding this question is holding up, not the docket.
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "conversations").mockResolvedValue([]);
+    const open = vi.spyOn(api, "createConversation").mockResolvedValue({
+      id: "conversation-9",
+      review_id: "review-1",
+      question_id: "question-1",
+      messages: [],
+    });
+    const ask = vi.spyOn(api, "ask").mockResolvedValue({
+      id: "conversation-9",
+      review_id: "review-1",
+      question_id: "question-1",
+      messages: [],
+    });
+
+    render(wrap(<ReviewPage />));
+
+    // Closed until somebody needs it. Most questions are answered without it, and a panel
+    // announcing itself under every one would be a model volunteering an opinion on a
+    // decision the charter reserves for a person.
+    const help = await screen.findByText("I do not understand this question");
+    fireEvent.click(help);
+    fireEvent.change(
+      screen.getByLabelText("Ask about the question: Who owns persistence?"),
+      { target: { value: "What is this actually asking?" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith("review-1", "question-1"),
+    );
+    await waitFor(() =>
+      expect(ask).toHaveBeenCalledWith(
+        "conversation-9",
+        "What is this actually asking?",
+      ),
+    );
+  });
+
+  it("puts an offered wording in the answer box and records who wrote it", async () => {
+    // The agent proposes; the reviewer submits. What the stamp buys is the loop staying
+    // visible: this wording reaches the next judgement as the team's intent, and a model
+    // reading its own draft back with nothing marking it is a review confirming itself.
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "conversations").mockResolvedValue([
+      {
+        id: "conversation-9",
+        review_id: "review-1",
+        question_id: "question-1",
+        messages: [
+          {
+            question: "What is this actually asking?",
+            answer: {
+              text: "It asks which side of the seam owns the schema.",
+              supporting_candidate_ids: [],
+              investigation: null,
+              suggested_answer: "The domain owns it; adapters implement its ports.",
+              model_identity: "google:gemini-3-pro",
+            },
+            asked_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      },
+    ]);
+    const answer = vi.spyOn(api, "answerRun").mockResolvedValue(runFixture());
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByText("I do not understand this question"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Put this in my answer" }),
+    );
+
+    // It lands in the box the reviewer writes their own answer in, and takes the menu off —
+    // the wording is not one of the offered options, and a radio left selected under it
+    // would be two controls disagreeing about the answer.
+    expect(screen.getByLabelText("Who owns persistence?")).toHaveValue(
+      "The domain owns it; adapters implement its ports.",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Conclude with remaining uncertainty" }),
+    );
+
+    await waitFor(() =>
+      expect(answer).toHaveBeenCalledWith(
+        "review-1",
+        [
+          {
+            question_id: "question-1",
+            status: "answered",
+            value: "The domain owns it; adapters implement its ports.",
+            drafted_by: "google:gemini-3-pro",
+          },
+        ],
+        true,
+      ),
+    );
+  });
+
+  it("stops calling it a draft the moment the reviewer changes a word of it", async () => {
+    // The comparison is the whole guard. Somebody who edited the sentence wrote it, and a
+    // record naming a model as its author would be the same lie pointing the other way.
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "conversations").mockResolvedValue([
+      {
+        id: "conversation-9",
+        review_id: "review-1",
+        question_id: "question-1",
+        messages: [
+          {
+            question: "What is this actually asking?",
+            answer: {
+              text: "It asks which side of the seam owns the schema.",
+              supporting_candidate_ids: [],
+              investigation: null,
+              suggested_answer: "The domain owns it; adapters implement its ports.",
+              model_identity: "google:gemini-3-pro",
+            },
+            asked_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      },
+    ]);
+    const answer = vi.spyOn(api, "answerRun").mockResolvedValue(runFixture());
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByText("I do not understand this question"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Put this in my answer" }),
+    );
+    fireEvent.change(screen.getByLabelText("Who owns persistence?"), {
+      target: { value: "The domain owns it, and billing is the exception." },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Conclude with remaining uncertainty" }),
+    );
+
+    await waitFor(() =>
+      expect(answer).toHaveBeenCalledWith(
+        "review-1",
+        [
+          {
+            question_id: "question-1",
+            status: "answered",
+            value: "The domain owns it, and billing is the exception.",
+            drafted_by: "",
+          },
+        ],
+        true,
+      ),
+    );
+  });
+
+  it("keeps a thread about a question out of the reader's notes about the review", async () => {
+    // Two families of thread, one listing. Working out question two is not a note about the
+    // review, and listing it on Ask would put it among notes it has nothing to do with.
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "conversations").mockResolvedValue([
+      {
+        id: "conversation-9",
+        review_id: "review-1",
+        question_id: "question-1",
+        messages: [
+          {
+            question: "What is this actually asking?",
+            answer: {
+              text: "It asks which side of the seam owns the schema.",
+              supporting_candidate_ids: [],
+              investigation: null,
+            },
+            asked_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      },
+    ]);
+
+    render(wrap(<ReviewPage />));
+    fireEvent.click(await screen.findByRole("tab", { name: /Ask/ }));
+    const panel = screen.getByRole("tabpanel");
+
+    expect(
+      await within(panel).findByText("No questions asked yet"),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).queryByText("It asks which side of the seam owns the schema."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps what was worked out about a question beside the answer it produced", async () => {
+    // The answer is the record; this is the reason for it. Thrown away when the round
+    // closed, the record would keep the reply and lose why anybody gave it.
+    const review = reviewFixture({
+      status: "completed",
+      questions: [],
+      case: {
+        ...reviewFixture().case,
+        answers: [
+          {
+            question: reviewFixture().questions[0],
+            status: "answered" as const,
+            value: "The domain owns it; adapters implement its ports.",
+            actor: "user",
+            answered_at: "2026-01-02T00:00:00Z",
+            case_revision: 1,
+            drafted_by: "google:gemini-3-pro",
+          },
+        ],
+      },
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "conversations").mockResolvedValue([
+      {
+        id: "conversation-9",
+        review_id: "review-1",
+        question_id: "question-1",
+        messages: [
+          {
+            question: "What is this actually asking?",
+            answer: {
+              text: "It asks which side of the seam owns the schema.",
+              supporting_candidate_ids: [],
+              investigation: null,
+            },
+            asked_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      },
+    ]);
+
+    render(wrap(<ReviewPage />));
+    fireEvent.click(await screen.findByRole("tab", { name: /Rounds/ }));
+    const panel = screen.getByRole("tabpanel");
+
+    // Said where it is true and nowhere else: nobody typed these words, and a reader of the
+    // record is entitled to know that without it changing whose answer it is.
+    expect(
+      await within(panel).findByText(
+        /wording drafted by google:gemini-3-pro, submitted unchanged/,
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      await within(panel).findByText("1 question asked about this question"),
+    );
+    expect(
+      within(panel).getByText("It asks which side of the seam owns the schema."),
+    ).toBeInTheDocument();
   });
 
   it("opens the finding an answer cited, because the answer never saw the code", async () => {

@@ -71,7 +71,9 @@ working through it, so they are peers of the docket rather than columns beside i
 | ├ **Atlas explorer** | The map itself and the panel beside it: three lenses, filters, pan / zoom / fit / full screen, a minimap, and the atlas queries a reader can run from a selected element. Knows nothing about reviews. | [explorer.tsx](../frontend/src/features/atlas/explorer.tsx) |
 | **Delta surface** | What moved since the previous review: one list keyed on the candidate's name, filtered by change state. Its unique content is `addressed` — a candidate that is gone, and so has no docket row to be met in. A row opens its finding. | [surfaces.tsx](../frontend/src/features/review/surfaces.tsx) |
 | **Report surface** | The rendered Markdown report, led by what the review comes to. | [report-surface.tsx](../frontend/src/features/review/report-surface.tsx) |
-| **Ask surface** | Questions put to the review, in separate threads. | [surfaces.tsx](../frontend/src/features/review/surfaces.tsx) |
+| **Ask surface** | Questions put to the review, in separate threads. Threads scoped to a clarification question are not listed here — they belong to that question. | [surfaces.tsx](../frontend/src/features/review/surfaces.tsx) |
+| **Question help** | Under each question in a clarification round: a thread about *that* question, with the toolbox a judgement has. Explains what is being asked and what turns on it, never which answer to give; may offer wording for the answer box. Kept afterwards on the Rounds surface, beside the answer it produced. | [question-help.tsx](../frontend/src/features/review/question-help.tsx) |
+| ├ **Conversation thread** | One exchange and the box it is asked in, drawn the same way on Ask, under a question, and in Rounds. | [conversation-thread.tsx](../frontend/src/features/review/conversation-thread.tsx) |
 
 ### Judgement context — the drawer
 

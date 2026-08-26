@@ -1,4 +1,4 @@
-"""What one judgement may reach for, assembled per candidate.
+"""What one pass over a review may reach for, assembled per snapshot.
 
 Three sources, one list. The atlas answers resolved-graph questions no search over text can
 — what implements this, what reaches it, what it reaches for. The filesystem answers what
@@ -9,6 +9,12 @@ The policy tool is the one with a rule attached. A verdict may only cite a polic
 actually put in front of it, so every policy this returns joins the set the citation check
 runs against — and `available` is how that set leaves here. Validating against the corpus
 instead would let a judgement cite a principle nobody showed it.
+
+Two callers, one set of bounds. A judgement assembles this per candidate, and a reader's
+conversation assembles it per review — the same repository, the same revision, the same
+four read-only filesystem tools and the same refusal to offer a write. That is the point of
+its being one module: a second toolbox for the second caller would be a second set of
+bounds to keep in step, and the one that drifted would be the one nobody was judging with.
 """
 
 from __future__ import annotations
@@ -21,8 +27,7 @@ from deepagents import FilesystemMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.tools import BaseTool, StructuredTool
 
-from archcompass.domain import Policy
-from archcompass.ports.capabilities import ReviewedSubject
+from archcompass.domain import Policy, RepositoryAtlas, RepositoryRef
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.reasoning.adapters.reviewed_backend import ReviewedRevisionBackend
 from archcompass.reasoning.ports import InvestigatorSource, SourceInvestigator
@@ -62,16 +67,25 @@ FILESYSTEM_ROOT_NOTE = (
 
 @dataclass
 class OfferedTools:
-    """Everything one judgement may reach for, and what it was allowed to cite."""
+    """Everything one pass may reach for, and what it was allowed to cite."""
 
     tools: tuple[BaseTool, ...] = ()
     #: Typed loosely on purpose: `FilesystemMiddleware` parameterises `AgentMiddleware` over
     #: its own state, and pinning the element type here would refuse the one middleware this
     #: field exists to carry.
     middleware: tuple[AgentMiddleware[Any, Any], ...] = ()
-    #: Policies the judgement searched out for itself, first-seen order, deduplicated.
+    #: Policies the pass searched out for itself, first-seen order, deduplicated.
     searched: list[Policy] = field(default_factory=list["Policy"])
     withheld: str = ""
+    #: The atlas investigator these tools were built over, for a caller that records through
+    #: it. A judgement does not — it keeps its trace on the `ReviewedSubject` its middleware
+    #: writes to — but a conversation does, and it must be the *same* investigator the atlas
+    #: tools answer through or the transcript would be two transcripts of one exchange.
+    #:
+    #: Carried here rather than fetched beside this, which is the failure it exists to
+    #: prevent: `InvestigatorSource.for_review` builds a fresh investigator on every call, so
+    #: a caller asking for one separately would record into a transcript nothing answered.
+    investigator: SourceInvestigator | None = None
 
     def available(self, initial: RetrievedPolicySet) -> RetrievedPolicySet:
         """The initial set widened by whatever the judgement went and found.
@@ -90,15 +104,23 @@ class OfferedTools:
         return initial.widened_by(tuple(extra))
 
 
-class JudgeToolbox:
-    """Builds the tools for one judgement, over the snapshot that judgement is about."""
+class ReviewToolbox:
+    """Builds the tools for one pass, over the snapshot that pass is about."""
 
     def __init__(self, investigators: InvestigatorSource, corpus: Sequence[Policy]) -> None:
         self._investigators = investigators
         self._corpus = tuple(corpus)
 
-    def for_subject(self, subject: ReviewedSubject) -> OfferedTools:
-        offered = self._investigators.for_review(subject.repository, subject.atlas)
+    def for_review(self, repository: RepositoryRef, atlas: RepositoryAtlas) -> OfferedTools:
+        """The toolbox for one review's snapshot: the repository, and the atlas of it.
+
+        Keyed on those two rather than on a `ReviewedSubject`, which is a judgement's own
+        scratch record — it carries the tool trace back out and the verdict's retrieval set
+        with it. A reader's conversation has neither, and asking it to build one to get a
+        toolbox would be asking it to fake the thing that record exists to hold.
+        """
+
+        offered = self._investigators.for_review(repository, atlas)
         if offered.investigator is None or offered.source is None:
             # Nothing to look at. The judgement still runs; it just runs on the dossier, and
             # the sentence saying why is the caller's to report.
@@ -112,12 +134,14 @@ class JudgeToolbox:
                     tools=list(READ_ONLY_FILESYSTEM),
                     system_prompt=FILESYSTEM_ROOT_NOTE,
                     # Its own context eviction is switched off: one budget owns how much a
-                    # judgement may carry, and it is the one in `deep_judge`.
+                    # pass may carry, and it is the caller's — `deep_judge` for a judgement,
+                    # `tool_loop` for a conversation.
                     tool_token_limit_before_evict=None,
                     human_message_token_limit_before_evict=None,
                 ),
             ),
             searched=searched,
+            investigator=offered.investigator,
         )
 
 

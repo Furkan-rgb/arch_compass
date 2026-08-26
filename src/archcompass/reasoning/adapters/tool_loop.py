@@ -50,7 +50,7 @@ from langchain.agents.middleware import (
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool
 from langchain_openai import ChatOpenAI
 
 from archcompass.domain import (
@@ -174,6 +174,13 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
         self._investigator = investigator
         self._forced = forced
         self._subject = subject
+        #: The tools that write themselves into the transcript, because `investigator.call`
+        #: answers them. Everything else the agent is given — the policy corpus, the
+        #: filesystem its vendor mounts as middleware — answers elsewhere and is recorded by
+        #: `wrap_tool_call`. Read off the investigator rather than listed beside it: a list
+        #: is a thing that drifts, and the tool it forgot would be one that answered a model
+        #: and left no trace.
+        self._records_itself = frozenset(spec.name for spec in investigator.tools)
         self._turns = 0
         #: Why the loop stopped. Set on every path that ends it early; left None while the
         #: run is still going, and read as `NATURAL_END` by the caller only when the agent
@@ -233,6 +240,28 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
             self.detail = str(error)
             return AIMessage("")
 
+    def wrap_tool_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
+        """Write down what a tool this loop did not answer said.
+
+        Only those. The atlas tools go through `investigator.call`, which records as it
+        answers; the filesystem and the policy corpus are mounted beside them and would
+        otherwise answer a model without leaving a trace — which is the one thing a lookup
+        is not allowed to do here.
+        """
+
+        result = handler(request)
+        call = getattr(request, "tool_call", {}) or {}
+        name = str(call.get("name", "?"))
+        if name in self._records_itself:
+            return result
+        content = getattr(result, "content", "")
+        self._investigator.record(
+            name,
+            cast("Mapping[str, object]", call.get("args", {}) or {}),
+            content if isinstance(content, str) else str(content),
+        )
+        return result
+
     def _recorded(self) -> int:
         return sum(len(item.result) for item in self._investigator.transcript)
 
@@ -258,6 +287,8 @@ def investigate_with_tools(
     opening: str,
     subject: str,
     force_first: bool = True,
+    also: Sequence[BaseTool] = (),
+    middleware: Sequence[AgentMiddleware[Any, Any]] = (),
 ) -> str:
     """Let the model look things up, and render what it looked at.
 
@@ -267,6 +298,12 @@ def investigate_with_tools(
     what was asked and what the repository said, and it is the only part of this a later
     verdict can be traced to. The model's closing prose is appended after it rather than
     interleaved, so it cannot be mistaken for a result.
+
+    `also` and `middleware` are how a caller widens the toolbox past the atlas — the policy
+    corpus, and the filesystem over the reviewed revision, which arrives as middleware
+    because that is how its vendor mounts it. Whatever they add is recorded: every tool this
+    loop did not answer itself is written into the same transcript by `wrap_tool_call`, so
+    the record stays one record however many places the tools came from.
     """
 
     bounds = _InvestigationBounds(
@@ -274,7 +311,8 @@ def investigate_with_tools(
         forced=_forced_first_call(model) if force_first else None,
         subject=subject,
     )
-    tools = [_as_tool(investigator, spec) for spec in investigator.tools]
+    tools: list[BaseTool] = [_as_tool(investigator, spec) for spec in investigator.tools]
+    tools.extend(also)
     try:
         # Asked of the transport directly, before the agent is built, and this narrowness is
         # deliberate. A provider that cannot be given tools raises here and nowhere else, so
@@ -294,6 +332,11 @@ def investigate_with_tools(
             tools,
             system_prompt=system,
             middleware=[
+                # First, matching the order a judgement builds its agent in. Recording
+                # does not depend on it: `wrap_tool_call` sees every model-visible tool
+                # whichever middleware injected it, which is what lets one transcript hold
+                # calls that three different things answered.
+                *middleware,
                 # Ends the run rather than raising, which is what the hand-written loop did
                 # when it ran out of turns: conclude with what you have.
                 ModelCallLimitMiddleware(

@@ -18,6 +18,9 @@ from archcompass.reasoning.ports import ReviewConversation
 
 class ReviewConversationCreateRequest(APIModel):
     review_id: str = Field(min_length=1)
+    #: The clarification question this thread is about. Empty opens a thread about the
+    #: review as a whole, which is what the Ask surface does.
+    question_id: str = Field(default="", max_length=200)
 
 
 class ReviewQuestionRequest(APIModel):
@@ -28,6 +31,13 @@ class ConversationAnswerResponse(APIModel):
     text: str
     supporting_candidate_ids: list[str]
     investigation: RecordedInvestigationResponse | None
+    #: Wording offered for the reader's own answer box, on a thread about a clarification
+    #: question. Empty everywhere else, and empty here too whenever the agent had nothing to
+    #: propose — which is the ordinary case. Never submitted by anything but a person.
+    suggested_answer: str = ""
+    #: Which model wrote this answer. What the round stamps on an accepted draft, so the
+    #: case records who wrote the words rather than only that somebody did.
+    model_identity: str = ""
 
 
 class ConversationMessageResponse(APIModel):
@@ -40,6 +50,7 @@ class ReviewConversationResponse(APIModel):
     id: str
     review_id: str
     messages: list[ConversationMessageResponse]
+    question_id: str = ""
 
     @classmethod
     def from_application(
@@ -48,6 +59,7 @@ class ReviewConversationResponse(APIModel):
         return cls(
             id=conversation.id,
             review_id=conversation.review_id,
+            question_id=conversation.question_id,
             messages=[
                 ConversationMessageResponse(
                     question=item.question,
@@ -57,6 +69,8 @@ class ReviewConversationResponse(APIModel):
                             item.answer.supporting_candidate_ids
                         ),
                         investigation=investigation_response(item.answer.investigation),
+                        suggested_answer=item.answer.suggested_answer,
+                        model_identity=item.answer.model_identity,
                     ),
                     asked_at=item.asked_at.isoformat(),
                 )
@@ -77,7 +91,9 @@ def routes() -> APIRouter:
         runtime: RuntimeDep, request: ReviewConversationCreateRequest
     ) -> ReviewConversationResponse:
         return ReviewConversationResponse.from_application(
-            runtime.review_conversation_service.create(request.review_id)
+            runtime.review_conversation_service.create(
+                request.review_id, request.question_id
+            )
         )
 
     @router.get("/api/review-conversations", responses=problem_responses(404, 422))

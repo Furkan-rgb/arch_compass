@@ -38,8 +38,9 @@ from archcompass.ports.policy_retrieval import (
     RetrievedPolicySet,
 )
 from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
+from archcompass.reasoning.adapters.review_tools import ReviewToolbox
 from archcompass.reasoning.adapters.tool_loop import recorded_investigation
-from archcompass.reasoning.ports import ConversationAnswer, ConversationMessage, InvestigatorSource
+from archcompass.reasoning.ports import ConversationAnswer, ConversationMessage
 from archcompass.reasoning.records import DETERMINISTIC_JUDGE_PROMPT_IDENTITY
 
 #: The model name this chain reports itself as. One string, because it reaches a `Finding`,
@@ -192,21 +193,23 @@ class DeterministicSynopsist:
 class DeterministicAnswerer:
     """A stood-in answer over real lookups, for the reason the hinge pass does the same."""
 
-    def __init__(self, investigators: InvestigatorSource | None = None) -> None:
-        self._investigators = investigators
+    def __init__(self, toolbox: ReviewToolbox | None = None) -> None:
+        self._toolbox = toolbox
 
     def answer(
         self,
         review: Review,
         history: tuple[ConversationMessage, ...],
         question: str,
+        *,
+        about: Question | None = None,
     ) -> ConversationAnswer:
         del history, question
         supporting = tuple(str(item.candidate.id) for item in review.findings[:1])
         offered = (
             None
-            if self._investigators is None
-            else self._investigators.for_review(review.repository, review.atlas)
+            if self._toolbox is None
+            else self._toolbox.for_review(review.repository, review.atlas)
         )
         investigator = None if offered is None else offered.investigator
         if investigator is not None:
@@ -215,7 +218,13 @@ class DeterministicAnswerer:
                 "The stored review already answers this.", Termination.NATURAL_END
             )
         return ConversationAnswer(
-            "The stored review is the source of this deterministic answer.",
+            (
+                f"This deterministic answer stands in for one about “{about.text}”. "
+                "A real model reads the question, the findings it is holding up and the "
+                "repository itself."
+                if about is not None
+                else "The stored review is the source of this deterministic answer."
+            ),
             supporting,
             recorded_investigation(
                 investigator,
@@ -224,4 +233,9 @@ class DeterministicAnswerer:
                 atlas_fingerprint=review.repository.content_id,
                 model_identity=DETERMINISTIC_MODEL_IDENTITY,
             ),
+            # Deliberately never a draft. A stand-in that proposed words for somebody's own
+            # answer would be putting a fixture's sentence into the case as their intent,
+            # and the browser suite answers rounds through exactly this path.
+            suggested_answer="",
+            model_identity=DETERMINISTIC_MODEL_IDENTITY,
         )

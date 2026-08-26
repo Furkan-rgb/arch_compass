@@ -125,6 +125,13 @@ class SubmittedAnswerRequest(APIModel):
     status: AnswerStatus
     value: str | None = Field(default=None, max_length=4000)
     actor: str = Field(default="user", min_length=1)
+    #: The model that drafted this exact value, where the reviewer accepted a draft
+    #: unchanged. Empty wherever the words are theirs — typed, picked from the offered
+    #: options, or edited from a draft before submitting.
+    #:
+    #: The client decides it because the client is the only party that saw both the draft
+    #: and what was submitted. A server that inferred it would be guessing at authorship.
+    drafted_by: str = Field(default="", max_length=200)
 
 
 class ReviewAnswersRequest(APIModel):
@@ -229,6 +236,9 @@ class AnswerResponse(APIModel):
     #: revision however many rounds it asks. Zero on an answer recorded before this was
     #: stamped, which a reader groups under the case rather than under a round.
     case_revision: int = 0
+    #: The model that drafted this answer's exact words, where the reviewer accepted a draft
+    #: unchanged. Empty on every answer whose words are their own, which is most of them.
+    drafted_by: str = ""
 
 
 class CaseResponse(APIModel):
@@ -549,6 +559,7 @@ class ReviewResponse(APIModel):
                         actor=item.actor,
                         answered_at=item.answered_at.isoformat(),
                         case_revision=item.case_revision,
+                        drafted_by=item.drafted_by,
                     )
                     for item in review.case.answers
                 ],
@@ -717,7 +728,9 @@ def _submitted(request: ReviewAnswersRequest) -> tuple[SubmittedAnswer, ...]:
     """One round of answers as the workflow takes them, however the caller will wait."""
 
     return tuple(
-        SubmittedAnswer(item.question_id, item.status, item.value, item.actor)
+        SubmittedAnswer(
+            item.question_id, item.status, item.value, item.actor, item.drafted_by
+        )
         for item in request.answers
     )
 

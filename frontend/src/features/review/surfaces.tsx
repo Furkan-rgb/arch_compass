@@ -1,17 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { api, type Review, type ReviewConversation } from "../../api";
 import { cn } from "../../lib/cn";
 import { type MarkShape, humanise, shortId, splitQualified } from "../../lib/format";
-import { Badge, Tag, VerdictBadge } from "../../ui/badge";
+import { Badge, VerdictBadge } from "../../ui/badge";
 import { Button, ToggleButton } from "../../ui/button";
-import { Input } from "../../ui/field";
-import { ArrowRight, ChevronDown } from "../../ui/icons";
+import { ArrowRight } from "../../ui/icons";
 import { Mark } from "../../ui/mark";
-import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
+import { Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
 import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
-import { InvestigationTranscript, investigationSummary } from "./investigation";
+import { AskBox, ConversationExchange, useConversations } from "./conversation-thread";
 
 type DeltaState = "addressed" | "changed" | "new" | "unchanged";
 
@@ -522,38 +521,18 @@ function conversationQuestion(conversation: ReviewConversation): string | undefi
  * findings and the standing decisions are untouched by throwing one away.
  */
 export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candidateId: string) => void }) {
+  // The unscoped family. Threads opened under a clarification question belong to that
+  // question's panel and to the Rounds surface, and listing them here would put a reader's
+  // half-finished working-out of question two among their notes about the review.
   const client = useQueryClient();
-  const conversations = useQuery({
-    queryKey: ["conversations", review.id],
-    queryFn: () => api.conversations(review.id),
-  });
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const { conversations, threads, current, setConversationId, ask } =
+    useConversations(review);
   const [question, setQuestion] = useState("");
   const [confirming, setConfirming] = useState<string | null>(null);
 
-  const threads = conversations.data ?? [];
   // A thread with nothing in it is the one being started; there is never a reason to have
   // two, so the button that starts one steps aside once an empty one exists.
   const empty = threads.find((item) => !item.messages.length);
-  const current = threads.find((item) => item.id === conversationId) ?? threads[threads.length - 1] ?? null;
-
-  useEffect(() => {
-    if (conversationId && !threads.some((item) => item.id === conversationId)) {
-      setConversationId(null);
-    }
-  }, [conversationId, threads]);
-
-  const ask = useMutation({
-    mutationFn: async () => {
-      const id = current?.id || (await api.createConversation(review.id)).id;
-      setConversationId(id);
-      return api.ask(id, question.trim());
-    },
-    onSuccess: async () => {
-      setQuestion("");
-      await client.invalidateQueries({ queryKey: ["conversations", review.id] });
-    },
-  });
 
   const open = useMutation({
     mutationFn: () => api.createConversation(review.id),
@@ -651,80 +630,8 @@ export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candi
         ) : current?.messages.length ? (
           <ol className="grid gap-4">
             {current.messages.map((message, index) => (
-              <li key={`${message.asked_at}-${index}`} className="grid gap-2">
-                <div className="rounded-md border border-rule bg-surface-2 px-3 py-2.5">
-                  <Label>Question</Label>
-                  {/* `wrap-anywhere` on both halves: a question is regularly a qualified
-                      name with a few words around it, and an answer quotes paths back. One
-                      token wider than a phone and nothing else in the panel can help. */}
-                  <p className="mt-1 text-sm leading-6 text-ink wrap-anywhere">{message.question}</p>
-                </div>
-                <div className="rounded-md border border-rule bg-sunken/50 px-3 py-2.5">
-                  <Label>Agent</Label>
-                  <p className="mt-1 whitespace-pre-line text-sm leading-6 text-ink-2 wrap-anywhere">
-                    {message.answer.text}
-                  </p>
-                  {message.answer.investigation ? (
-                    /* No bleed and no full-width rule: this sits inside a bubble whose
-                       walls one would burst through. Closed, because the answer is what
-                       the reader came for and this is the working behind it. */
-                    <details className="group mt-2 border-t border-rule pt-2">
-                      <summary className="flex min-h-11 list-none items-center gap-2">
-                        <Label>Looked up</Label>
-                        <span className="min-w-0 flex-1 font-mono text-[11px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
-                          {investigationSummary(message.answer.investigation)}
-                        </span>
-                        <ChevronDown className="size-4 shrink-0 text-ink-3 transition group-open:rotate-180" />
-                      </summary>
-                      <div className="mt-2">
-                        <InvestigationTranscript investigation={message.answer.investigation} />
-                      </div>
-                    </details>
-                  ) : null}
-                  {message.answer.supporting_candidate_ids.length ? (
-                    <div className="mt-2 border-t border-rule pt-2">
-                      {/* The charter asks every claim to say where it came from, and a row
-                          of unheaded chips under a paragraph does not say what it is. */}
-                      <Label>Answered from these findings</Label>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {message.answer.supporting_candidate_ids.map((id) => {
-                          const finding = review.findings.find((item) => item.candidate.id === id);
-                          // An answer is told where the evidence sits but never shown the code
-                          // there, so a citation is the way to it rather than a footnote.
-                          // `text-left` because a button centres its text by default, and a
-                          // citation is a whole sentence — on a phone it wrapped to four
-                          // centred lines, which reads as a pull quote rather than as a link.
-                          if (finding && onOpen) {
-                            return (
-                              <button
-                                key={id}
-                                type="button"
-                                title={finding.candidate.summary}
-                                onClick={() => onOpen(id)}
-                                className="max-w-full text-left"
-                              >
-                                <Tag className="transition hover:border-rule-strong hover:text-ink">
-                                  {finding.candidate.summary}
-                                </Tag>
-                              </button>
-                            );
-                          }
-                          if (finding) return <Tag key={id}>{finding.candidate.summary}</Tag>;
-                          // No finding to name it with. A truncated id standing in as a
-                          // label reads as the candidate's name, which it is not — so the
-                          // chip says what happened and keeps the id in mono, where a
-                          // machine string belongs.
-                          return (
-                            <Tag key={id} className="gap-1.5">
-                              Cited candidate, not in this review
-                              <span className="font-mono text-[11px] text-ink-3">{shortId(id, 12)}</span>
-                            </Tag>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
+              <li key={`${message.asked_at}-${index}`}>
+                <ConversationExchange message={message} review={review} onOpen={onOpen} />
               </li>
             ))}
           </ol>
@@ -735,23 +642,15 @@ export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candi
           </EmptyState>
         )}
 
-        <div className={cn("mt-4 flex gap-2 border-t border-rule pt-4")}>
-          <Input
-            aria-label="Question about this review"
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && question.trim() && !ask.isPending) ask.mutate();
-            }}
-            className="min-w-0 flex-1"
+        <div className={cn("mt-4 border-t border-rule pt-4")}>
+          <AskBox
+            label="Question about this review"
             placeholder="How would the gateway finding be fixed?"
+            pending={ask.isPending}
+            value={question}
+            onChange={setQuestion}
+            onAsk={(text) => ask.mutate(text)}
           />
-          {/* `shrink-0`: everything on this page may be narrower than its content, which is
-              what keeps a path from widening the page — but a three-letter button has
-              nothing to give, and at 390px it was being squeezed to "As…". */}
-          <Button className="shrink-0" disabled={!question.trim() || ask.isPending} onClick={() => ask.mutate()}>
-            {ask.isPending ? <Spinner /> : "Ask"}
-          </Button>
         </div>
 
         {/* Deleting is asked about rather than undone, because there is nowhere to undo it
@@ -792,8 +691,8 @@ export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candi
                 <Button
                   variant="secondary"
                   size="sm"
-                  disabled={ask.isPending}
-                  onClick={() => ask.mutate()}
+                  disabled={ask.isPending || !ask.variables}
+                  onClick={() => ask.variables && ask.mutate(ask.variables)}
                 >
                   Ask it again
                 </Button>

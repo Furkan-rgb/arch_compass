@@ -64,13 +64,13 @@ from archcompass.domain import (
 from archcompass.domain.errors import ProviderError
 from archcompass.ports.capabilities import ReviewedSubject
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
-from archcompass.reasoning.adapters.judge_tools import JudgeToolbox
 from archcompass.reasoning.adapters.langchain import (
     FindingOutput,
     finding_from_output,
     judgement_prompt,
     structured_output,
 )
+from archcompass.reasoning.adapters.review_tools import ReviewToolbox
 from archcompass.retrying import call_with_retry
 
 _log = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ MAX_IDENTICAL_TOOL_CALLS = 2
 #: something different, because a stored finding carries this and `DeterministicRevisionCalculator`
 #: asks whether the stamp still matches what this process would produce.
 #:
-#: `v2` adds `judge_tools.FILESYSTEM_ROOT_NOTE`, which is not part of the judgement contract
+#: `v2` adds `review_tools.FILESYSTEM_ROOT_NOTE`, which is not part of the judgement contract
 #: but is part of what the model reads — and it changed behaviour, which is the whole test of
 #: whether an identity should move. Everything judged under `v1` re-judges once.
 JUDGEMENT_PROMPT_IDENTITY = "judge:deep-v2"
@@ -353,7 +353,7 @@ class DeepArchitectureJudge:
     def __init__(
         self,
         model: BaseChatModel,
-        toolbox: JudgeToolbox,
+        toolbox: ReviewToolbox,
         *,
         model_identity: str,
         prompt_identity: str = JUDGEMENT_PROMPT_IDENTITY,
@@ -396,7 +396,7 @@ class DeepArchitectureJudge:
             )
         subject.model_identity = self._model_identity
         subject.prompt_identity = self._prompt_identity
-        offered = self._toolbox.for_subject(subject)
+        offered = self._toolbox.for_review(subject.repository, subject.atlas)
         if not offered.tools:
             # Nothing could be looked at — no atlas to ask, or one an older parser wrote.
             # The judgement still happens, on the dossier alone, and the reason is recorded.
