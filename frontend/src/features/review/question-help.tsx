@@ -5,6 +5,7 @@ import { plural } from "../../lib/format";
 import { Button } from "../../ui/button";
 import { ChevronDown } from "../../ui/icons";
 import { Label } from "../../ui/panel";
+import { Prose, plainProse } from "../../ui/prose";
 import { ErrorNotice, LiveRegion, Skeleton, Spinner } from "../../ui/states";
 import { AskBox, ConversationExchange, useConversations } from "./conversation-thread";
 
@@ -147,8 +148,11 @@ export function QuestionHelp({
                   <div className="grid gap-2">
                     <div className="rounded-md border border-rule bg-surface-2 px-3 py-2.5">
                       <Label>Question</Label>
+                      {/* Drawn the way `ConversationExchange` draws the same string once the
+                          real exchange arrives, so the placeholder does not visibly change
+                          shape when it is replaced. */}
                       <p className="mt-1 max-w-[62ch] text-sm leading-6 text-ink wrap-anywhere">
-                        {ask.variables}
+                        <Prose>{ask.variables}</Prose>
                       </p>
                     </div>
                     <div className="grid gap-1.5 px-3 py-1">
@@ -184,7 +188,11 @@ export function QuestionHelp({
         )}
 
         <AskBox
-          label={`Ask about the question: ${question.text}`}
+          // Stripped here rather than inside `AskBox`, which puts this on a textarea's
+          // `aria-label`. `AskBox` is also given static labels, and a component that started
+          // rewriting whatever it was handed would be doing it to strings that never came
+          // from a model.
+          label={`Ask about the question: ${plainProse(question.text)}`}
           placeholder="What is this actually asking?"
           pending={ask.isPending}
           value={draft}

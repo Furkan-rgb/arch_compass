@@ -8,6 +8,7 @@ import { Button } from "../../ui/button";
 import { ChevronDown } from "../../ui/icons";
 import { Mark } from "../../ui/mark";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
+import { Prose } from "../../ui/prose";
 import { ErrorNotice, Notice, Skeleton } from "../../ui/states";
 import { ConversationExchange } from "./conversation-thread";
 import { awaitsAnswers } from "./docket-rules";
@@ -352,7 +353,7 @@ export function ClarificationsSurface({ review }: { review: Review }) {
                     />
                     <div className="min-w-0">
                       <p className="max-w-[62ch] text-[13px] font-semibold leading-6 text-ink wrap-anywhere">
-                        {answer.question.text}
+                        <Prose>{answer.question.text}</Prose>
                       </p>
                       <p className="mt-0.5 max-w-[62ch] text-[13px] leading-6 text-ink-2 wrap-anywhere">
                         {answer.status === "skipped" ? (
@@ -395,7 +396,7 @@ export function ClarificationsSurface({ review }: { review: Review }) {
                       <Mark shape="pause" className="mt-0.5 size-4 shrink-0 text-ink" />
                       <div className="min-w-0">
                         <p className="max-w-[62ch] text-[13px] font-semibold leading-6 text-ink wrap-anywhere">
-                          {question.text}
+                          <Prose>{question.text}</Prose>
                         </p>
                         {working(question.id)}
                       </div>

@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 
 import { cn } from "../lib/cn";
 import { highlight, isSupported } from "../lib/highlight";
+import { INLINE_CODE } from "./prose";
 
 /**
  * The measure this document is read at, and why it is not the number the system used to say.
@@ -53,6 +54,12 @@ function plainText(node: ReactNode): string {
  * and a fill, so a symbol inside a sentence is visibly not part of it — and a chip is the
  * wrong shape for a heading, which reads as a tag rather than as a title. Inside a heading
  * the code keeps the mono face, which is the part that carries meaning, and drops the box.
+ *
+ * The exception outgrew the heading: `INLINE_CODE_BARE` in `ui/prose.tsx` is the same
+ * decision made for a scanning surface, where a chip's border and padding would grow one
+ * clamped row taller than its neighbours. This override stays local because it also resets
+ * the size — 0.92em rather than 0.86em, since a heading is set at the display face's own
+ * weight and a name inside it must not read as a footnote.
  */
 const NAMED_HEADING =
   "wrap-anywhere [&>code]:border-0 [&>code]:bg-transparent [&>code]:px-0 [&>code]:py-0 [&>code]:text-[0.92em]";
@@ -179,22 +186,17 @@ export function Markdown({ children, className }: { children: string; className?
             const language = fenceLanguage(codeClass);
             if (!codeClass?.startsWith("language-")) {
               return (
-                // `inline-block`, which is the whole fix: an *inline* box fragments across a
-                // line break, so an identifier one character too wide for the line left a
-                // second chip holding the letter `c` alone on the next — a 14x22px grey box
-                // that reads as a rendering fault rather than as a name. An inline-block box
-                // does not fragment, so there is only ever one chip and the name wraps inside
-                // it.
-                //
-                // `wrap-anywhere` stays, and `max-w-full` with it. The alternative was to
-                // refuse the break and let a wide chip scroll in its own box, which is what
-                // this file does for a fence and a table — but `overflow.test.tsx` holds the
-                // rule that a name inside a sentence breaks rather than pushing the page
-                // sideways, and a chip that has stopped fragmenting no longer needs the break
-                // refused to stay one chip.
-                <code className="inline-block max-w-full rounded-xs border border-rule bg-sunken px-1 py-0.5 font-mono text-[0.86em] text-ink wrap-anywhere">
-                  {children}
-                </code>
+                // The chip's class list moved to `ui/prose.tsx` as `INLINE_CODE`, and this
+                // file imports it rather than keeping a copy. `ui/prose.tsx` renders the
+                // model's own prose — which quotes identifiers in backticks whether or not
+                // this document does — so a quoted name is now drawn in two files, and one
+                // class string written twice is exactly the drift the design system's guards
+                // exist to stop. The argument for what is in the string lives with it there:
+                // `inline-block` so a name too wide for the line wraps inside one chip
+                // instead of fragmenting into two, `wrap-anywhere` and `max-w-full` because
+                // `overflow.test.tsx` holds the rule that a name inside a sentence breaks
+                // rather than pushing the page sideways.
+                <code className={INLINE_CODE}>{children}</code>
               );
             }
             // A fence that names a language we hold a grammar for is coloured; one that

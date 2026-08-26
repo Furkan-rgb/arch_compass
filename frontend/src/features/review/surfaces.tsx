@@ -10,6 +10,7 @@ import { ArrowRight, ChevronDown } from "../../ui/icons";
 import { Mark } from "../../ui/mark";
 import { TONE_EDGE } from "../../ui/meta";
 import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
+import { Prose, plainProse } from "../../ui/prose";
 import { EmptyState, ErrorNotice, LiveRegion, Skeleton, Spinner } from "../../ui/states";
 import { AskBox, ConversationExchange, useConversations } from "./conversation-thread";
 
@@ -191,11 +192,21 @@ function DeltaRow({
               entry.identityIsName ? "line-clamp-2 font-mono" : "line-clamp-3",
             )}
           >
-            {leaf}
+            {/* `bare` here and on the sentence below it, and only ever bare: this is a
+                scanning surface. A chip's border and its `px-1 py-0.5` add about five pixels
+                to whatever line box it lands in, so one clamped row in a column of forty
+                grows taller than its neighbours and the column stops lining up — the same
+                shape of problem the heading exception in `ui/markdown.tsx` was written for.
+                The face alone still says the word is a name.
+
+                Only the sentence branch of the identity takes it: where the identity is a
+                name this span is already `font-mono`, and that name came from the atlas
+                rather than from a model, so there is nothing in it to parse. */}
+            {entry.identityIsName ? leaf : <Prose bare>{leaf}</Prose>}
           </span>
           {entry.summary ? (
             <span className="mt-0.5 line-clamp-2 text-xs leading-5 text-ink-2 wrap-anywhere">
-              {entry.summary}
+              <Prose bare>{entry.summary}</Prose>
             </span>
           ) : null}
           {/* Wrapping, not truncating: on a phone the transition takes the first line and the
@@ -263,7 +274,7 @@ function DeltaRow({
   // there is no button underneath it holding the full string.
   if (!onOpen) {
     return (
-      <li title={entry.identity} className={cn("border-l-[3px] px-4 py-3 sm:px-5", edge)}>
+      <li title={plainProse(entry.identity)} className={cn("border-l-[3px] px-4 py-3 sm:px-5", edge)}>
         {body}
       </li>
     );
@@ -273,7 +284,7 @@ function DeltaRow({
       <button
         type="button"
         onClick={onOpen}
-        title={entry.identity}
+        title={plainProse(entry.identity)}
         // The ring is drawn `outline-offset: 2px`, which on a full-bleed row in a divided
         // list lands on the neighbouring row's rule. Pulled inside, it frames the row it is
         // actually on. `min-h-11` is the target floor: a row with a short name and no
@@ -577,9 +588,16 @@ export function DeltaSurface({ review, onOpen }: { review: Review; onOpen?: (can
   );
 }
 
-/** What a conversation is called: the question that opened it. */
+/**
+ * What a conversation is called: the question that opened it.
+ *
+ * Cut from the stripped string rather than from the raw one. A `title` and a tab label are
+ * both strings, so neither can hold a rendered name — and slicing the raw question at 44
+ * characters can land inside a quoted one, which leaves a single unpaired backtick sitting on
+ * the tab with nothing to explain it.
+ */
 function conversationTitle(conversation: ReviewConversation, index: number): string {
-  const first = conversation.messages[0]?.question.trim();
+  const first = plainProse(conversation.messages[0]?.question.trim() ?? "");
   if (!first) return `New question ${index + 1}`;
   return first.length > 44 ? `${first.slice(0, 44)}…` : first;
 }
@@ -600,7 +618,7 @@ const ASK_OPENERS = [
 
 /** The question in full, for the `title` on a tab that had to cut it short. */
 function conversationQuestion(conversation: ReviewConversation): string | undefined {
-  return conversation.messages[0]?.question.trim() || undefined;
+  return plainProse(conversation.messages[0]?.question.trim() ?? "") || undefined;
 }
 
 /**
@@ -814,8 +832,11 @@ export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candi
                   <div className="grid gap-2">
                     <div className="rounded-md border border-rule bg-surface-2 px-3 py-2.5">
                       <Label>Question</Label>
+                      {/* Drawn exactly as `ConversationExchange` draws the same string one
+                          render later, so the placeholder does not change shape the moment
+                          the real exchange replaces it. */}
                       <p className="mt-1 text-sm leading-6 text-ink wrap-anywhere">
-                        {ask.variables}
+                        <Prose>{ask.variables}</Prose>
                       </p>
                     </div>
                     <div className="grid gap-1.5 px-3 py-1">

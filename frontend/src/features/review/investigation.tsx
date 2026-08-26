@@ -1,5 +1,6 @@
 import type { Investigation, InvestigationLookup } from "../../api";
 import { humanise, plural } from "../../lib/format";
+import { Prose } from "../../ui/prose";
 
 /**
  * One lookup said the way a person would say it, rather than as the call it was.
@@ -139,15 +140,17 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
         </ul>
       ) : null}
       {investigation.closing ? (
+        // Written by the same judge loop that writes a finding's reasoning, and about the
+        // same code, so it quotes identifiers the same way and is drawn the same way.
         <p className="mt-3 max-w-[46ch] text-[13px] leading-6 text-ink-2 wrap-anywhere">
-          {investigation.closing}
+          <Prose>{investigation.closing}</Prose>
         </p>
       ) : null}
       {investigation.withheld ? (
         /* The application's own sentence, verbatim: it names the way back rather than
            describing a fault, and paraphrasing it would lose the instruction. */
         <p className="mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
-          {investigation.withheld}
+          <Prose>{investigation.withheld}</Prose>
         </p>
       ) : null}
       {investigation.lookups.length && investigation.termination !== "natural_end" ? (

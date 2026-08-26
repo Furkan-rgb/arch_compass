@@ -2,6 +2,7 @@ import { cn } from "../../lib/cn";
 import { humanise, plural } from "../../lib/format";
 import { Button } from "../../ui/button";
 import { Mono, PathRef, TONE_TEXT } from "../../ui/meta";
+import { Prose, plainProse } from "../../ui/prose";
 import { truncate } from "./geometry";
 import type { AtlasEdgeView, AtlasExplorerProps, AtlasNodeView, ExploreOperation } from "./graph";
 
@@ -140,7 +141,12 @@ export function AtlasDetailPanel({
           <PathRef path={node.path} line={node.line} endLine={node.endLine} />
 
           {node.description ? (
-            <p className="text-sm leading-6 text-ink-2">{node.description}</p>
+            // This is a finding's reasoning, on its second surface: `atlas-surface.tsx`
+            // builds the description as "`${verdict}. ${finding.reasoning}`", so the same
+            // sentence and the same quoted names arrive here as arrive in the Judged block.
+            <p className="text-sm leading-6 text-ink-2">
+              <Prose>{node.description}</Prose>
+            </p>
           ) : null}
 
           {/* The other half of the link a finding already offers into the map. A reader who
@@ -171,13 +177,19 @@ export function AtlasDetailPanel({
                         use. */}
                     <dt
                       className="text-[11px] leading-4 text-ink-3"
-                      title={[
-                        metric.definition,
-                        metric.limitations,
-                        metric.scope ? `Scope: ${humanise(metric.scope)}` : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
+                      // A `title` is a string, so anything a model might have quoted in it
+                      // has to have its delimiters taken off rather than drawn. These three
+                      // fields come from the analysis today and carry none; this is what
+                      // keeps that true if one of them ever stops being written by code.
+                      title={plainProse(
+                        [
+                          metric.definition,
+                          metric.limitations,
+                          metric.scope ? `Scope: ${humanise(metric.scope)}` : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · "),
+                      )}
                     >
                       {metric.label}
                     </dt>

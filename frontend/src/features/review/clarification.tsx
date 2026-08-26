@@ -15,6 +15,7 @@ import { Button } from "../../ui/button";
 import { ChevronDown } from "../../ui/icons";
 import { Mark } from "../../ui/mark";
 import { Label } from "../../ui/panel";
+import { Prose, plainProse } from "../../ui/prose";
 import { ErrorNotice, LiveRegion, Notice, Spinner } from "../../ui/states";
 import { QuestionItem } from "./question";
 
@@ -339,7 +340,9 @@ function RoundRow({
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`${question.text} — ${said}. Open to change it.`}
+        // The question stripped rather than rendered: this is a string, so no element can go
+        // in it and a listener must not hear the delimiter read out as a word.
+        aria-label={`${plainProse(question.text)} — ${said}. Open to change it.`}
         // Bled into the gutter so the hover band reads as a target with room around the
         // words, rather than as a rectangle drawn flush against them.
         //
@@ -359,7 +362,7 @@ function RoundRow({
               standing === "open" ? "text-ink" : "text-ink-3",
             )}
           >
-            {question.text}
+            <Prose>{question.text}</Prose>
           </span>
           {/* The answer is clamped because one somebody wrote themselves is a paragraph as
               often as a sentence, and a closed row taller than the open one below it stops

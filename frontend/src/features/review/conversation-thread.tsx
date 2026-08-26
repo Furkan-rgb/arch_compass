@@ -8,6 +8,7 @@ import { Button } from "../../ui/button";
 import { Textarea } from "../../ui/field";
 import { CheckIcon, ChevronDown } from "../../ui/icons";
 import { Label } from "../../ui/panel";
+import { Prose, plainProse } from "../../ui/prose";
 import { Spinner } from "../../ui/states";
 import { Attribution } from "./finding-detail";
 import { InvestigationTranscript, investigationSummary } from "./investigation";
@@ -49,8 +50,12 @@ export function ConversationExchange({
             `max-w-[62ch]` because nothing in this exchange capped its measure, and on the Ask
             surface it is drawn inside the page's whole 76rem column — about 150 characters a
             line, the longest prose in the product at the loosest measure. */}
+        {/* Through `Prose` even though these are the reader's own typed words, not the
+            model's. It is the top half of a pair whose bottom half is rendered, and rendering
+            one and not the other is the visible inconsistency — a reviewer who types a
+            backtick around a name means it the way the model does. */}
         <p className="mt-1 max-w-[62ch] text-sm leading-6 text-ink wrap-anywhere">
-          {message.question}
+          <Prose>{message.question}</Prose>
         </p>
       </div>
       {/* `bg-sunken`, not `bg-sunken/50`: half of `#ebebeb` over the panel composites to a
@@ -65,8 +70,12 @@ export function ConversationExchange({
             answer the reviewer submits, and `Attribution` is the line the finding and the
             report already use for exactly this. */}
         <Attribution voice="Answered" by={message.answer.model_identity || "model not recorded"} />
+        {/* The conversation contract asks the model, in as many words, to "name one by its
+            backticked participant, the way the listing does", and the listing it is fed on
+            the way in backticks every line. So a span here is guaranteed rather than
+            incidental, at the reading size, and raw delimiters were what a reader saw. */}
         <p className="mt-1 max-w-[62ch] whitespace-pre-line text-[16px] leading-[1.65] text-ink wrap-anywhere">
-          {message.answer.text}
+          <Prose>{message.answer.text}</Prose>
         </p>
 
         {suggested && onUseAnswer ? (
@@ -86,8 +95,12 @@ export function ConversationExchange({
                 ready-made sentence beneath it was full ink, so the eye landed on the words to
                 submit before the reasons for them, under a panel whose own doc says the agent
                 must never decide the answer. */}
+            {/* Same model, same call, same contract as the answer above, so the same
+                treatment. This one has a second reason: the raw string is what the button
+                below writes into the reviewer's own box, so a delimiter left standing here
+                travels into the record as part of their answer. */}
             <p className="mt-1 max-w-[62ch] whitespace-pre-line text-sm leading-6 text-ink-2 wrap-anywhere">
-              {suggested}
+              <Prose>{suggested}</Prose>
             </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               {/* The tick is the whole confirmation, and it is the device `CopyButton` already
@@ -156,17 +169,31 @@ export function ConversationExchange({
                     <button
                       key={id}
                       type="button"
-                      title={finding.candidate.summary}
+                      title={plainProse(finding.candidate.summary)}
                       onClick={() => onOpen(id)}
                       className="max-w-full text-left"
                     >
+                      {/* `bare`, and `Tag` is why: it already draws `rounded-xs border
+                          border-rule bg-surface-2 px-2 py-0.5`, so a chip inside it is a box
+                          inside a box with two hairlines, at 12px. The mono face is the half
+                          that carries the meaning and the tag is already providing the other
+                          half. The `title` beside it is a string, so it gets the delimiters
+                          taken off rather than drawn — and the two must say the same words. */}
                       <Tag className="transition hover:border-rule-strong hover:text-ink">
-                        {finding.candidate.summary}
+                        <Prose bare>{finding.candidate.summary}</Prose>
                       </Tag>
                     </button>
                   );
                 }
-                if (finding) return <Tag key={id}>{finding.candidate.summary}</Tag>;
+                // The same citation with nothing to open, so it is drawn the same way: a
+                // citation that changed shape depending on whether it was clickable would
+                // read as two different kinds of thing.
+                if (finding)
+                  return (
+                    <Tag key={id}>
+                      <Prose bare>{finding.candidate.summary}</Prose>
+                    </Tag>
+                  );
                 // No finding to name it with. A truncated id standing in as a label reads as
                 // the candidate's name, which it is not — so the chip says what happened and
                 // keeps the id in mono, where a machine string belongs.

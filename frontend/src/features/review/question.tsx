@@ -7,6 +7,7 @@ import { Tag } from "../../ui/badge";
 import { ToggleButton } from "../../ui/button";
 import { Textarea } from "../../ui/field";
 import { Mono } from "../../ui/meta";
+import { Prose, plainProse } from "../../ui/prose";
 import { QuestionHelp } from "./question-help";
 
 /**
@@ -149,7 +150,11 @@ export function QuestionItem({
         id={`question-${question.id}-text`}
         className="max-w-[54ch] text-[17px] font-medium leading-7 text-ink"
       >
-        {question.text}
+        {/* Through `Prose`. A question is written by the same model, about the same code, and
+            the prompt behind it neither asks for backticks nor forbids them — so a span here
+            is incidental rather than common. It is drawn anyway, because at 17px a raw
+            delimiter is the largest character on the panel and unmissable. */}
+        <Prose>{question.text}</Prose>
       </p>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <Tag>{humanise(question.facet)}</Tag>
@@ -188,7 +193,10 @@ export function QuestionItem({
       {question.options.length ? (
         <div
           role="radiogroup"
-          aria-label={`Answers to: ${question.text}`}
+          // Stripped, not rendered: an `aria-label` is a string and cannot hold an element,
+          // and a screen reader announcing "backtick Clock backtick" is worse than the
+          // delimiter on screen was.
+          aria-label={`Answers to: ${plainProse(question.text)}`}
           className="mt-3 grid gap-1.5"
         >
           {question.options.map((option) => (

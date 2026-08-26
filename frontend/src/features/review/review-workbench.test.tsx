@@ -820,6 +820,30 @@ describe("the review workbench", () => {
     ).toHaveLength(1);
   });
 
+  /**
+   * The model writes about code, so it quotes an identifier the way anything writing about
+   * code does — and the Judged block printed the backticks themselves. The parser behind
+   * this lives in `ui/prose.tsx` and is covered case by case in `ui/prose.test.tsx`; what is
+   * checked here is only that the reading surface is wired to it.
+   */
+  it("draws a name the model quoted as a name, not as two backticks", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    for (const item of review.findings) {
+      item.reasoning = "The abstraction `NarrationPreparationProvider` has one implementation.";
+    }
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    const quoted = await screen.findAllByText("NarrationPreparationProvider");
+    expect(quoted[0].tagName).toBe("CODE");
+    // The delimiters are gone from the sentence rather than moved somewhere else in it.
+    expect(screen.getAllByText(/The abstraction/)[0].textContent).toBe(
+      "The abstraction NarrationPreparationProvider has one implementation.",
+    );
+  });
+
   it("shows the team's decision on the row, and stops counting it as needing you", async () => {
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);

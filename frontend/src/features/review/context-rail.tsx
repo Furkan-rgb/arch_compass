@@ -10,6 +10,7 @@ import { Input } from "../../ui/field";
 import { ChevronDown } from "../../ui/icons";
 import { MetaList, MetaRow, Mono } from "../../ui/meta";
 import { Label } from "../../ui/panel";
+import { Prose } from "../../ui/prose";
 import { Tabs, TabPanel } from "../../ui/tabs";
 import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
 import { PolicyRef } from "./finding-detail";
@@ -128,7 +129,13 @@ export function ContextRail({
                     <div className="mt-1">
                       <PolicyRef id={bearing.policy_id} />
                     </div>
-                    <p className="mt-1.5 text-xs leading-5 text-ink-2">{bearing.reasoning}</p>
+                    {/* The same field the Policies fold renders at 14px, so it takes the
+                        same treatment: rendering the quoted name in one of the two places
+                        and not the other would leave the identical sentence looking broken
+                        wherever the reader happened to open it. */}
+                    <p className="mt-1.5 text-xs leading-5 text-ink-2">
+                      <Prose>{bearing.reasoning}</Prose>
+                    </p>
                   </li>
                 ))}
               </ul>
@@ -510,7 +517,9 @@ function CaseContext({ review, finding }: { review: Review; finding: Finding | n
 function AnswerCard({ answer }: { answer: Review["case"]["answers"][number] }) {
   return (
     <li className="rounded-md border border-rule bg-surface-2 px-2.5 py-2">
-      <div className="text-xs font-semibold leading-5 text-ink">{answer.question.text}</div>
+      <div className="text-xs font-semibold leading-5 text-ink">
+        <Prose>{answer.question.text}</Prose>
+      </div>
       <div className="mt-1 text-xs leading-5 text-ink-2">
         {answer.status === "skipped" ? (
           <span className="text-ink-3">Explicitly skipped</span>

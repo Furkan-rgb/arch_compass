@@ -12,6 +12,7 @@ import { EvidenceBlock } from "../../ui/code";
 import { ArrowRight, ChevronDown } from "../../ui/icons";
 import { MetaList, MetaRow, Mono, PathRef } from "../../ui/meta";
 import { Label } from "../../ui/panel";
+import { Prose } from "../../ui/prose";
 import { Notice } from "../../ui/states";
 
 /**
@@ -415,9 +416,15 @@ export function FindingBody({
             the longest measure and the largest body text here.
 
             `wrap-anywhere` because the model writes about code: a 34-character qualified
-            name inside a paragraph is wider than a 320px phone. */}
+            name inside a paragraph is wider than a 320px phone.
+
+            And `Prose`, for the same reason: a model writing about code quotes an identifier
+            in backticks, and about one reasoning string in eight arrives with a span in it.
+            Rendered as raw text those delimiters were on screen, at the one size on this
+            surface a reader is asked to read rather than scan. `Prose` returns nodes rather
+            than a block, so every measurement above still belongs to this paragraph. */}
         <p className="mt-2.5 max-w-[46ch] whitespace-pre-line text-[16px] leading-[1.65] text-ink wrap-anywhere">
-          {finding.reasoning}
+          <Prose>{finding.reasoning}</Prose>
         </p>
         <Footnote>
           {descriptor.description} Judged against case revision {review.case.revision} and{" "}
@@ -451,7 +458,7 @@ export function FindingBody({
                     hinge keeps the box, and the recommendation is prose under its label. */}
                 <Notice tone="working" className="mt-1.5">
                   <p id={hingeId} className="text-[14px] leading-relaxed text-ink wrap-anywhere">
-                    {finding.hinge}
+                    <Prose>{finding.hinge}</Prose>
                   </p>
                   {waitingOn && onAnswer ? (
                     /* The one action that unblocks every candidate in a waiting review, so it
@@ -493,7 +500,7 @@ export function FindingBody({
               <div className="min-w-0">
                 <BlockLabel>Recommended response</BlockLabel>
                 <p className="mt-1.5 max-w-[46ch] text-[14px] leading-relaxed text-ink wrap-anywhere">
-                  {finding.recommended_response}
+                  <Prose>{finding.recommended_response}</Prose>
                 </p>
                 <Footnote>
                   A recommendation, not a change. ArchCompass does not write the fix.
@@ -729,7 +736,7 @@ export function FindingBody({
                   <PolicyRef id={bearing.policy_id} />
                 </div>
                 <p className="mt-1.5 text-[14px] leading-relaxed text-ink-2 wrap-anywhere">
-                  {bearing.reasoning}
+                  <Prose>{bearing.reasoning}</Prose>
                 </p>
               </li>
             ))}

@@ -4,6 +4,7 @@ import { api, type Review } from "../../api";
 import { Button, ExternalButtonLink } from "../../ui/button";
 import { Markdown, headingSlug } from "../../ui/markdown";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
+import { Prose } from "../../ui/prose";
 import { EmptyState, ErrorNotice, LoadingPanel } from "../../ui/states";
 import { Attribution } from "./finding-detail";
 
@@ -174,8 +175,14 @@ export function ReportSurface({ review }: { review: Review }) {
               the file disagreeing about what the paragraph is. The identity beside it is the
               attribution, which is the half that was missing. */}
           <Attribution voice="In summary" by={review.synopsis_identity || undefined} />
+          {/* Through `Prose`, because the prompt behind this paragraph orders backticks: it
+              tells the model to name a candidate "by the identifier you were given, in
+              backticks". Every synopsis on record complies, so this is the one surface where
+              a raw delimiter was guaranteed rather than incidental. `Prose` returns nodes and
+              not a paragraph, so the measure, the leading and the preserved line breaks below
+              are unchanged by it. */}
           <p className="mt-2.5 max-w-[46ch] whitespace-pre-line text-[16px] leading-[1.65] text-ink wrap-anywhere">
-            {summary}
+            <Prose>{summary}</Prose>
           </p>
         </div>
       ) : null}
