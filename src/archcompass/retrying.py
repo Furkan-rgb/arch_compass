@@ -11,6 +11,10 @@ a malformed request, a missing key and a model that does not exist all fail imme
 because sending them again produces the same answer three times more slowly. Timeouts are
 not retried either: our own deadline arriving from the other side means the prompt took
 longer than we allow, and waiting does not shorten it.
+
+Reading a refusal is also the only place that can tell one apart, so one refusal is renamed
+here as well as classified: a gateway that filtered away every route it could have used
+reports it in a status that its SDK reads as a missing model. See `ineligible_reason`.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from archcompass.domain.errors import ProviderError
+from archcompass.domain.errors import NoEligibleProviderError, ProviderError
 
 _log = logging.getLogger("archcompass.retries")
 
@@ -44,6 +48,28 @@ _TRANSIENT_PHRASES: Final = (
     "ratelimit",
     "too many requests",
     "overloaded",
+)
+
+#: How a gateway says that nothing was allowed to serve the request. Read the same way as
+#: `_TRANSIENT_PHRASES` and for the same reason: the refusal is a sentence, and no status
+#: distinguishes it from the other things that share its code.
+#:
+#: OpenRouter answers all three of these with 404, which `langchain-openai` maps onto
+#: `OpenAIModelNotFoundError` — a name that says the model does not exist. It does exist:
+#: measured, an unknown model id is a **400** reading "… is not a valid model ID", so a 404
+#: from that chat endpoint is never about the model. The three sentences seen are
+#: "No endpoints available matching your guardrail restrictions and data policy",
+#: "No endpoints found that can handle the requested parameters" and "No allowed providers
+#: are available for the selected model", the last of which names the providers that do
+#: serve it and the preference that excluded them.
+#:
+#: Matched on the sentence rather than on the status because the status does not survive
+#: every path here intact, while the sentence does — `InlineProviderError` carries one out
+#: of a 200 body, and `OpenRouterEmbeddings` renders one into a `ProviderError` message.
+_INELIGIBLE_PHRASES: Final = (
+    "no endpoints available",
+    "no endpoints found",
+    "no allowed providers",
 )
 
 #: Google puts a `RetryInfo` detail beside a 429 saying how long its own quota window has
@@ -112,6 +138,22 @@ def is_transient(error: BaseException) -> bool:
     return any(phrase in text for phrase in _TRANSIENT_PHRASES)
 
 
+def ineligible_reason(error: BaseException) -> str | None:
+    """The gateway's own words for "nothing was allowed to serve this", or nothing.
+
+    Returns the text rather than a bool so the reason survives into the error raised from
+    it. What went wrong is entirely in that sentence — which policy, which providers, which
+    preference — and a caller cannot reconstruct any of it.
+    """
+
+    for link in _chain(error):
+        text = str(link)
+        lowered = text.lower()
+        if any(phrase in lowered for phrase in _INELIGIBLE_PHRASES):
+            return text
+    return None
+
+
 def suggested_delay(error: BaseException) -> float | None:
     """The wait the provider asked for, if it named one."""
 
@@ -157,8 +199,10 @@ def call_with_retry[T](
     """Run `operation`, waiting and repeating it while the provider says "not now".
 
     Anything else is re-raised untouched, so the caller still sees a schema violation or a
-    bad key as itself. Exhausting the retries raises `ProviderError`, which is the one
-    thing the rest of the application already knows how to report: 503, and worth trying
+    bad key as itself — with one exception, which is a refusal that named no eligible route.
+    That one is renamed rather than repeated, because what reaches here is an SDK's guess at
+    a 404 and the guess is wrong. Exhausting the retries raises `ProviderError`, which is the
+    one thing the rest of the application already knows how to report: 503, and worth trying
     again.
     """
 
@@ -169,6 +213,17 @@ def call_with_retry[T](
             return operation()
         except Exception as error:
             if not is_transient(error):
+                # Before re-raising, because the exception this became on the way up says
+                # the wrong thing: a routing refusal reaches here named for a model that
+                # does not exist, or for a parameter that was not accepted, and neither is
+                # what happened. Raised rather than retried — the filters that excluded
+                # every route will exclude them again in four seconds.
+                reason = ineligible_reason(error)
+                if reason is not None:
+                    raise NoEligibleProviderError(
+                        f"{subject} could not be sent: no provider route was allowed to "
+                        f"carry it. The gateway said: {reason}"
+                    ) from error
                 raise
             last = error
             if attempt == policy.retries:

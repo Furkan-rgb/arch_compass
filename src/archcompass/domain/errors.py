@@ -180,6 +180,23 @@ class ProviderError(ArchCompassError):
     pass
 
 
+class NoEligibleProviderError(ArchCompassError):
+    """The request was understood, and no route was allowed to carry it.
+
+    A gateway serves one model from several endpoints and filters them by what the request
+    asks for and by what the account permits — a data policy, a ZDR requirement, a provider
+    preference. When those filters leave nothing, the request is refused although both the
+    model and the request are perfectly valid.
+
+    Deliberately *not* a `ProviderError`, which is the one type here that means "the
+    provider is having trouble". Two places soften a `ProviderError` into a graceful end so
+    that a judgement in progress is not lost to a bad minute — and softening this one would
+    send the same impossible request a second time to terminalise it. Nothing about the next
+    minute is different, so the only thing that ends it is a person changing what is
+    permitted, which is why the message carries the gateway's own reason verbatim.
+    """
+
+
 class ModelOutputValidationError(ArchCompassError):
     pass
 

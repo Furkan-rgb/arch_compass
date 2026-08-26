@@ -146,11 +146,10 @@ def test_the_request_carries_the_ceiling_openrouter_can_route_on(
 ) -> None:
     """`max_tokens`, and never `max_completion_tokens`, and this is not a preference.
 
-    `provider.require_parameters` is matched against every parameter in the body, and no
-    endpoint of `google/gemini-3.5-flash-lite` declares `max_completion_tokens` while all
+    No endpoint of `google/gemini-3.5-flash-lite` declares `max_completion_tokens` while all
     seven declare `max_tokens`. `ChatOpenAI`'s own field normalises to the first whichever
     name it is given, so the ceiling goes through `extra_body`, which the SDK passes
-    verbatim. The two together were a 404 on every request.
+    verbatim.
     """
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -167,27 +166,32 @@ def test_the_request_carries_the_ceiling_openrouter_can_route_on(
     built = cast("Any", build_chat_model(config))
     body = cast("dict[str, Any]", built.extra_body)
 
-    assert body == {"max_tokens": 8_000, "provider": {"require_parameters": True}}
+    assert body == {"max_tokens": 8_000}
 
 
-def test_the_route_is_required_to_support_what_was_asked_for() -> None:
-    """The difference between "this route probably honours a schema" and "this route does".
+def test_no_provider_routing_preference_is_sent_at_all() -> None:
+    """`provider.require_parameters` is gone, and nothing replaced it.
 
-    OpenRouter's default is a soft preference that never removes a candidate endpoint, and
-    a model's catalogue capabilities are a union across its endpoints — five of twenty on
-    `openai/gpt-oss-120b` do not support structured output. Without this the review looks
-    fine and is not.
+    It was here to turn OpenRouter's soft routing preference into a hard filter. Nothing was
+    ever observed to be served by an endpoint that dropped what was asked, so the guarantee
+    was never seen to be worth anything — while the filter was observed to remove every
+    remaining route and refuse the request outright when an account's own provider policy
+    narrowed underneath it.
+
+    `provider` is asserted absent rather than empty, because an empty block is still a
+    preference OpenRouter reads, and because nothing here is entitled to weaken the privacy,
+    ZDR or provider policy that the account itself sets.
     """
 
-    assert openrouter.request_body(1)["provider"] == {"require_parameters": True}
+    assert "provider" not in openrouter.request_body(1)
+    assert "provider" not in openrouter.request_body(1, "medium")
 
 
 def test_a_depth_is_sent_only_when_one_was_asked_for() -> None:
     """`None` means the model's own default, and says nothing on the wire to mean it.
 
-    Every parameter in the body narrows the endpoints that can serve the request, because
-    `require_parameters` is a hard filter — so one sent to mean "no preference" would be
-    availability spent to say nothing.
+    Every parameter in the body narrows the endpoints that can serve the request, so one
+    sent to mean "no preference" would be availability spent to say nothing.
     """
 
     assert "reasoning" not in openrouter.request_body(1)
@@ -449,3 +453,66 @@ def test_an_embedding_model_withdrawn_upstream_leaves_the_chooser(
     monkeypatch.setattr(openrouter, "_catalogue", lambda path, key: [])
 
     assert openrouter.embedding_candidates("test-key") == ()
+
+
+def test_the_refusal_a_real_transport_produces_is_the_one_that_is_recognised() -> None:
+    """The whole path, because every layer of it renames the failure.
+
+    OpenRouter answers 404, `openai` makes it `NotFoundError`, and `langchain-openai` makes
+    that `OpenAIModelNotFoundError` — a name saying the model does not exist, for a model
+    that does. This asserts against what those layers actually produce rather than against a
+    stand-in, because the stand-in is the part that cannot go stale when they change.
+    """
+
+    from langchain_openai import ChatOpenAI
+
+    from archcompass.domain.errors import NoEligibleProviderError
+    from archcompass.retrying import call_with_retry
+
+    refusal = {
+        "error": {
+            "message": (
+                "No endpoints available matching your guardrail restrictions and data "
+                "policy. Configure: https://openrouter.ai/settings/privacy"
+            ),
+            "code": 404,
+        }
+    }
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(404, json=refusal)
+    )
+    model = ChatOpenAI(
+        model="openai/gpt-5.6-luna-pro",
+        api_key=cast("Any", "test-key"),
+        base_url=openrouter.BASE_URL,
+        http_client=httpx.Client(transport=transport),
+        max_retries=0,
+    )
+
+    with pytest.raises(NoEligibleProviderError) as failure:
+        call_with_retry(
+            lambda: model.invoke("judge this"),
+            subject="Judging a candidate",
+            sleep=lambda _: None,
+        )
+
+    assert "guardrail restrictions and data policy" in str(failure.value)
+    # The model is not what was missing, so nothing here should send a reader to the picker.
+    assert "not a valid model" not in str(failure.value)
+
+
+def test_an_unknown_model_is_left_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Measured: OpenRouter answers an unknown model id with **400**, not 404.
+
+    Which is why a 404 from that chat endpoint can be read as a routing refusal without
+    shadowing a genuine missing model — there is no genuine missing model at that status.
+    """
+
+    from archcompass.retrying import ineligible_reason
+
+    invalid = ValueError(
+        "Error code: 400 - {'error': {'message': "
+        "'openai/nope-does-not-exist is not a valid model ID', 'code': 400}}"
+    )
+
+    assert ineligible_reason(invalid) is None

@@ -31,6 +31,7 @@ from archcompass.domain.errors import (
     ConversationValidationError,
     ExampleNotFoundError,
     ModelOutputValidationError,
+    NoEligibleProviderError,
     NoReasoningModelSelectedError,
     NothingToReviewError,
     PathValidationError,
@@ -196,6 +197,13 @@ def classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         # 409 rather than 503: nothing is unavailable, and nothing about the request is
         # malformed — the workspace simply has not chosen yet.
         return 409, "no_model_selected", False
+    if isinstance(error, NoEligibleProviderError):
+        # 503 like any other unavailability, because that is what it is: no route the
+        # gateway would use was available. Its own code and `False` because the remedy is
+        # not the one `provider_unavailable` implies — nothing is recovering on its own, and
+        # the identical request will be refused identically until somebody widens what the
+        # account permits.
+        return 503, "no_eligible_provider", False
     if isinstance(error, ProviderError):
         return 503, "provider_unavailable", True
     if isinstance(error, PersistenceError):

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from archcompass.domain.errors import ProviderError
+from archcompass.domain.errors import NoEligibleProviderError, ProviderError
 from archcompass.retrying import (
     RetryPolicy,
     call_with_retry,
+    ineligible_reason,
     is_transient,
     suggested_delay,
 )
@@ -183,3 +184,122 @@ def test_an_unrelated_exception_two_layers_down_is_not_read_as_a_rate_limit() ->
     """The chain is walked because a status gets buried, not so that anything counts."""
 
     assert not is_transient(_chained(ValueError("a candidate id was malformed")))
+
+
+class _NotFound(Exception):
+    """What `langchain-openai` raises for any 404: a name that says the model is gone."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.status_code = 404
+
+
+#: The three sentences OpenRouter was observed to refuse a well-formed request with, one per
+#: filter that can empty the route set: the account's data policy, the parameters on the
+#: request, and an explicit provider preference. All three are 404, and an unknown model is
+#: a 400 reading "… is not a valid model ID" — so none of these is about the model.
+INELIGIBLE = (
+    "Error code: 404 - {'error': {'message': 'No endpoints available matching your "
+    "guardrail restrictions and data policy. Configure: "
+    "https://openrouter.ai/settings/privacy', 'code': 404}}",
+    "Error code: 404 - {'error': {'message': 'No endpoints found that can handle the "
+    "requested parameters.', 'code': 404}}",
+    "Error code: 404 - {'error': {'message': 'No allowed providers are available for the "
+    "selected model. Providers serving openai/gpt-5.6-luna-pro-20260709: azure, openai, "
+    "but your request's provider.only preference permits only: cerebras.', 'code': 404}}",
+)
+
+
+@pytest.mark.parametrize("refusal", INELIGIBLE)
+def test_a_route_that_was_filtered_away_is_not_a_missing_model(refusal: str) -> None:
+    """The SDK's name for the status is wrong, and the name is what a reader acts on.
+
+    A 404 here means the gateway had endpoints and was not allowed to use any of them.
+    Reported as `OpenAIModelNotFoundError` it reads as "that model does not exist", which
+    sends a person to the model picker to choose something else — when the model is fine and
+    the thing to change is what their account permits.
+    """
+
+    calls: list[int] = []
+
+    def operation() -> str:
+        calls.append(1)
+        raise _NotFound(refusal)
+
+    with pytest.raises(NoEligibleProviderError) as failure:
+        call_with_retry(operation, subject="Judging a candidate", sleep=Recorder())
+
+    # Once. The filters that excluded every route exclude them again four seconds later.
+    assert len(calls) == 1
+    assert "Judging a candidate" in str(failure.value)
+    # And it is not the type anything softens: two call sites turn a `ProviderError` into a
+    # graceful end, and doing that here would send the same impossible request again.
+    assert not isinstance(failure.value, ProviderError)
+
+
+def test_the_gateway_s_own_reason_survives_the_renaming() -> None:
+    """Which filter emptied the route set is the whole of the remedy.
+
+    Nothing else can reconstruct it: "no eligible provider" alone does not say whether to
+    change a data policy, a provider preference, or the request.
+    """
+
+    def operation() -> str:
+        raise _NotFound(INELIGIBLE[2])
+
+    with pytest.raises(NoEligibleProviderError) as failure:
+        call_with_retry(operation, subject="A finding", sleep=Recorder())
+
+    said = str(failure.value)
+    assert "provider.only preference permits only: cerebras" in said
+    assert "azure, openai" in said
+
+
+def test_the_refusal_is_read_through_the_chain_like_every_other() -> None:
+    """It reaches here under an SDK wrapper when it is raised inside the HTTP client."""
+
+    assert ineligible_reason(_chained(_NotFound(INELIGIBLE[0]))) is not None
+    assert ineligible_reason(_chained(ValueError("no endpoints were indexed"))) is None
+
+
+def test_a_rate_limit_is_still_waited_out_and_not_renamed() -> None:
+    """Transient is decided first, so a temporary refusal keeps its retries.
+
+    The two are told apart by status, not by wording, which is what stops a 429 that happens
+    to mention endpoints from being reported as permanent.
+    """
+
+    attempts: list[int] = []
+    sleep = Recorder()
+
+    def operation() -> str:
+        attempts.append(1)
+        if len(attempts) < 2:
+            raise RateLimited(429, "no endpoints available right now")
+        return "judged"
+
+    assert call_with_retry(operation, subject="A finding", sleep=sleep) == "judged"
+    assert len(attempts) == 2
+
+
+def test_the_api_says_unavailable_without_saying_try_again() -> None:
+    """503 like any other unavailability, and its own code, and not retryable.
+
+    `provider_unavailable` promises a fleet that is recovering; this one is not. Nothing
+    changes until somebody widens what the account permits, so a client that reads the flag
+    and retries would spend the whole schedule learning that.
+    """
+
+    from archcompass.presentation.web.errors import classify_error
+
+    status, code, retryable = classify_error(
+        NoEligibleProviderError("no provider route was allowed to carry it")
+    )
+
+    assert (status, code, retryable) == (503, "no_eligible_provider", False)
+    # And the plain provider failure is untouched: that one really is worth trying again.
+    assert classify_error(ProviderError("503 from upstream")) == (
+        503,
+        "provider_unavailable",
+        True,
+    )

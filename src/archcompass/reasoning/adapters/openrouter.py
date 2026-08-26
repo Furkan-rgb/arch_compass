@@ -140,49 +140,47 @@ def http_client(timeout: float) -> httpx.Client:
 
 
 def request_body(max_output_tokens: int, thinking: ThinkingMode = None) -> dict[str, Any]:
-    """The parameters that go on the wire beside the messages, and why not through the field.
+    """The parameters that go on the wire beside the messages, and why so few of them.
 
-    Two things have to be true at once, and only this shape gets both.
+    Only what the request cannot be made without. Every parameter here is matched against
+    the endpoints that could serve it, so one sent out of habit is availability spent for
+    nothing — and OpenRouter reports the shortfall as a 404 rather than as a complaint about
+    the parameter, which is why the cost of an idle one is a wall rather than a warning.
 
-    `provider.require_parameters` is the difference between "this route probably honours a
-    JSON schema" and "this route does". OpenRouter's default is a soft preference that never
-    removes a candidate endpoint — so a model whose catalogue entry says `structured_outputs`
-    can still be served by one of its endpoints that does not, because the model-level flag
-    is a union across all of them. On `openai/gpt-oss-120b` five of twenty endpoints do not
-    support it. `require_parameters` makes the filter hard, and a route that cannot honour
-    the request is a loud 404 rather than a review that looks fine and is not.
-
-    But it is matched against *every* parameter in the body, and that is why the ceiling is
-    here rather than in `ChatOpenAI(max_completion_tokens=…)`. That field normalises to
-    `max_completion_tokens` on the wire whichever name it is given — measured — and no
-    endpoint of `google/gemini-3.5-flash-lite` declares it, while all seven declare
-    `max_tokens`. The two together were a 404 on every request; `max_tokens` through
-    `extra_body`, which the SDK passes verbatim, is a 200.
-
-    So the ceiling is enforced twice over: the route is chosen for supporting it, and the
-    route then applies it. Measured: `max_tokens=16` came back with 12 completion tokens and
+    `max_tokens` rather than `ChatOpenAI(max_completion_tokens=…)`, and through `extra_body`
+    rather than through the field. That field normalises to `max_completion_tokens` on the
+    wire whichever name it is given — measured — and no endpoint of
+    `google/gemini-3.5-flash-lite` declares it while all seven declare `max_tokens`.
+    `extra_body` is passed verbatim, so this is the only way to send the name the endpoints
+    have. Measured: `max_tokens=16` came back with 12 completion tokens and
     `finish_reason="length"`.
-
-    Which is also why nothing else is here. Every parameter in the body narrows the set of
-    endpoints that can serve the request, so one sent out of habit is availability spent for
-    nothing — and `temperature` was exactly that. It was pinned to 0 for a determinism this
-    path does not have: measured over three runs of one candidate set on identical input,
-    verdicts moved anyway (`material`, `cleared`, `held` for the same candidate). What it did
-    buy was a narrower route — three of `google/gemini-3.5-flash-lite`'s seven endpoints
-    declare it — and on a reasoning-only model it bought a wall: none of
-    `openai/gpt-5.6-luna-pro`'s five endpoints accept `temperature` at all, so every request
-    was a 404 before a candidate was ever read. It is not sent now, and the model's own
-    default stands.
 
     `reasoning` is sent only when a depth was asked for. OpenRouter spells it as an effort
     on both of the two shapes its endpoints declare, and this is the portable one; absent, a
     model reasons however it reasons, which is what `None` has always meant here.
+
+    What is deliberately gone, and what that costs. `provider.require_parameters` used to be
+    here to turn OpenRouter's soft routing preference into a hard filter, on the reasoning
+    that a model's catalogue capabilities are a union across its endpoints and a route that
+    silently could not hold a schema would produce a review that looked fine and was not.
+    Measured against that: no judgement was ever observed to be served by an endpoint that
+    dropped what was asked, across the whole qualification programme, so the guarantee was
+    never seen to be worth anything. What it was observed to cost is a hard 404 — every
+    eligible endpoint of `openai/gpt-5.6-luna-pro` declares the two parameters sent here,
+    and a narrowing of that account's own provider policy still left the filter with nothing
+    to choose, mid-experiment, reported as "No endpoints available matching your guardrail
+    restrictions and data policy".
+
+    So the filter is not sent, and the residual risk is stated rather than defended against:
+    a request may be routed to an endpoint whose support for structured output is weaker
+    than its model's catalogue row claims. That failure is loud — the schema call raises —
+    and `_judgeable` still refuses to offer a model whose catalogue does not declare both
+    capabilities. Nothing here weakens or overrides an account's own privacy, ZDR or
+    provider policy; those filters are OpenRouter's to apply and this simply stops
+    intersecting a second one with them.
     """
 
-    body: dict[str, Any] = {
-        "max_tokens": max_output_tokens,
-        "provider": {"require_parameters": True},
-    }
+    body: dict[str, Any] = {"max_tokens": max_output_tokens}
     if isinstance(thinking, str):
         body["reasoning"] = {"effort": thinking}
     return body
