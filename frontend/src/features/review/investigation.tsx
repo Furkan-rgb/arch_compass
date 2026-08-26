@@ -65,6 +65,7 @@ const ENDINGS: Record<string, string> = {
   lookup_limit: "cut short: no lookups left",
   investigation_size_limit: "cut short: too much gathered",
   provider_error: "cut short: the model stopped answering",
+  malformed_judgement: "cut short: the answer could not be used",
 };
 
 function ending(termination: string | null | undefined): string {

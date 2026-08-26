@@ -149,6 +149,12 @@ class Termination(StrEnum):
     #: identical answer cannot differ from the first two — this is a stuck loop, not a
     #: search, and it is the shape a spent budget hides.
     REPEATED_TOOL_CALL = "repeated_tool_call"
+    #: The model answered in a shape the contract cannot use, twice — the second time having
+    #: been shown the rule it broke. Not a fact about the repository and not a spent budget:
+    #: the gathering is ended so the reserved final call can ask for the judgement plainly,
+    #: because a schema the model cannot satisfy inside a tool loop is sometimes one it can
+    #: satisfy without one.
+    MALFORMED_JUDGEMENT = "malformed_judgement"
 
 
 @dataclass(frozen=True, slots=True)

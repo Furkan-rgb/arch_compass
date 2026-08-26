@@ -25,7 +25,11 @@ every run where it fired the verdict matched what a hosted model reached unaided
 
 `_OneRepair` is the one correction a malformed answer gets. `ToolStrategy`'s own error
 handling retries until something else stops it — measured at eight calls against a model
-that could not satisfy the schema — so the bound has to be held here.
+that could not satisfy the schema — so the bound has to be held here. A second malformed
+answer ends the gathering rather than the review, and terminalisation covers it like any
+other breaker: `gemini-3.5-flash-lite` twice attached a recommendation to a verdict that may
+not carry one, and the raise took down a whole review that had already judged every other
+candidate.
 """
 
 # `create_agent` is three overloads generic in the response format, and pyright cannot
@@ -45,7 +49,7 @@ from typing import Any, cast
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
-from langchain.agents.structured_output import ToolStrategy
+from langchain.agents.structured_output import StructuredOutputError, ToolStrategy
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
@@ -165,6 +169,16 @@ class _Gathering(AgentMiddleware[Any, Any]):
             self.termination = Termination.PROVIDER_ERROR
             self.detail = str(error)
             return AIMessage("")
+        except StructuredOutputError as error:
+            # The one `_OneRepair` refused to correct a second time. It is raised from inside
+            # the model node, which is exactly here, and letting it past this point ends the
+            # whole review over one candidate — after every other one has been judged and
+            # paid for. Ended like any other breaker instead: the caller terminalises, which
+            # asks the same conversation for the judgement plainly — one structured call, no
+            # tools competing for the answer, and one more correction of its own.
+            self.termination = Termination.MALFORMED_JUDGEMENT
+            self.detail = str(error)
+            return AIMessage("")
 
     def wrap_tool_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
         call = getattr(request, "tool_call", {}) or {}
@@ -220,6 +234,10 @@ class _OneRepair:
     a callback's clothes — measured at eight model calls against a model that could not
     satisfy the schema. Raising the second time is what ends it.
 
+    Raising ends the gathering, not the review. `_Gathering.wrap_model_call` catches what
+    this throws, because that is where a refusal from inside the model node passes, and the
+    judgement finishes at the reserved final call like any other cut-short run.
+
     One per invocation. Sharing one across candidates would spend the repair on whichever
     judgement failed first and refuse every other.
     """
@@ -231,10 +249,21 @@ class _OneRepair:
         if self.used:
             raise error
         self.used = True
+        # Says which side to answer from, and not only that two fields conflict. What fails
+        # here is almost never the JSON — the tool call constrains that — but a condition
+        # between fields, and a condition can be satisfied by dropping either half. The
+        # verdict is the half the model chose deliberately, so it is the half to keep.
+        # Observed: `gemini-3.5-flash-lite` recommended a response on a verdict that was not
+        # material, read a correction naming the verdict, the reasoning and the citation, and
+        # answered again in a shape the same rule refused.
         return (
             f"That judgement was refused: {error}\n"
-            "State the verdict, the reasoning and at least one policy citation once more, "
-            "honouring the rule that was broken."
+            "Some of these rules are conditions between fields that the output schema "
+            "cannot state on its own, so a well-formed answer is not enough. Every one of "
+            "them is anchored on the verdict: keep the verdict you argued for and make the "
+            "other fields follow it — a hinge only where it is held, a recommended response "
+            "only where it is material, and at least one policy citation whichever it is. "
+            "State the judgement once more, honouring the rule that was broken."
         )
 
 
@@ -409,7 +438,7 @@ class DeepArchitectureJudge:
         )
         output = final.get("structured_response")
         if not isinstance(output, FindingOutput):
-            output = self._terminalise(final, subject)
+            output = self._terminalise(final, subject, why=gathering.termination)
         subject.termination = gathering.termination or Termination.NATURAL_END
         # The set the citation check runs against, and the one the review will store: the
         # deterministic retrieval widened by whatever this judgement searched out for itself.
@@ -417,7 +446,7 @@ class DeepArchitectureJudge:
         return self._finding(output, candidate, subject.retrieval)
 
     def _terminalise(
-        self, final: Mapping[str, object], subject: ReviewedSubject
+        self, final: Mapping[str, object], subject: ReviewedSubject, *, why: Termination | None
     ) -> FindingOutput:
         """The reserved final call: same conversation, no tools, one answer.
 
@@ -427,17 +456,27 @@ class DeepArchitectureJudge:
         review a finding: measured on a local model, gathering alone reached a verdict twice
         in ten runs and this reached one ten times in ten, agreeing every time with what a
         hosted model reached unaided.
+
+        `why` is there because the closing turn has to be true. Every other ending is a
+        budget, and "you have no lookups left" is what happened; a malformed answer is not,
+        and telling a model it ran out of lookups when what it did was break a rule of the
+        contract points it away from the one thing it has to do differently.
         """
 
         subject.terminalised = True
         held = cast("Sequence[BaseMessage]", final.get("messages") or ())
-        messages: list[BaseMessage] = [
-            *held,
-            HumanMessage(
+        closing = (
+            "Your last answer was refused, and this is the last time you will be asked. "
+            "Using only what is already above, state your judgement now in the required "
+            "structured form: the verdict you argued for, and every other field following "
+            "from it."
+            if why is Termination.MALFORMED_JUDGEMENT
+            else (
                 "You have no lookups left. Using only what is already above, state your "
                 "judgement now in the required structured form."
-            ),
-        ]
+            )
+        )
+        messages: list[BaseMessage] = [*held, HumanMessage(closing)]
         return structured_output(
             self._model,
             FindingOutput,

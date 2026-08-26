@@ -147,6 +147,54 @@ class _AlwaysGreps(_Structured):
         )
 
 
+class _MalformedTwice(_Structured):
+    """A model that twice answers in a shape the contract refuses. Observed, not invented.
+
+    `gemini-3.5-flash-lite` recommended a response on a verdict that may not carry one, read
+    the correction, and did it again. It answers the terminal structured call like any other
+    model, because a schema a model cannot satisfy while it is also holding a tool loop open
+    is often one it can satisfy on its own.
+    """
+
+    def _generate(
+        self,
+        messages: Any,
+        stop: Any = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        del messages, stop, run_manager, kwargs
+        return ChatResult(
+            generations=[
+                ChatGeneration(
+                    message=AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "FindingOutput",
+                                "args": {
+                                    "verdict": "cleared",
+                                    "reasoning": "The port is substituted in tests.",
+                                    "policy_bearings": [
+                                        {
+                                            "policy_id": "delay-premature-abstraction",
+                                            "reasoning": "Its exception applies.",
+                                        }
+                                    ],
+                                    # The rule no JSON schema can carry, and the one a
+                                    # hosted model broke twice in a row.
+                                    "recommended_response": "Fold the port into its caller.",
+                                },
+                                "id": "call",
+                                "type": "tool_call",
+                            }
+                        ],
+                    )
+                )
+            ]
+        )
+
+
 class _Toolbox:
     """Offers one recording tool, so a test can count what was actually executed."""
 
@@ -211,6 +259,33 @@ def test_the_same_question_asked_a_third_time_ends_the_gathering() -> None:
     # And the review still gets a finding, which is the whole reason a breaker may be tight.
     assert subject.terminalised
     assert finding.verdict
+
+
+def test_a_judgement_refused_twice_costs_a_candidate_and_not_the_review() -> None:
+    """The one refusal that used to escape, out of the one place a breaker cannot reach.
+
+    `_OneRepair` raises on the second malformed answer, and that raise comes from inside the
+    model node — past the agent, past `judge`, and out through the graph, which fails the
+    whole review after every other candidate has already been judged and paid for. Observed
+    on `gemini-3.5-flash-lite`, which twice put a recommended response on a verdict that may
+    not carry one. It is a malformed answer, so it ends the gathering, like every other
+    ending that is not a verdict.
+    """
+
+    subject = _subject()
+    candidate = _candidate()
+
+    finding = _judge_with(_MalformedTwice(messages=iter([])), _Toolbox()).judge(
+        candidate, ArchitectureCase.create(), _policies(candidate), subject=subject
+    )
+
+    assert subject.termination is Termination.MALFORMED_JUDGEMENT
+    # Corrected once and refused the second time, rather than retried until something else
+    # stopped it.
+    assert subject.terminalised
+    # And the review still gets a finding — the whole point of ending rather than raising.
+    assert finding.verdict.value == "cleared"
+    assert finding.recommended_response is None
 
 
 def _judge_with(model: Any, toolbox: Any) -> DeepArchitectureJudge:
