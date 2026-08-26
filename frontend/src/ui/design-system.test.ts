@@ -21,16 +21,48 @@ function sourceFiles(directory: string, prefix = ""): string[] {
   });
 }
 
+/**
+ * The file with its comments blanked out, and its line numbering intact.
+ *
+ * Every rule below is a rule about what the *code* does, and this codebase argues for its
+ * decisions in prose sitting directly above the code that makes them — so the comment
+ * explaining why a class was removed contains that class, and a guard reading raw lines
+ * reports the explanation as the offence. The alpha rule found fifteen of those and not one
+ * real violation; it would have been unusable without this.
+ *
+ * Blanked rather than dropped, so a match still reports the line number a reader can open.
+ *
+ * Two regexes rather than a character scanner, and that is the second attempt. A scanner has
+ * to track string state to know that `//` inside `"https://…"` is not a comment — and then it
+ * has to understand JSX, because an apostrophe in `<p>the reviewer's answer</p>` is not a
+ * string delimiter, and treating it as one leaves the scanner quoted for the rest of the
+ * file. The lookbehind buys the URL case for one character and nothing else has to be
+ * understood at all.
+ */
+function withoutComments(source: string): string {
+  return (
+    source
+      // Block comments, JSX ones included — `{/* … */}` is a `/* … */` with a brace on it.
+      // Newlines are kept so a match still reports a line number a reader can open.
+      .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, " "))
+      // Line comments. The negative lookbehind is for `https://…` inside a class list or a
+      // doc link: a colon before the slashes means a URL, not the start of a comment.
+      .replace(/(?<!:)\/\/[^\n]*/g, (line) => " ".repeat(line.length))
+  );
+}
+
 function offenders(pattern: RegExp, allowed: ReadonlySet<string> = new Set()): string[] {
   return sourceFiles(ROOT)
     .filter((file) => !allowed.has(file))
-    .flatMap((file) =>
-      readFileSync(join(ROOT, file), "utf8")
+    .flatMap((file) => {
+      const raw = readFileSync(join(ROOT, file), "utf8").split("\n");
+      return withoutComments(readFileSync(join(ROOT, file), "utf8"))
         .split("\n")
         .map((text, index) => ({ file, line: index + 1, text: text.trim() }))
         .filter((entry) => pattern.test(entry.text))
-        .map((entry) => `${entry.file}:${entry.line} — ${entry.text}`),
-    );
+        // Reported from the raw line, because a blanked one is not something to go and read.
+        .map((entry) => `${entry.file}:${entry.line} — ${raw[entry.line - 1].trim()}`);
+    });
 }
 
 describe("the design system", () => {
@@ -233,6 +265,41 @@ describe("the design system", () => {
     expect(
       offenders(/text-\[10px\][^"'`]*uppercase|uppercase[^"'`]*text-\[10px\]/, new Set(["ui/panel.tsx"])),
       "use <Label> from ui/panel.tsx — the recipe is one place, at tracking 0.13em",
+    ).toEqual([]);
+  });
+
+  /**
+   * A tone is a ground on the ramp, never an alpha of one.
+   *
+   * This is the rule the whole system nearly lost to, and it lost to it silently. Five washes
+   * were written as `bg-sunken/60`, `bg-sunken/40`, `bg-sunken/70`, `bg-sunken/50` and
+   * `bg-surface/40`, and every one of them looked like a small, local, obviously-fine choice.
+   * They are not, because an alpha does not composite the same distance on two grounds:
+   * sixty per cent of `#ebebeb` over a `#f5f5f5` canvas lands six values away, and sixty per
+   * cent of `#1f1f1f` over `#000000` lands nineteen. So each one was a real step in dark and
+   * very nearly nothing in light — a tone system that worked in one theme. The clarification
+   * card, the one block in the product that stops every candidate below it, was among them:
+   * unmissable in dark, almost invisible in light.
+   *
+   * The ink ramp had the same fault for the same reason. `text-ink-3/50` composited to
+   * `#afafaf` on a white panel, 2.0:1 — below the 4.5:1 that `tokens.test.ts` measures the
+   * ramp itself against, and reached by a route that file cannot see. That is what makes this
+   * a separate guard rather than a note in the other one: `tokens.test.ts` proves the declared
+   * values are readable, and an alpha at a call site is how a component gets an undeclared
+   * value that was never measured.
+   *
+   * The rule, then: if a value you want is not on the ramp, name it in `styles.css` where the
+   * next reader and the contrast test can both find it. Do not mix it here.
+   *
+   * `--overlay`, `--chrome`, `--accent-soft`, `--held-soft`, `--cleared-soft` and the two rule
+   * tokens are all *declared* with an alpha, which is a different thing and is fine — they are
+   * named values with one definition, and a scrim over unknown content has to be translucent
+   * to do its job at all. What is forbidden is minting a new one at a call site.
+   */
+  it("never mixes a tone out of an alpha of a ramp token", () => {
+    expect(
+      offenders(/\b(?:bg|text|border|from|to|via|fill|stroke)-(?:canvas|sunken|surface|surface-2|control|control-2|ink|ink-2|ink-3|band)\/\d/),
+      "name the value in styles.css — an alpha composites to a different step in each theme",
     ).toEqual([]);
   });
 });

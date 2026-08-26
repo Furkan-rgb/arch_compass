@@ -199,13 +199,21 @@ function latestAt(lineage: Lineage, now: number): number {
  * the same words the review's own head uses, and the claims are read where they can be acted
  * on. Two totals of the same list that disagree on two screens are worse than one, so this
  * counts exactly what `ReviewCounts` counts: candidates `needsAttention` still holds open,
- * plus the questions of a round that is still answerable.
+ * plus one for a round that is still answerable.
+ *
+ * One for the round, not one per question, and the two pages drifted apart on exactly that.
+ * `ReviewCounts` moved to counting the round once — a held review with five outstanding
+ * candidates and four questions was saying "9 things still want you" directly above a chip
+ * reading "Attention 5" — and this stayed on `questions.length`, so a review with more than
+ * one open question was reported differently on the two screens that promise to agree. The
+ * docket lists an open round as a single first item, which is what makes one the honest
+ * number: it is one thing to go and do.
  */
 function wantsOf(review: Review, decisions: Map<string, Decision>): number {
   const outstanding = review.findings.filter((finding: Finding) =>
     needsAttention(finding, decisions.get(finding.candidate.id)),
   ).length;
-  return outstanding + (awaitsAnswers(review) ? review.questions.length : 0);
+  return outstanding + (awaitsAnswers(review) ? 1 : 0);
 }
 
 /**

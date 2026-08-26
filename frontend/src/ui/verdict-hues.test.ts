@@ -49,7 +49,6 @@ const ALLOWED = new Map([
   ],
   ["features/review/docket.tsx", "the clarification card, shown only while the review is held"],
   ["features/landing/specimen.tsx", "a specimen bearing; those really are verdicts"],
-  ["features/landing/landing-page.tsx", "a specimen finding, shown as an example of one"],
 ]);
 
 function sourceFiles(directory: string, prefix = ""): string[] {

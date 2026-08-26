@@ -112,8 +112,10 @@ browser's synthetic slant is doing something honest — leaning a line that is a
 | 12–12.5 | Sans / mono | Footnotes, counts, the docket's meta line |
 | 13 | Sans | Controls, a docket row's claim, secondary body |
 | 14 | Mono, 500 | A docket row's identifier; sans at 14 sets a notice |
+| 15 | Sans, 600 | A panel's heading, and a section heading under a page title |
 | 15–17 | Mono | The review head — the repository, branch and commit that identify a review |
 | 16 | Sans, 400, `1.65` | **The model's reasoning.** Its own size, used nowhere else |
+| 17 | Sans, 600, `-0.02em` | An app page's `h1`. It was 28px, which spent the largest type on the page on the word the reader is least in doubt about — they pressed the nav link that says it. The landing display is a different job and keeps its own row below |
 | 34–62 | Sans, 600, `-0.035em` | Landing display only, `clamp()`ed |
 
 Measure: the model's prose caps at `62ch`, and everything else between `60ch` and `64ch`. Digits that line up in
