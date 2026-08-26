@@ -110,9 +110,27 @@ export function Tabs({
                 ? cn(
                     // `py-3`, not `py-2.5`: at 10px the row measured 42px on a phone, two
                     // short of the 44px floor, and a tab has the room for the other two.
-                    // `px-2` below `sm` buys 8px a tab back across six tabs, which is what
-                    // pulls the review's last surface inside a 390px viewport at all.
-                    "-mb-px border-b-2 px-2 py-3 sm:px-3",
+                    //
+                    // The last three pixels were a *width*, and no amount of height answers
+                    // a width. "Ask" is the shortest label the review has, and 8+8 of
+                    // padding around a 24.6px word is 40.6px on the phone. The obvious
+                    // repair is to let every tab take `px-3` below `sm` as well, and it is
+                    // still the wrong one — but not for the reason this comment used to
+                    // give. It used to say `px-2` was what pulled the review's last surface
+                    // inside a 390px viewport at all; that stopped being true when the
+                    // strip above learned to scroll and to fade its ends, and overflowing
+                    // it is now survivable rather than fatal.
+                    //
+                    // Survivable is not free. Measured at 390px the six surfaces are 351.8px
+                    // of tabs and gaps inside a 374px track, `px-3` adds 8px a tab and makes
+                    // them 399.8px, and the first tab to go behind the right-hand fade would
+                    // be Ask — the one tab that was too small to hit. So the floor is
+                    // answered where it is missing and nowhere else. `min-w-11` is 44px, it
+                    // moves only a label narrower than that, it leaves the strip at 355.3px
+                    // in the same 374px track, and a fine pointer keeps the density the
+                    // narrow padding exists for. `justify-center` is what holds a widened
+                    // label under the middle of its own underline.
+                    "-mb-px justify-center border-b-2 px-2 py-3 pointer-coarse:min-w-11 sm:px-3",
                     // The hover takes emphasis off rather than adding chrome. Both states
                     // used to be a 2px underline resolving to `text-ink`, so for the seconds
                     // a pointer rested on a neighbour the only thing separating "you are

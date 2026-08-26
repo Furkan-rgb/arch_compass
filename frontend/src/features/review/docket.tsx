@@ -14,6 +14,7 @@ import { Input } from "../../ui/field";
 import { ArrowDown, ArrowUp, ChevronDown, DriftedIcon } from "../../ui/icons";
 import { Label } from "../../ui/panel";
 import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
+import { Prose } from "../../ui/prose";
 import { RejudgementNote, type useRejudgementNotice } from "../start/run-progress";
 import { ClarificationRound, type RoundAnswers } from "./clarification";
 import { DecisionBar } from "./decision-bar";
@@ -570,19 +571,21 @@ function DocketRow({
             asks for, and the label stretches to the row's full height for the other axis. */}
         <label
           className={cn(
-            // `pt-3`, `mt-px` and a 15px box: the same three values the verdict mark beside
-            // it carries, so the two squares sit on one centre line 20.5px from the row's
-            // top. The box was `size-4` and landed half a pixel high; at `pt-4` its centre
-            // was 25px against the mark's 20.5 — two same-sized squares, adjacent, on
-            // visibly different centre lines. Stating the alignment in the classes rather
-            // than only in this comment is what the third value buys.
+            // Centred on the row, with the verdict mark, the trajectory and the copy
+            // control — every piece of a row's chrome, as against its text, which stays
+            // where it starts.
             //
-            // Not centred on the row. A row is 89px tall with a one-line claim and 108px
-            // with two, so a box centred on the row would land at a different height on
-            // every row, and a column that does not line up is the one thing a surface read
-            // by scanning down columns cannot afford. It is aligned instead to the one thing
-            // beside it that is also a square.
-            "flex shrink-0 cursor-pointer items-start pl-3 pt-3 transition sm:pl-4",
+            // This reverses the reasoning that stood here, and the reasoning was not wrong:
+            // a row is 89px tall with a one-line claim and 108px with two, so a centred
+            // column lands at a different height on every row, and a surface read by
+            // scanning down a column pays for that. What it missed is that the chrome was
+            // not reading as a column in the first place. It was reading as a band across
+            // one row — a box, a mark, a name, and 700px away a strip of the same circles —
+            // and a band pinned to the top of a three-line row sits visibly above the
+            // weight of the thing it belongs to. The user reported it twice. The cost is
+            // named and accepted: the boxes no longer form a straight edge down a docket of
+            // mixed row heights.
+            "flex shrink-0 cursor-pointer items-center pl-3 transition sm:pl-4",
             "pointer-coarse:pl-4 pointer-coarse:pr-3.5",
             selected || selecting
               ? "opacity-100"
@@ -593,7 +596,7 @@ function DocketRow({
             type="checkbox"
             checked={selected}
             onChange={(event) => onSelect(event.target.checked)}
-            className="mt-px size-[15px] accent-[var(--ink)]"
+            className="size-[15px] accent-[var(--ink)]"
           />
           <span className="sr-only">Select {identity}</span>
         </label>
@@ -616,10 +619,13 @@ function DocketRow({
           // `min-h-14`, still the thing that takes focus and the Enter key.
           className="flex min-w-0 flex-1 min-h-14 items-start gap-3 px-3 py-3 text-left sm:px-4"
         >
+          {/* `self-center` rather than the button's own `items-start`: the button has to
+              stay top-aligned for the text block beside it, which is three lines and grows,
+              and only the mark travels with the chrome. */}
           <Mark
             shape={descriptor.glyph}
             className={cn(
-              "mt-px size-[15px] shrink-0",
+              "size-[15px] shrink-0 self-center",
               settled ? "text-ink-3" : TONE_TEXT[descriptor.tone],
             )}
           />
@@ -701,10 +707,22 @@ function DocketRow({
             </span>
           </span>
 
-          <span className="flex shrink-0 items-center gap-2 pt-0.5">
-            {/* The strip once the heavy reviews query has landed, and the room it will take
-                until then. Sized from the cheap listing's depth rather than from a flat
-                width, so the row is laid out once. */}
+          {/* `self-center`, so the strip and the chevron ride the row's own centre line with
+              the checkbox, the verdict mark and the copy control. The `pt-0.5` that used to
+              sit here is gone with them.
+
+              This is the second answer to the same complaint and the first one was too
+              literal. The strip's marks were put on the 20.5px line the checkbox and the
+              verdict mark shared, which made the marks agree and left the numbers under them
+              hanging below — so the right end of the row still read as sitting lower than the
+              left, because what an eye compares at that distance is the block, not the row of
+              circles inside it. Centring the whole strip is what makes the two ends of a row
+              look like two ends of one row.
+
+              The strip once the heavy reviews query has landed, and the room it will take
+              until then. Sized from the cheap listing's depth rather than from a flat width,
+              so the row is laid out once. */}
+          <span className="flex shrink-0 items-center gap-2 self-center">
             {lineage.length > 1 ? (
               <CandidateTrajectory
                 lineage={lineage}
@@ -726,7 +744,7 @@ function DocketRow({
             reader does forty times down a list, and forty copy controls on a docket would be
             forty things to skip past. */}
         {open ? (
-          <div className="flex shrink-0 items-start pr-2 pt-3">
+          <div className="flex shrink-0 items-center pr-2">
             <CopyButton value={link} label="Copy link to this finding" />
           </div>
         ) : null}
@@ -1023,7 +1041,7 @@ function RoundRecorded({
         {said.map((item) => (
           <li key={item.question.id} className="rounded-md border border-rule bg-surface-2 px-3 py-2">
             <div className="text-[12.5px] font-semibold leading-5 text-ink">
-              {item.question.text}
+              <Prose>{item.question.text}</Prose>
             </div>
             <div className="mt-1 text-[12.5px] leading-5 text-ink-2">
               {held ? (

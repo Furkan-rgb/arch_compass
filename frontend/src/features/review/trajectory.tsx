@@ -3,7 +3,6 @@ import { cn } from "../../lib/cn";
 import { verdictOf } from "../../lib/format";
 import { Mark } from "../../ui/mark";
 import { TONE_TEXT } from "../../ui/meta";
-import { Label } from "../../ui/panel";
 
 /**
  * What this candidate has been called, review after review.
@@ -80,16 +79,32 @@ export function CandidateTrajectory({
     // desktop-only.
     <>
       <span className="sr-only">Across this branch — {said}.</span>
+      {/* No visible label. The word "Across" stood here and told a sighted reader what the
+          drawing beside it was already saying: one mark per review, numbered, at the right
+          end of a row whose lineage is the only thing they could be counting. It cost about
+          56px of a row whose claim is the line the docket exists to make scannable, to name
+          something nobody was in doubt about. The sentence above is not the same thing said
+          twice — it is the whole fact for a reader who never gets the drawing — and it stays.
+
+          The cap is a guard now rather than a squeeze. `max-w-[15rem]` was 240px, and the
+          deepest strip this component can draw is six 28px nodes and five 16px connectors:
+          248px, eight pixels over its own cap, so `flex-wrap` below did exactly what it was
+          told and put five nodes on one line and the sixth on a second behind a dangling
+          connector. 17.5rem is 280px and clears the 274px a six-node strip with a two-digit
+          `+N` takes, so the wrap never fires. The width comes out of what the label was
+          holding; the rest of it goes back to the claim, and DRAWN rather than this cap is
+          what stops a long lineage taking the row. */}
       <div
         aria-hidden="true"
-        className={cn("flex min-w-0 max-w-[15rem] items-start gap-2", className)}
+        className={cn("flex min-w-0 max-w-[17.5rem] items-start gap-2", className)}
       >
-        <Label className="shrink-0 pt-[3px]">Across</Label>
         {/* The count of what is not drawn, in the same mono the numbers under the nodes are
             set in: a strip that silently began at review 7 would be claiming the candidate
-            started there. */}
+            started there. It is given the mark row's own box, so it sits on the marks' centre
+            line by the same 15px-and-`mt-px` recipe they use, rather than by a `pt-[3px]`
+            that was tuned against a box height this strip no longer has. */}
         {elided ? (
-          <span className="shrink-0 pt-[3px] font-mono text-[10px] tabular-nums text-ink-3">
+          <span className="mt-px flex h-[15px] shrink-0 items-center font-mono text-[10px] tabular-nums text-ink-3">
             +{elided}
           </span>
         ) : null}
@@ -98,11 +113,30 @@ export function CandidateTrajectory({
             const descriptor = step.verdict ? verdictOf(step.verdict) : null;
             return (
               <li key={step.id} className="flex items-center">
-                {index ? <span className="mb-4 block h-px w-3 bg-rule-strong sm:w-4" /> : null}
+                {/* The connector lies on the mark row's centre line, not on the middle of the
+                    node. A node is a column of a mark, a number and an underline, and the
+                    middle of that column is nowhere in particular — it was `mb-4` asking the
+                    column's total height to place the rule, which left the hairline a pixel
+                    and a half below the marks it joins. `self-start` plus 8px from the top of
+                    a node whose mark box starts at 1 and is 15 tall lays the rule across 8–9,
+                    which is that box's centre. */}
+                {index ? (
+                  <span className="mt-[8px] block h-px w-3 self-start bg-rule-strong sm:w-4" />
+                ) : null}
                 <span className="flex w-6 flex-col items-center gap-1 sm:w-7">
                   {/* A fixed box so a verdict mark and the smaller "not raised" dot share one
-                      centre line, and the strip stays level whatever each step holds. */}
-                  <span className="grid h-[18px] place-items-center">
+                      centre line, and the strip stays level whatever each step holds.
+
+                      15px and `mt-px` are two of the three values the checkbox and the verdict
+                      mark at the left of the row carry; the third is the `py-3` on the row's
+                      own button, which this strip now sits directly under. So the mark row
+                      lands 20.5px from the row's top, on the line those two are already on.
+                      It was an 18px box under a `pt-0.5` and landed at 23px — two and a half
+                      pixels low, which is what made the right end of the row read as sagging
+                      against the checkbox. 15 rather than 16 because an even box cannot sit
+                      on a half-pixel centre line without a fractional offset, which is the
+                      same reason the checkbox is 15px. */}
+                  <span className="mt-px grid h-[15px] place-items-center">
                     {descriptor ? (
                       <Mark
                         shape={descriptor.glyph}
@@ -166,17 +200,17 @@ export function CandidateTrajectory({
  *
  * The trajectory is drawn from the full reviews query, which is deliberately the heavy one
  * and is fired only once the cheap summary listing has shown the lineage has more than one
- * entry. Until it resolves the docket draws no strip, and when it lands up to 248px appears
+ * entry. Until it resolves the docket draws no strip, and when it lands up to 274px appears
  * on the right of every row at once and every claim sentence rewraps under the eye of
  * somebody who started reading seconds ago.
  *
- * Not a skeleton and not a flat `w-[15rem]`: `max-w-[15rem]` is a cap rather than a width, so
- * a two-revision lineage draws about 110px and a fixed reservation would over-reserve and
- * produce a second, smaller shift when the real strip arrived. This draws the real strip's
- * own structure with the contents left out — the same `Label`, the same computable `+N`, the
- * same fixed `w-6 sm:w-7` nodes and `w-3 sm:w-4` connectors — so the width it holds open is
- * the width the strip takes, at every breakpoint, without either component knowing a number
- * the other does not.
+ * Not a skeleton and not a flat `w-[17.5rem]`: `max-w-[17.5rem]` is a cap rather than a
+ * width, so a two-revision lineage draws about 72px and a fixed reservation would
+ * over-reserve and produce a second, smaller shift when the real strip arrived. This draws
+ * the real strip's own structure with the contents left out — the same computable `+N`, the
+ * same fixed `w-6 sm:w-7` nodes and `w-3 sm:w-4` connectors, on the same centre lines — so
+ * the width and the height it holds open are the width and the height the strip takes, at
+ * every breakpoint, without either component knowing a number the other does not.
  */
 export function TrajectoryPlaceholder({
   depth,
@@ -196,22 +230,26 @@ export function TrajectoryPlaceholder({
     // once its `sr-only` sentence is a sibling of it.
     <div
       aria-hidden="true"
-      className={cn("invisible flex min-w-0 max-w-[15rem] items-start gap-2", className)}
+      className={cn("invisible flex min-w-0 max-w-[17.5rem] items-start gap-2", className)}
     >
-      <Label className="shrink-0 pt-[3px]">Across</Label>
       {elided ? (
-        <span className="shrink-0 pt-[3px] font-mono text-[10px] tabular-nums text-ink-3">
+        <span className="mt-px flex h-[15px] shrink-0 items-center font-mono text-[10px] tabular-nums text-ink-3">
           +{elided}
         </span>
       ) : null}
       <ol className="flex min-w-0 flex-wrap items-center">
         {Array.from({ length: nodes }, (_, index) => (
           <li key={index} className="flex items-center">
-            {index ? <span className="mb-4 block h-px w-3 bg-rule-strong sm:w-4" /> : null}
-            {/* The node's own height, said the way the drawn one says it: an 18px mark box, a
-                10px number and a 2px underline, with the same `gap-1` between them. */}
+            {index ? (
+              <span className="mt-[8px] block h-px w-3 self-start bg-rule-strong sm:w-4" />
+            ) : null}
+            {/* The node's own height, said the way the drawn one says it: a 15px mark box a
+                pixel down, a 10px number and a 2px underline, with the same `gap-1` between
+                them. The `mt-px` is not padding — it is the pixel that puts the mark row on
+                the row's own centre line, and the reservation is wrong by it if it is left
+                out. */}
             <span className="flex w-6 flex-col items-center gap-1 sm:w-7">
-              <span className="block h-[18px]" />
+              <span className="mt-px block h-[15px]" />
               <span className="block h-[10px]" />
               <span className="block h-[2px]" />
             </span>

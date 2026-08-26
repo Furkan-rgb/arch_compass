@@ -560,7 +560,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               room it needs is what the wordtext beside the mark gives back. */}
           <Link
             to="/start"
-            className="ml-1 inline-flex min-h-9 shrink-0 items-center rounded-sm bg-band-ink px-3 text-[13px] font-semibold text-band transition hover:opacity-90 focus-visible:outline-band-ink"
+            // `pointer-coarse:min-h-11`, the same split every other control in this bar
+            // makes: the 44px floor is a touch requirement, so it is answered on a coarse
+            // pointer and nowhere else, and a mouse keeps the 36px density the bar is built
+            // at. This was the one control in the topbar that had not made the split, which
+            // `test_mobile.py` found at 97x36 on a phone.
+            className="ml-1 inline-flex min-h-9 pointer-coarse:min-h-11 shrink-0 items-center rounded-sm bg-band-ink px-3 text-[13px] font-semibold text-band transition hover:opacity-90 focus-visible:outline-band-ink"
           >
             New review
           </Link>
