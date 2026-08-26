@@ -20,11 +20,11 @@ import {
   statusOf,
   verdictOf,
 } from "../../lib/format";
-import { awaitsAnswers, needsAttention, orderedFindings } from "../review/docket-rules";
+import { awaitsAnswers, needsAttention } from "../review/docket-rules";
 import { StatusBadge } from "../../ui/badge";
 import { Button, ButtonLink, ToggleButton } from "../../ui/button";
 import { SearchInput } from "../../ui/field";
-import { ArrowRight, GitBranchIcon } from "../../ui/icons";
+import { GitBranchIcon } from "../../ui/icons";
 import { Mark } from "../../ui/mark";
 import { PathRef, TONE_TEXT } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
@@ -124,116 +124,26 @@ function latestAt(lineage: Lineage, now: number): number {
 }
 
 /**
- * Everything on this page that still wants a person, wherever it lives.
+ * What still wants a person in this review, counted the way the review's own head counts it.
  *
- * This is the section the page was missing. A review history answers a librarian's question —
- * what reviews exist — and the question a returning reviewer actually has is "what wants me
- * now", which no amount of sorting a list of reviews by date will answer: it is a fact about
- * the candidates inside them.
+ * This page used to answer "what wants me now" as a section of its own above the history: a
+ * list of every open candidate across every lineage, each row opening into the review that
+ * held it. It was the right question and the wrong place for the answer. The rows repeated
+ * what the review below them already said, the section pushed the history it belonged to off
+ * the fold, and reading a claim out of context — a candidate's summary with no verdict spread
+ * and no revision around it — is the work, which is what opening the review is for.
  *
- * Only the newest revision of each lineage is consulted. An outstanding candidate in review 3
- * was either carried into review 4, where it is counted, or it went away, and listing both
- * would double every open item on the branch.
+ * So the fact stays and the list goes. A review's row says how much of it wants a person, in
+ * the same words the review's own head uses, and the claims are read where they can be acted
+ * on. Two totals of the same list that disagree on two screens are worse than one, so this
+ * counts exactly what `ReviewCounts` counts: candidates `needsAttention` still holds open,
+ * plus the questions of a round that is still answerable.
  */
-type Wanting = {
-  key: string;
-  review: Review;
-  to: string;
-  title: string;
-  /** What the candidate claims. The reason this list can be read rather than only counted. */
-  claim: string | null;
-  detail: string;
-  glyph: Parameters<typeof Mark>[0]["shape"];
-  tone: ReturnType<typeof verdictOf>["tone"];
-};
-
-function wantingOf(reviews: Review[], decisions: Map<string, Map<string, Decision>>): Wanting[] {
-  return reviews.flatMap((review) => {
-    const branch = decisions.get(review.repository.branch_id ?? "") ?? new Map();
-    const where = `${repositoryName(review.repository.path)}${
-      review.repository.branch ? ` · ${review.repository.branch}` : ""
-    } · review ${review.sequence}`;
-    const open: Wanting[] =
-      awaitsAnswers(review)
-        ? [
-            {
-              key: `${review.id}:clarification`,
-              review,
-              to: `/reviews/${review.id}`,
-              title:
-                review.questions.length === 1
-                  ? "1 question wants an answer"
-                  : `${review.questions.length} questions want an answer`,
-              claim: review.questions[0]?.text ?? null,
-              detail: where,
-              glyph: "pause" as const,
-              tone: "held" as const,
-            },
-          ]
-        : [];
-    const candidates = orderedFindings(review)
-      .filter((finding: Finding) => needsAttention(finding, branch.get(finding.candidate.id)))
-      .map((finding) => {
-        const descriptor = verdictOf(finding.verdict);
-        return {
-          key: `${review.id}:${finding.candidate.id}`,
-          review,
-          to: `/reviews/${review.id}`,
-          title: finding.candidate.participants[0]?.qualified_name ?? finding.candidate.summary,
-          claim: finding.candidate.summary,
-          detail: where,
-          glyph: descriptor.glyph,
-          tone: descriptor.tone,
-        };
-      });
-    return [...open, ...candidates];
-  });
-}
-
-/**
- * One thing that wants a person, carrying what the section above it did not already say.
- *
- * The name and then the claim, which is the docket's rule applied one page up and for the
- * same reason: a column of `ports.Clock`, `ports.ConfigLoader`, `ports.IdGenerator` can be
- * counted but not read, so nothing on it tells you which of seven to open first. The claim
- * is one line here rather than the docket's two — this list is a way in, not the work.
- *
- * `hoisted` is the other half of that rule: where every row names the same review, the row
- * stops naming it and the header says it once. Seven rows all reading "payments-platform ·
- * review 4" is seven copies of a fact and no way to see the one thing that differs.
- */
-function WantingRow({ item, hoisted }: { item: Wanting; hoisted: boolean }) {
-  return (
-    <li>
-      <Link
-        to={item.to}
-        className="flex min-h-11 items-start gap-3 border-b border-rule px-4 py-2.5 transition last:border-b-0 hover:bg-surface-2 sm:px-5"
-      >
-        <Mark
-          shape={item.glyph}
-          className={cn("mt-[3px] size-[15px] shrink-0", TONE_TEXT[item.tone])}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-mono text-[13px] font-medium text-ink">
-            {item.title}
-          </span>
-          {item.claim ? (
-            <span className="mt-0.5 block truncate text-[12.5px] leading-5 text-ink-2">
-              {item.claim}
-            </span>
-          ) : null}
-        </span>
-        {hoisted ? (
-          <span className="sr-only">{item.detail}</span>
-        ) : (
-          <span className="hidden min-w-0 shrink-0 truncate pt-0.5 font-mono text-[11px] text-ink-3 sm:block">
-            {item.detail}
-          </span>
-        )}
-        <ArrowRight className="mt-1 size-4 shrink-0 text-ink-3" aria-hidden="true" />
-      </Link>
-    </li>
-  );
+function wantsOf(review: Review, decisions: Map<string, Decision>): number {
+  const outstanding = review.findings.filter((finding: Finding) =>
+    needsAttention(finding, decisions.get(finding.candidate.id)),
+  ).length;
+  return outstanding + (awaitsAnswers(review) ? review.questions.length : 0);
 }
 
 /**
@@ -315,12 +225,23 @@ function TrajectoryRail({ lineage }: { lineage: Lineage }) {
 function RevisionRow({
   review,
   run,
+  wants,
   onDelete,
   deleting,
 }: {
   review: Review;
   /** The run rejudging this very snapshot, where there is one. */
   run: ReviewRun | null;
+  /**
+   * How much of this revision still wants a person, or `null` where that is not known.
+   *
+   * `null` covers three cases on purpose, and all three are the same instruction: say
+   * nothing. The branch's standing decisions have not arrived yet; they could not be read,
+   * and a count taken without them names candidates the team settled weeks ago; or this is
+   * not the newest revision of its lineage, where an outstanding candidate was either
+   * carried into the revision above — which counts it — or went away.
+   */
+  wants: number | null;
   onDelete: () => void;
   deleting: boolean;
 }) {
@@ -339,6 +260,15 @@ function RevisionRow({
           Review {review.sequence}
         </span>
         <StatusBadge status={review.status} />
+        {/* The one thing on this row that means act, in the words the review's own head
+            uses for it. A zero is not drawn: a history is mostly settled revisions, and
+            "nothing waiting on you" repeated down forty rows is forty lines spent saying
+            that nothing happened. */}
+        {wants ? (
+          <span className="text-[12.5px] font-semibold text-ink">
+            {plural(wants, "thing")} want{wants === 1 ? "s" : ""} you
+          </span>
+        ) : null}
         {run ? (
           <Label className="inline-flex items-center gap-1.5 text-ink-2">
             <Spinner label="" /> Rejudging · {run.stage ? stageLabel(run.stage) : "starting"}
@@ -428,10 +358,13 @@ function PendingRow({ run, sequence }: { run: ReviewRun; sequence: number }) {
 
 function LineageBlock({
   lineage,
+  wants,
   onDelete,
   deleting,
 }: {
   lineage: Lineage;
+  /** How much still wants a person, by review id, for the revisions that know. */
+  wants: Map<string, number>;
   onDelete: (id: string) => void;
   deleting: boolean;
 }) {
@@ -484,6 +417,7 @@ function LineageBlock({
             key={review.id}
             review={review}
             run={review.id === rejudging ? lineage.run : null}
+            wants={wants.get(review.id) ?? null}
             deleting={deleting}
             onDelete={() => onDelete(review.id)}
           />
@@ -509,9 +443,10 @@ export function ReviewsPage() {
   /**
    * The whole reviews, not the summaries, and this is the one listing that cannot move.
    *
-   * "Waiting on you" asks `needsAttention` of every finding in the newest revision of every
-   * lineage, and that is a fact about the findings inside a review — a summary carries
-   * counts in their place. Everything else on this page would be happy with
+   * A row says how much of its revision still wants a person, and that is `needsAttention`
+   * asked of every finding inside it — a summary carries verdict counts in their place, and
+   * a verdict count cannot tell a candidate the team has already decided about from one
+   * nobody has looked at. Everything else on this page would be happy with
    * `api.reviewSummaries()`; asking for both would fetch the same rows twice.
    */
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
@@ -532,8 +467,8 @@ export function ReviewsPage() {
 
   // Every derived list below is memoised, and the reason is the search box. `visible` and
   // `lineages` were rebuilt with fresh array identity on every keystroke, which defeated
-  // every `useMemo` beneath them — including the one guarding `wantingOf`, which sorts the
-  // findings of every lineage it is handed.
+  // every `useMemo` beneath them — including the one guarding the counts, which walk the
+  // findings of every lineage on the page.
   const all = useMemo(() => reviews.data ?? [], [reviews.data]);
   const visible = useMemo(
     () =>
@@ -550,11 +485,12 @@ export function ReviewsPage() {
   /**
    * The newest revision of every line of work, whatever the filters above are set to.
    *
-   * This used to be read off the filtered list, which made the status filter change what
-   * "Waiting on you" said. Pressing **Completed** removed every review awaiting answers —
-   * and with them every open clarification question, out of the one section on the page that
-   * exists to surface them, with the control that did it sitting *below* the section it
-   * emptied. The filter belongs to "Lines of work" and to nothing else.
+   * Which revision is the newest one is a fact about the line of work, not about what the
+   * search box says, so it is read off the whole history. Read off the filtered list instead,
+   * pressing **Completed** would promote the newest *completed* revision to newest — and a
+   * superseded snapshot would then be the row claiming the branch's open work, while the
+   * revision that actually carries it sits filtered out. A filtered-out newest simply leaves
+   * the rows below it saying nothing, which is the honest answer.
    */
   const newest = useMemo(() => {
     const byLineage = new Map<string, Review>();
@@ -577,30 +513,31 @@ export function ReviewsPage() {
    * `combine` rather than a `useMemo` over the results.
    *
    * `useQueries` hands back a fresh array on every render, so a `useMemo` keyed on it is a
-   * `useMemo` that never hits — which is how the sort inside `wantingOf` came to run on
-   * every keystroke. `combine` is React Query's answer to exactly that, and it has to be a
-   * stable reference for the same reason.
+   * `useMemo` that never hits, and every count below it would be recomputed on every
+   * keystroke in the search box. `combine` is React Query's answer to exactly that, and it
+   * has to be a stable reference for the same reason.
+   *
+   * Only a branch that actually answered is in the map. `needsAttention(finding, undefined)`
+   * is true for anything not cleared, so a count taken before the decisions land — or after a
+   * request for them failed — names everything the team settled weeks ago. `docket-rules.ts`
+   * names that hazard on the hook the docket uses; this page was the second caller and had
+   * not read it. A row with no entry here says nothing at all, which is the only honest
+   * thing a number with nowhere to explain itself can do.
    */
   const combine = useCallback(
-    (results: Array<UseQueryResult<Awaited<ReturnType<typeof api.decisions>>>>) => ({
-      byBranch: new Map(
-        results.map((result, index) => [
-          branchIds[index],
-          new Map((result.data?.decisions ?? []).map((item) => [item.candidate_id, item])),
-        ]),
+    (results: Array<UseQueryResult<Awaited<ReturnType<typeof api.decisions>>>>) =>
+      new Map(
+        results.flatMap((result, index) =>
+          result.isSuccess
+            ? ([
+                [
+                  branchIds[index],
+                  new Map(result.data.decisions.map((item) => [item.candidate_id, item])),
+                ],
+              ] as Array<[string, Map<string, Decision>]>)
+            : [],
+        ),
       ),
-      /**
-       * Whether every branch has actually answered.
-       *
-       * `needsAttention(finding, undefined)` is true for anything not cleared, so a page
-       * that groups before the decisions land lists everything the team settled weeks ago
-       * and then shrinks as the answers arrive. `docket-rules.ts` names this hazard on the
-       * hook the docket uses; this was the second caller and it had not read it.
-       */
-      ready: results.every((result) => result.isSuccess || result.isError),
-      /** A branch whose decisions could not be read can only make this list too long. */
-      failed: results.some((result) => result.isError),
-    }),
     [branchIds],
   );
   const branches = useQueries({
@@ -611,18 +548,22 @@ export function ReviewsPage() {
     combine,
   });
 
-  const wanting = useMemo(
-    () => (branches.ready ? wantingOf(newest, branches.byBranch) : []),
-    [newest, branches],
-  );
-  // Where everything outstanding is in one review, the review is said once above the list
-  // instead of on every row — the same hoisting the queue does to a run of rows that repeat
-  // each other. `detail` is the whole of what a row would repeat, so comparing it is enough.
-  const openReviews = new Set(wanting.map((item) => item.review.id)).size;
-  const shared = openReviews === 1 ? wanting[0]?.detail : null;
-  // Nothing is claimed until the branches have answered, and the section stays on screen
-  // while they do rather than appearing at whatever size the answer turns out to be.
-  const showWanting = Boolean(newest.length) && (!branches.ready || wanting.length > 0);
+  /**
+   * How much still wants a person, by review id — and only for the newest revision of each
+   * line of work.
+   *
+   * An outstanding candidate in review 3 was either carried into review 4, where it is
+   * counted, or it went away. Counting both would say the same open item twice down one
+   * lineage, which is how a history comes to look like twice the work it is.
+   */
+  const wants = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const review of newest) {
+      const decisions = branches.get(review.repository.branch_id ?? "");
+      if (decisions) counts.set(review.id, wantsOf(review, decisions));
+    }
+    return counts;
+  }, [newest, branches]);
 
   return (
     <div>
@@ -651,52 +592,6 @@ export function ReviewsPage() {
             <Notice tone="working" className="mb-6">
               Lost contact with the workspace. This history may be out of date.
             </Notice>
-          ) : null}
-
-          {/* ── The work, before the archive ──────────────────────────────────
-              A returning reviewer is not asking which reviews exist. They are asking what
-              wants them now, which is a fact about the candidates inside those reviews and
-              not about the reviews themselves — so it is answered here, once, across every
-              line of work, each row opening straight into the review that holds it. */}
-          {showWanting ? (
-            <section aria-labelledby="wanting" className="mb-8">
-              <div className="mb-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <Label as="h2" id="wanting" className="text-ink">
-                  Waiting on you
-                </Label>
-                {branches.ready ? (
-                  <span className="font-mono text-[11px] text-ink-3">
-                    {shared
-                      ? `${wanting.length} in ${shared}`
-                      : `${wanting.length} across ${plural(openReviews, "review")}`}
-                  </span>
-                ) : null}
-              </div>
-              <Panel>
-                {branches.ready ? (
-                  <ul>
-                    {wanting.slice(0, 8).map((item) => (
-                      <WantingRow key={item.key} item={item} hoisted={Boolean(shared)} />
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="flex min-h-11 items-center gap-2.5 px-4 py-2.5 text-[13px] text-ink-3 sm:px-5">
-                    <Spinner label="" /> Reading what these branches have already settled…
-                  </p>
-                )}
-              </Panel>
-              {branches.failed ? (
-                <p className="mt-2 text-[12px] text-ink-3">
-                  Some standing decisions could not be read, so this list may name candidates the
-                  team has already settled.
-                </p>
-              ) : null}
-              {wanting.length > 8 ? (
-                <p className="mt-2 text-[12px] text-ink-3">
-                  {wanting.length - 8} more, listed inside the reviews below.
-                </p>
-              ) : null}
-            </section>
           ) : null}
 
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -756,6 +651,7 @@ export function ReviewsPage() {
                 <LineageBlock
                   key={lineage.key}
                   lineage={lineage}
+                  wants={wants}
                   deleting={remove.isPending}
                   onDelete={(id) => remove.mutate(id)}
                 />

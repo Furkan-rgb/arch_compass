@@ -93,7 +93,7 @@ you; at review scope the Provenance tab becomes the audit of every candidate at 
 | **Landing page** | `/` | [landing-page.tsx](../frontend/src/features/landing/landing-page.tsx) |
 | **Start page** | `/start` — two steps: which repository, and how much of it to read. The case is stated at the point of running, not confirmed as a step. | [start-page.tsx](../frontend/src/features/start/start-page.tsx) |
 | **Run page** | `/runs/:runId` — a review being made, with its progress timeline | [run-page.tsx](../frontend/src/features/start/run-page.tsx) |
-| **Reviews page** | `/reviews` — one block per lineage (repository, branch, case), revisions inside it in sequence, a run in flight at the top of its own | [reviews-page.tsx](../frontend/src/features/reviews/reviews-page.tsx) |
+| **Reviews page** | `/reviews` — one block per lineage (repository, branch, case), revisions inside it in sequence, a run in flight at the top of its own. The newest revision's row says how much of it still wants a person; the claims are read inside the review | [reviews-page.tsx](../frontend/src/features/reviews/reviews-page.tsx) |
 | **Repositories page** | `/repositories` | [repositories-page.tsx](../frontend/src/features/repositories/repositories-page.tsx) |
 | **Cases page** | `/cases` | [cases-page.tsx](../frontend/src/features/cases/cases-page.tsx) |
 | **Policies page** | `/policies` | [policies-page.tsx](../frontend/src/features/policies/policies-page.tsx) |

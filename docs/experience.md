@@ -372,6 +372,23 @@ Each lineage is one block headed by the repository and branch, carrying its newe
 state, with its revisions beneath it in sequence, newest first, and a run in flight at the
 top of its own lineage rather than in a separate list above everything.
 
+What still wants a person is one number on a row. The page carried a **Waiting on you**
+section above the history: every open candidate across every line of work, each row opening
+into the review that held it. It asked the right question — a returning reviewer is not
+asking which reviews exist — and answered it in the wrong place. A candidate's claim with no
+verdict spread and no revision around it is not something to act on, so every row was a trip
+into the review anyway; the rows repeated the reviews listed below them; and the history the
+page exists to show started below the fold.
+
+So the list goes and the fact stays. The newest revision of each lineage says how much of it
+wants a person — *3 things want you*, the words the review's own head uses, counted from the
+same `needsAttention` rule so the two totals cannot disagree — and the claims are read where
+they can be acted on. Only the newest revision says it: what review 3 raised was either
+carried into review 4, which counts it, or it went away. A row says nothing at all until the
+branch's standing decisions have arrived, and nothing if they could not be read, because a
+count taken without them names everything the team settled weeks ago and a number on a row
+has nowhere to explain itself.
+
 ### The report says what it amounts to before it says how much of it there is
 
 The document opened on counts — *Seven candidates judged: 2 material, 3 held, 2 cleared* —

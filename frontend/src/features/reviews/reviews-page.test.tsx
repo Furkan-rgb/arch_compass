@@ -108,57 +108,100 @@ describe("a run that finishes while nobody is looking", () => {
   });
 });
 
-describe("waiting on you", () => {
+describe("what still wants a person", () => {
   /**
-   * `needsAttention(finding, undefined)` is true for anything not cleared, so a page that
-   * groups before the branch's decisions land lists everything the team settled weeks ago
-   * and then shrinks. `docket-rules.ts` names this hazard; this page was the second caller.
+   * The page used to answer this in a section of its own — every open candidate across every
+   * lineage, listed above the history. The claims read out of context, the rows repeated the
+   * reviews below them, and the history it belonged to started below the fold. The fact stays
+   * and the list goes: a review's row says how much of it wants a person, in the words the
+   * review's own head uses, and the claims are read where they can be acted on.
    */
-  it("claims nothing until the branch's standing decisions have arrived", async () => {
-    vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture()]);
-    vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
-    vi.spyOn(api, "decisions").mockReturnValue(new Promise(() => {}));
-
-    render(wrap(<ReviewsPage />, client()));
-
-    expect(await screen.findByText("Waiting on you")).toBeInTheDocument();
-    expect(screen.getByText(/Reading what these branches have already settled/)).toBeInTheDocument();
-    // Which is the whole point: nothing is listed, and no count is stated, while it is unknown.
-    expect(screen.queryByText("1 question wants an answer")).not.toBeInTheDocument();
-    expect(screen.queryByText(/across .* reviews/)).not.toBeInTheDocument();
-  });
-
-  /**
-   * The grouping used to run on the filtered list, so pressing **Completed** removed every
-   * review awaiting answers — and with them every open clarification question, out of the one
-   * section that exists to surface them, with the control that did it sitting below it.
-   */
-  it("says the same thing whatever the status filter is set to", async () => {
+  it("says on the newest revision how much of it still wants a person", async () => {
     vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture()]);
     vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
     vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
 
     render(wrap(<ReviewsPage />, client()));
 
-    expect(await screen.findByText("1 question wants an answer")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Completed" }));
-
-    expect(screen.getByText("No review matches that")).toBeInTheDocument();
-    expect(screen.getByText("1 question wants an answer")).toBeInTheDocument();
+    // Two candidates nobody has decided about, plus the open round's one question — which is
+    // exactly what the review's own head counts, so the two totals cannot disagree.
+    expect(await screen.findByText("3 things want you")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting on you")).not.toBeInTheDocument();
   });
 
-  /** A branch whose decisions could not be read can only make this list too long. */
-  it("admits it may over-report when a branch's decisions could not be read", async () => {
+  /**
+   * `needsAttention(finding, undefined)` is true for anything not cleared, so a count taken
+   * before the branch's decisions land names everything the team settled weeks ago and then
+   * shrinks. `docket-rules.ts` names this hazard; this page was the second caller.
+   */
+  it("says nothing until the branch's standing decisions have arrived", async () => {
+    vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture()]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
+    vi.spyOn(api, "decisions").mockReturnValue(new Promise(() => {}));
+
+    render(wrap(<ReviewsPage />, client()));
+
+    expect(await screen.findByText("Review 1")).toBeInTheDocument();
+    expect(screen.queryByText(/wants? you/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * A branch whose decisions could not be read can only make the count too high, and a number
+   * on a row has nowhere to say so.
+   */
+  it("says nothing when the branch's decisions could not be read", async () => {
     vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture()]);
     vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
     vi.spyOn(api, "decisions").mockRejectedValue(new Error("no such branch"));
 
     render(wrap(<ReviewsPage />, client()));
 
-    expect(
-      await screen.findByText(/this list may name candidates the team has already settled/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Review 1")).toBeInTheDocument();
+    await waitFor(() => expect(api.decisions).toHaveBeenCalled());
+    expect(screen.queryByText(/wants? you/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * An outstanding candidate in review 1 was either carried into review 2, where it is
+   * counted, or it went away. A superseded snapshot claiming it too says the same open item
+   * twice down one lineage.
+   */
+  it("counts the newest revision and no other", async () => {
+    vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture(), successor()]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
+    vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
+
+    render(wrap(<ReviewsPage />, client()));
+
+    // Review 2 is completed, so its two undecided candidates are the whole of what it wants.
+    expect(await screen.findByText("2 things want you")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Show 1 older revision/ }));
+
+    const older = screen.getByText("Review 1").closest("li")!;
+    expect(within(older).queryByText(/wants? you/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * The status filter belongs to the list of lineages. It used to change what the page said
+   * was waiting on you, because the grouping ran on the filtered list: pressing **Completed**
+   * removed every review awaiting answers, and with them every open clarification question.
+   * A filter now hides rows and never restates one.
+   */
+  it("does not promote a superseded revision when the filter hides the newest", async () => {
+    vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture(), successor({ status: "failed" })]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
+    vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
+
+    render(wrap(<ReviewsPage />, client()));
+    expect(await screen.findByText("2 things want you")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Awaiting answers" }));
+
+    // Review 1 is on screen now and it is still a superseded snapshot: what it raised was
+    // carried into review 2, which is filtered out, not transferred to the row left standing.
+    expect(screen.getByText("Review 1")).toBeInTheDocument();
+    expect(screen.queryByText(/wants? you/)).not.toBeInTheDocument();
   });
 });
 
