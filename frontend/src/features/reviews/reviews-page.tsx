@@ -51,12 +51,18 @@ const STATUS_FILTERS = ["all", "completed", "awaiting_answers", "failed", "cance
 const REVIEW_PAGE_SIZE = 100;
 
 /**
- * One line of work: the same repository, the same branch, the same case.
+ * One line of work: one branch, and every revision recorded against it.
  *
- * Reviews are immutable and sequenced under exactly these three things — that is the
- * charter's third commitment and the reason a delta can exist at all. What makes review 4
- * worth keeping is that it succeeded review 3, so a lineage is drawn as a trajectory rather
- * than as four rows repeating the same six fields.
+ * Reviews are immutable and sequenced per branch — that is the charter's third commitment,
+ * and it says the number line belongs to the branch "whatever case is being reviewed
+ * against". What makes review 4 worth keeping is that it succeeded review 3, so a lineage is
+ * drawn as a trajectory rather than as four rows repeating the same six fields.
+ *
+ * This used to be keyed on the repository, the branch *and* the case, which read like a
+ * stricter version of the same idea and was a different one: the workspace numbers a review
+ * from the branch alone, so review 3 of a freshly minted case genuinely succeeds review 2 of
+ * the case before it. Splitting on the case drew that succession as two unrelated blocks and
+ * broke the join with the run in flight — see `lineageKeyOf`.
  */
 type Lineage = {
   key: string;
@@ -65,7 +71,12 @@ type Lineage = {
   branchId: string | null;
   /** Newest first, which is the order they are listed in. */
   reviews: Review[];
-  run: ReviewRun | null;
+  /**
+   * The runs in flight against this branch, newest revision first as the workspace lists
+   * them. Usually one, and never assumed to be: two runs on one branch used to be two blocks
+   * because the case was part of the key, and one of them would now be dropped silently.
+   */
+  runs: ReviewRun[];
 };
 
 /**
@@ -84,50 +95,72 @@ function lineageIdentity(path: string): { parent: string | null; name: string } 
   return { parent: parts.length > 1 ? (parts.at(-2) ?? null) : null, name: parts.at(-1) || path };
 }
 
-/** The three things a review is sequenced under, as one key. */
-function lineageKeyOf(review: Review): string {
-  return `${review.repository.path}::${review.repository.branch_id}::${review.case.id}`;
+/**
+ * The line of work a review or a run belongs to, as one key — and as one function, because
+ * the fault was having two.
+ *
+ * A review was keyed on `repository.path::branch_id::case.id` and a run on
+ * `repository_root::branch_id::case_id`, which look like the same three fields and are not.
+ * `repository.path` is the directory the newest atlas was built from; `repository_root` is
+ * the directory the workspace first saw that repository at, and the two are different strings
+ * as soon as one repository is indexed from a second checkout. The case is worse than
+ * different: starting clean, or reviewing a branch whose reviews were deleted, mints a fresh
+ * case, so the run's case and the branch's history routinely disagree. Either mismatch missed
+ * the lookup, and the review being made right now was drawn as a line of work of its own at
+ * the top of the page — with an empty history under it — instead of as the next revision of
+ * the lineage it belongs to.
+ *
+ * So the key is the branch and nothing else. That is what the charter's third commitment
+ * says a number line is — sequenced per branch, one number line a branch keeps whatever case
+ * is being reviewed against — and it is what the workspace already does: it numbers a run
+ * `latest_for_branch(branch_id).sequence + 1`, reading neither the path nor the case. The
+ * path is a heading, and a case that changed is a fact about one revision, said on that
+ * revision's own row.
+ *
+ * Both sides call this, so there is nowhere left to key a run one way and a review the other.
+ */
+function lineageKeyOf(subject: Review | ReviewRun): string {
+  // A record carrying no branch belongs to no line of work, and filing every such record
+  // under one empty key would group unrelated repositories together. Each keeps its own.
+  if ("repository" in subject) return subject.repository.branch_id || `review:${subject.id}`;
+  return subject.branch_id || `run:${subject.run_id}`;
 }
 
+type Grouped = { key: string; reviews: Review[]; runs: ReviewRun[] };
+
 function lineagesOf(reviews: Review[], runs: ReviewRun[], now = Date.now()): Lineage[] {
-  const groups = new Map<string, Lineage>();
-  for (const review of reviews) {
-    const key = lineageKeyOf(review);
-    const existing = groups.get(key);
-    if (existing) existing.reviews.push(review);
-    else {
-      groups.set(key, {
-        key,
-        path: review.repository.path,
-        branch: review.repository.branch,
-        branchId: review.repository.branch_id,
-        reviews: [review],
-        run: null,
-      });
-    }
-  }
+  const groups = new Map<string, Grouped>();
+  const group = (key: string): Grouped => {
+    const held = groups.get(key);
+    if (held) return held;
+    const made: Grouped = { key, reviews: [], runs: [] };
+    groups.set(key, made);
+    return made;
+  };
+  for (const review of reviews) group(lineageKeyOf(review)).reviews.push(review);
   // A run in flight is the next revision of a lineage, not a separate kind of thing sitting
-  // in its own list above everything. It only becomes one when its lineage has no reviews.
-  for (const run of runs) {
-    const key = `${run.repository_root ?? ""}::${run.branch_id}::${run.case_id}`;
-    const existing = groups.get(key);
-    if (existing) existing.run = run;
-    else {
-      groups.set(key, {
-        key,
-        path: run.repository_root ?? run.repository_name ?? "",
-        branch: run.branch_name ?? null,
-        branchId: run.branch_id ?? null,
-        reviews: [],
-        run,
-      });
-    }
-  }
+  // in its own list above everything. It only becomes one when its lineage has no reviews to
+  // sit under — the first review of a branch, or a history the filters have emptied.
+  for (const run of runs) group(lineageKeyOf(run)).runs.push(run);
   return [...groups.values()]
-    .map((lineage) => ({
-      ...lineage,
-      reviews: [...lineage.reviews].sort((left, right) => right.sequence - left.sequence),
-    }))
+    .map(({ key, reviews: held, runs: working }) => {
+      const ordered = [...held].sort((left, right) => right.sequence - left.sequence);
+      // The heading is read off the newest revision and only falls back to the run. A run
+      // reports the directory the repository was first seen at rather than the one the newest
+      // atlas was built from, so taking it while a run is in flight would rename the panel —
+      // and a heading that changes for the minutes a review is being made reads as a
+      // different repository appearing.
+      const newest = ordered[0];
+      const run = working[0];
+      return {
+        key,
+        path: newest?.repository.path ?? run?.repository_root ?? run?.repository_name ?? "",
+        branch: newest?.repository.branch ?? run?.branch_name ?? null,
+        branchId: newest?.repository.branch_id ?? run?.branch_id ?? null,
+        reviews: ordered,
+        runs: working,
+      };
+    })
     .sort((left, right) => latestAt(right, now) - latestAt(left, now));
 }
 
@@ -140,10 +173,16 @@ function lineagesOf(reviews: Review[], runs: ReviewRun[], now = Date.now()): Lin
  * every time it is asked is not an ordering.
  */
 function latestAt(lineage: Lineage, now: number): number {
-  const started = lineage.run ? Date.parse(lineage.run.started_at ?? "") : Number.NaN;
-  const run = lineage.run ? (Number.isNaN(started) ? now : started) : Number.NEGATIVE_INFINITY;
+  const running = lineage.runs.map((run) => {
+    const started = Date.parse(run.started_at ?? "");
+    return Number.isNaN(started) ? now : started;
+  });
   const newest = Date.parse(lineage.reviews[0]?.started_at ?? "");
-  return Math.max(run, Number.isNaN(newest) ? Number.NEGATIVE_INFINITY : newest);
+  return Math.max(
+    ...running,
+    Number.isNaN(newest) ? Number.NEGATIVE_INFINITY : newest,
+    Number.NEGATIVE_INFINITY,
+  );
 }
 
 /**
@@ -278,12 +317,24 @@ function RevisionRow({
   review,
   run,
   wants,
+  showCase,
   onDelete,
   deleting,
 }: {
   review: Review;
   /** The run rejudging this very snapshot, where there is one. */
   run: ReviewRun | null;
+  /**
+   * Whether to name the case this revision was reviewed against, and not only its revision
+   * number.
+   *
+   * A line of work is the branch, so a panel can hold revisions taken against more than one
+   * case — starting clean opens a new case and the branch's number line carries straight on
+   * through it. Where that has happened the case is the thing that varies inside the panel
+   * and every row says which one it is; where it has not, the id is six characters of noise
+   * repeated down the whole history.
+   */
+  showCase: boolean;
   /**
    * How much of this revision still wants a person, or `null` where that is not known.
    *
@@ -374,7 +425,7 @@ function RevisionRow({
             </Label>
           ) : null}
           <span className="font-mono text-[11px] text-ink-3">
-            case rev {review.case.revision}
+            case {showCase ? `${shortId(review.case.id, 6)} ` : ""}rev {review.case.revision}
             {review.repository.commit ? (
               <> · {shortId(review.repository.commit, 8)}</>
             ) : null} · {relativeTime(review.started_at)}
@@ -463,7 +514,11 @@ function RevisionRow({
  * The revision being made, in the lineage it will belong to.
  *
  * Every identifier a review is filed under is known before the review exists, so the next
- * revision can be listed and opened while it is still being made.
+ * revision can be listed and opened while it is still being made. That is the whole reason
+ * this row can exist at all, and it is why the join above keys on the branch: the run knows
+ * its branch the moment it starts — the workspace refuses to start one against a repository
+ * it has not indexed — while the path it reports and the case it was given are both allowed
+ * to differ from the ones the branch's existing reviews carry.
  *
  * It used to be the one row in the list with a ground of its own — `bg-surface-2` — on the
  * argument that a tint is what says this revision is being made right now. That tint is the
@@ -473,7 +528,16 @@ function RevisionRow({
  * stage the run is on, all of which are drawn rather than dimmed and none of which is
  * borrowed from another part of the ramp.
  */
-function PendingRow({ run, sequence }: { run: ReviewRun; sequence: number }) {
+function PendingRow({
+  run,
+  sequence,
+  showCase,
+}: {
+  run: ReviewRun;
+  sequence: number;
+  /** As on a revision's row: named only where the panel holds more than one case. */
+  showCase: boolean;
+}) {
   return (
     <li className="group border-t border-l-[3px] border-rule border-l-transparent last:rounded-b-lg">
       <Link
@@ -487,6 +551,7 @@ function PendingRow({ run, sequence }: { run: ReviewRun; sequence: number }) {
           <Spinner label="" /> In progress
         </Label>
         <span className="font-mono text-[11px] text-ink-3">
+          {showCase && run.case_id ? <>case {shortId(run.case_id, 6)} · </> : null}
           {run.stage ? stageLabel(run.stage) : "starting"}
         </span>
       </Link>
@@ -514,19 +579,34 @@ function LineageBlock({
    * Answering a clarification round rejudges the snapshot that asked the questions, and the
    * run reports until it is genuinely done — so for the length of that rejudgement the run
    * list and the review list both describe revision N. Drawn as they arrive that is two rows
-   * for one revision, one of them claiming to be the next one. The run is keyed on its
-   * `review_id` instead and drawn on the row it belongs to.
+   * for one revision, one of them claiming to be the next one. A run is keyed on its
+   * `review_id` instead and drawn on the row it belongs to; what is left over is a revision
+   * that does not exist yet, which is what `PendingRow` is for. A run whose review is real but
+   * filtered off this panel counts as left over too: the row it would go on is not here.
    */
-  const rejudging = lineage.run?.review_id ?? null;
-  const pending = lineage.run && !lineage.reviews.some((review) => review.id === rejudging);
+  const rejudging = new Map(
+    lineage.runs.flatMap((run) => (run.review_id ? ([[run.review_id, run]] as const) : [])),
+  );
+  const pending = lineage.runs.filter(
+    (run) => !run.review_id || !lineage.reviews.some((review) => review.id === run.review_id),
+  );
   // Only the newest revision spells itself out. The ones before it are on the rail, and are
   // one press away — a history is scanned far more often than it is read. The exception is a
   // revision being rejudged: something happening now is not something to go looking for.
   const shown = expanded
     ? lineage.reviews
-    : lineage.reviews.filter((review, index) => index === 0 || review.id === rejudging);
+    : lineage.reviews.filter((review, index) => index === 0 || rejudging.has(review.id));
   const hidden = lineage.reviews.length - shown.length;
   const identity = lineageIdentity(lineage.path);
+  // The branch is the line of work, so the case is free to change within it. Where it has,
+  // every row names the case it belongs to; where it has not, nothing is said about it.
+  const cases = new Set(
+    [
+      ...lineage.reviews.map((review) => review.case.id),
+      ...lineage.runs.map((run) => run.case_id ?? ""),
+    ].filter(Boolean),
+  );
+  const showCase = cases.size > 1;
   return (
     <Panel as="article">
       {/* `bg-surface-2`, which is the ground the elevation contract gives a panel's header
@@ -572,15 +652,21 @@ function LineageBlock({
       </header>
 
       <ul>
-        {pending && lineage.run ? (
-          <PendingRow run={lineage.run} sequence={lineage.reviews.length + 1} />
-        ) : null}
+        {pending.map((run) => (
+          <PendingRow
+            key={run.run_id}
+            run={run}
+            sequence={lineage.reviews.length + 1}
+            showCase={showCase}
+          />
+        ))}
         {shown.map((review) => (
           <RevisionRow
             key={review.id}
             review={review}
-            run={review.id === rejudging ? lineage.run : null}
+            run={rejudging.get(review.id) ?? null}
             wants={wants.get(review.id) ?? null}
+            showCase={showCase}
             deleting={deletingId === review.id}
             onDelete={() => onDelete(review.id)}
           />
@@ -682,7 +768,28 @@ export function ReviewsPage() {
     }
     return counts;
   }, [matching]);
-  const lineages = useMemo(() => lineagesOf(visible, runs.data ?? []), [visible, runs.data]);
+  /**
+   * The search box filters the runs too, on the same two fields it filters reviews on, and
+   * the status filter deliberately does not.
+   *
+   * Both used to run over the reviews alone, which broke in opposite directions. A query that
+   * excluded a repository left that repository's run in flight on the page — the one panel
+   * the reader had just asked to be rid of. And pressing a status chip stripped a lineage's
+   * whole history while keeping its run, which is the right answer for the wrong reason: a
+   * revision being made has no verdicts and no status yet, so no status can describe it, and
+   * the reason to open this page while one is running is to watch it. So the search reaches
+   * the runs and the status filter cannot hide them.
+   */
+  const matchingRuns = useMemo(
+    () =>
+      (runs.data ?? []).filter((run) =>
+        `${run.repository_root ?? ""} ${run.branch_name ?? ""}`
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+      ),
+    [runs.data, query],
+  );
+  const lineages = useMemo(() => lineagesOf(visible, matchingRuns), [visible, matchingRuns]);
 
   /**
    * The newest revision of every line of work, whatever the filters above are set to.
@@ -767,27 +874,56 @@ export function ReviewsPage() {
     return counts;
   }, [newest, branches]);
 
+  const list = (
+    <div className="grid gap-3">
+      {lineages.map((lineage) => (
+        <LineageBlock
+          key={lineage.key}
+          lineage={lineage}
+          wants={wants}
+          // Which review is being deleted, not whether any is. `remove.isPending`
+          // handed to every row disabled Confirm on a row nobody had touched.
+          deletingId={remove.isPending ? (remove.variables ?? null) : null}
+          onDelete={(id) => remove.mutate(id)}
+        />
+      ))}
+    </div>
+  );
+
   return (
     <div>
       <PageHeader
         eyebrow="Immutable history"
         title="Reviews"
-        description="Sequenced per branch and case, and readable exactly as recorded."
+        description="Sequenced per branch, and readable exactly as recorded."
       />
 
-      {reviews.isPending ? (
-        <LoadingPanel label="Opening review history…" rows={4} />
-      ) : !reviews.data ? (
-        // The header stays. A page that replaces itself with its own error message takes
-        // away the one thing left to do about it, which is go somewhere else.
-        <ErrorNotice
-          error={reviews.error}
-          action={
-            <Button size="sm" variant="secondary" onClick={() => void reviews.refetch()}>
-              Try again
-            </Button>
-          }
-        />
+      {reviews.isPending || !reviews.data ? (
+        /*
+          The history is what is loading or missing here; the review being made right now is
+          neither. `/api/reviews` answers with whole reviews and can be megabytes, so gating
+          the run on it meant the one thing on this page that cannot wait was the thing that
+          waited — and where the history failed outright, a run in flight was not listed at
+          all under a message about something else. The runs answer separately and they are
+          drawn as soon as they do, above whatever the history has to say for itself.
+        */
+        <>
+          {lineages.length ? <div className="mb-3">{list}</div> : null}
+          {reviews.isPending ? (
+            <LoadingPanel label="Opening review history…" rows={4} />
+          ) : (
+            // The header stays. A page that replaces itself with its own error message takes
+            // away the one thing left to do about it, which is go somewhere else.
+            <ErrorNotice
+              error={reviews.error}
+              action={
+                <Button size="sm" variant="secondary" onClick={() => void reviews.refetch()}>
+                  Try again
+                </Button>
+              }
+            />
+          )}
+        </>
       ) : (
         <>
           {/* One notice for both listings, because they fail the same way and mean the same
@@ -809,10 +945,12 @@ export function ReviewsPage() {
                 Lines of work
               </Label>
               {/* Two numbers about the same list, measured the same way. The left one said
-                  "branches" and counted lineages, which are keyed on repository, branch
-                  *and* case — so two cases on one branch printed as two branches. The right
-                  one was counted off the unfiltered history, so a search commonly produced
-                  "1 branch · 43 revisions kept" above four rows. */}
+                  "branches" and counted lineages, which were then keyed on the case as well —
+                  so two cases on one branch printed as two branches. A lineage is now the
+                  branch, so the two agree again, and the words stay "lines of work" because a
+                  line of work is what the block is. The right one was counted off the
+                  unfiltered history, so a search commonly produced "1 branch · 43 revisions
+                  kept" above four rows. */}
               <span className="font-mono text-[11px] tabular-nums text-ink-3">
                 {plural(lineages.length, "line of work", "lines of work")} ·{" "}
                 {visible.length !== all.length
@@ -892,19 +1030,7 @@ export function ReviewsPage() {
                 : "Point ArchCompass at a repository to record the first architecture review."}
             </EmptyState>
           ) : (
-            <div className="grid gap-3">
-              {lineages.map((lineage) => (
-                <LineageBlock
-                  key={lineage.key}
-                  lineage={lineage}
-                  wants={wants}
-                  // Which review is being deleted, not whether any is. `remove.isPending`
-                  // handed to every row disabled Confirm on a row nobody had touched.
-                  deletingId={remove.isPending ? (remove.variables ?? null) : null}
-                  onDelete={(id) => remove.mutate(id)}
-                />
-              ))}
-            </div>
+            list
           )}
           {/* A delete that failed is reported by the toast `main.tsx` puts under every
               mutation. It used to paint an `ErrorNotice` at the foot of the page, a screen

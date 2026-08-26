@@ -10,15 +10,30 @@ import type {
   Workspace,
 } from "./api";
 
-const repository = {
-  id: "repo-1",
-  path: "/work/payments-platform",
-  branch_id: "branch-1",
-  content_id: "content-1",
-  remote_url: null,
-  branch: "main",
-  commit: "8f31c2a91b4d",
-};
+/**
+ * The repository a review names, as the wire says it.
+ *
+ * Exported as a builder rather than kept as one constant, because a lineage is a branch and
+ * more than one test now needs a *second* repository to tell one line of work from another.
+ * Building the second one by hand next to this file is how two notions of a repository get
+ * into one suite, which is the shape of the fault this fixture set is used to pin.
+ */
+export function repositoryFixture(
+  overrides: Partial<Review["repository"]> = {},
+): Review["repository"] {
+  return {
+    id: "repo-1",
+    path: "/work/payments-platform",
+    branch_id: "branch-1",
+    content_id: "content-1",
+    remote_url: null,
+    branch: "main",
+    commit: "8f31c2a91b4d",
+    ...overrides,
+  };
+}
+
+const repository = repositoryFixture();
 
 function finding(overrides: Partial<Finding> & { candidateId: string }): Finding {
   const { candidateId, ...rest } = overrides;
@@ -95,6 +110,10 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
   cleared.candidate.pattern = "boundary_shape";
   cleared.candidate.summary = "The invoice boundary is appropriate";
 
+  // The atlas names the same checkout the review does. Overriding one and leaving the other
+  // pointing at the default made a review of a second repository carry the first one's atlas.
+  const named = overrides.repository ?? repository;
+
   return {
     id: "review-1",
     sequence: 1,
@@ -105,10 +124,10 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
     // fixture carrying only that describes a superseded round as a live one.
     answerable: true,
     previous_review_id: null,
-    repository,
+    repository: named,
     atlas: {
       id: "atlas-1",
-      repository,
+      repository: named,
       node_count: 128,
       edge_count: 214,
       metric_count: 12,
