@@ -537,31 +537,63 @@ function DocketRow({
         {identity} — {finding.candidate.summary}
       </h3>
 
-      <div className="flex items-stretch">
+      {/* The row's hover ground is painted here, on the element that is the whole row, and
+          not on the button inside it. The button is one of two or three flex items — the
+          checkbox column stands before it and, on an open row, the copy control after it —
+          so a ground the button painted stopped 28px short of the row's left edge and left a
+          full-height strip of `--surface` down the side of every hovered row, twenty values
+          light of the row beside it, with the verdict edge and the checkbox stranded on the
+          wrong colour. A row is one thing to the eye, so its ground has to be one thing too.
+
+          Only the width changed; the colour is the one this row has always hovered to, and
+          the argument for it moved up here with it. The product's most-clicked control had
+          `--surface-2` painted on a `<ul>` that is already `--surface`: about 1.04:1 in
+          either theme, which is below the point at which a background change is perceptible
+          at all. `--sunken` is the ground the elevation contract assigns to a row on hover —
+          twenty values in light and eighteen in dark — and it is what the revision rail
+          beneath this list already uses, so the two agree. Unconditional, because an open
+          row's header is still the control that closes it.
+
+          `group`, for the checkbox: what reveals the box is a pointer anywhere in the row. */}
+      <div className="group flex items-stretch transition hover:bg-sunken">
         {/* Outside the row's own button, because a checkbox inside a button is a control
-            inside a control. It is invisible until it is wanted — hovered, focused, or once
-            anything at all is selected — so a docket nobody is bulk-deciding looks exactly
-            as it did. On a coarse pointer it is simply there: hover is the affordance that
-            reveals it, and a finger has none. */}
+            inside a control. It is invisible until it is wanted — the row hovered, the box
+            focused, or anything at all selected — so a docket nobody is bulk-deciding looks
+            exactly as it did. The reveal is `group-hover` off the wrapper and was `hover` on
+            this label: the label is 28px wide and fully transparent, so the control
+            announced itself only to somebody who already knew where it was. `focus-within`
+            stays here, on the box's own parent, which is the tighter scope for it.
+
+            On a coarse pointer the box is simply there — hover is the affordance that
+            reveals it, and a finger has none — so the label has to be pressable as it
+            stands: `pl-4 pr-3.5` around a 15px box is a 45px strip, over the 44 the charter
+            asks for, and the label stretches to the row's full height for the other axis. */}
         <label
           className={cn(
-            // `pt-3` and `mt-px` on the box below, which is exactly what the verdict mark
-            // beside it carries. At `pt-4` the 16px checkbox sat with its centre 24px from
-            // the row's top and the 15px mark's centre at 20.5px — two same-sized squares,
-            // adjacent, on visibly different centre lines and both below the identifier they
-            // belong to. On a docket where this column only appears on hover, the
-            // misalignment is what the eye notices at the moment it appears.
+            // `pt-3`, `mt-px` and a 15px box: the same three values the verdict mark beside
+            // it carries, so the two squares sit on one centre line 20.5px from the row's
+            // top. The box was `size-4` and landed half a pixel high; at `pt-4` its centre
+            // was 25px against the mark's 20.5 — two same-sized squares, adjacent, on
+            // visibly different centre lines. Stating the alignment in the classes rather
+            // than only in this comment is what the third value buys.
+            //
+            // Not centred on the row. A row is 89px tall with a one-line claim and 108px
+            // with two, so a box centred on the row would land at a different height on
+            // every row, and a column that does not line up is the one thing a surface read
+            // by scanning down columns cannot afford. It is aligned instead to the one thing
+            // beside it that is also a square.
             "flex shrink-0 cursor-pointer items-start pl-3 pt-3 transition sm:pl-4",
+            "pointer-coarse:pl-4 pointer-coarse:pr-3.5",
             selected || selecting
               ? "opacity-100"
-              : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 hover:opacity-100",
+              : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100",
           )}
         >
           <input
             type="checkbox"
             checked={selected}
             onChange={(event) => onSelect(event.target.checked)}
-            className="mt-px size-4 accent-[var(--ink)]"
+            className="mt-px size-[15px] accent-[var(--ink)]"
           />
           <span className="sr-only">Select {identity}</span>
         </label>
@@ -574,14 +606,15 @@ function DocketRow({
           aria-controls={panelId}
           title={identity}
           onClick={onToggle}
-          // The product's most-clicked control, and its hover was `--surface-2` painted on a
-          // `<ul>` that is already `--surface`: about 1.04:1 in either theme, which is below
-          // the point at which a background change is perceptible at all. `--sunken` is the
-          // ground the elevation contract assigns to a row on hover — twenty values in light
-          // and eighteen in dark — and it is what the revision rail beneath this list already
-          // uses, so the two agree. Unconditional, because an open row's header is still the
-          // control that closes it.
-          className="flex min-w-0 flex-1 min-h-14 items-start gap-3 px-3 py-3 text-left transition hover:bg-sunken sm:px-4"
+          // No ground of its own, and no `transition` either: the hover state this control
+          // answers to is painted by the wrapper above, which is the element that is the
+          // whole row rather than the middle of it, and the argument for the colour moved up
+          // there with the class. Nothing else here animates — the chevron below carries its
+          // own.
+          //
+          // The ground moved; the affordance did not. This is still the row's control, still
+          // `min-h-14`, still the thing that takes focus and the Enter key.
+          className="flex min-w-0 flex-1 min-h-14 items-start gap-3 px-3 py-3 text-left sm:px-4"
         >
           <Mark
             shape={descriptor.glyph}
