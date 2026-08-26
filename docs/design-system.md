@@ -128,7 +128,8 @@ product and `features/review/overflow.test.tsx` exists for it.
 **There is one hue, and everything wearing it means the same thing: look here.**
 
 The accent is `#971b1a`, a dark red. The mark wears it, the primary action wears it, a link to
-the source a claim came from wears it, and a material finding wears it — and `--material` is
+the source a claim came from wears it, a material finding wears it, and a review that is
+running wears it — and `--material` is
 declared as `var(--accent)` rather than as its own hex, so the alarm and the brand can never
 drift into two reds that nearly match. Everything else on screen is grey: `ui/tokens.test.ts`
 fails the build if any token outside the accent and the code palette has one RGB channel
@@ -142,9 +143,9 @@ logo, and white on `#971b1a` clears 8.4:1 either way — while `--accent` itself
 `#f27166` in dark, where the deep red drops to 2.3:1 and stops being text at all.
 
 This is the second accent this system has had, and the first one reached 29 of 40 components.
-So it comes back on a budget: `ui/design-system.test.ts` names the three files allowed to say
-`-accent` (`ui/brand.tsx`, `ui/button.tsx`, `ui/tabs.tsx`), and the fourth place — a material
-verdict — is painted from a tone in `lib/format` and guarded by `verdict-hues.test.ts`. A
+So it comes back on a budget: `ui/design-system.test.ts` names the four files allowed to say
+`-accent` (`ui/brand.tsx`, `ui/button.tsx`, `ui/tabs.tsx`, `ui/badge.tsx`), and the material
+verdict is painted from a tone in `lib/format` and guarded by `verdict-hues.test.ts`. A
 focus ring is deliberately *not* on that list: it answers "where is the keyboard", which is a
 question about the reader rather than about the content, and a red ring makes every tab press
 read as a validation failure.
@@ -191,7 +192,9 @@ Nothing else gets a wash.
 
 A permanently dark strip has its own four tokens — `--band`, `--band-ink`, `--band-ink-2`,
 `--band-rule` — because the topbar and the landing page's field band do not invert with the
-theme and therefore cannot borrow `ink`/`surface` from the page.
+theme and therefore cannot borrow `ink`/`surface` from the page. It has a fifth,
+`--accent-on-band` (`#f27166`), for the same reason: the deep red is 2.35:1 on `#0a0a0a`.
+Nothing paints it directly — `.on-band` is what hands it to `--material` and to `--accent`.
 
 ### `--mark` is the accent's fourth job
 
@@ -203,6 +206,33 @@ The name survives for the reason it always did: it keeps the decision in one pla
 being re-made beside every path reference, and it means changing where the accent points is
 one edit rather than a search. The guard in `ui/design-system.test.ts` protects the name: five
 files may say `-mark`, and three of them do.
+
+### A running review is the accent's fifth job
+
+The topbar's run indicator — a breathing 6px dot beside "1 review running" — is the accent,
+and it is the newest entry in the budget. It is worth stating why it is not a verdict, because
+the cheap version of this change was to give it `tone="material"`: same red, no `-accent`
+string, no test anywhere would have failed. `material`, `held` and `cleared` are a severity
+scale, and a review that is running has judged nothing yet, so grading it is a claim the
+result may contradict a minute later. The same rail already spends `material` on a recorded
+provider failure a few centimetres away; two identical dots in one bar, one meaning "your
+reasoning provider returned 401" and one meaning "work is in progress", is the hue being spent
+on something else in the one shape a line-by-line guard cannot see.
+
+So it is spent as what it is. The accent means *look here*, and a review in flight is the one
+thing in the rail worth crossing the room for. `StatusDot` takes a `running` value in its own
+prop type — deliberately **not** a sixth `Tone`, so it cannot reach `Badge` or `ui/meta.tsx` —
+and paints `bg-accent`. `ui/badge.tsx` is on the `-accent` allowlist for that one line.
+
+The dot needs `.on-band` to be legible at all, and this is the general rule for the topbar
+rather than a detail of this dot. `--accent` inverts with the *page*; the band does not invert.
+On a light page an unlifted accent dot is `#971b1a` on `#0a0a0a` — **2.35:1**, a smudge, while
+the identical dot measures 6.91:1 in dark. `.on-band` remaps `--accent` to `--accent-on-band`
+(`#f27166`, **6.91:1** in both themes, slightly brighter than the `#8f8f8f` dot it replaced at
+6.12:1). `--accent-fill` is no rescue here: it is the deep red in both themes by design, so it
+fails on the band in *both* rather than in one. And the lift belongs on the band, not in the
+component: the same `StatusDot` renders on a page surface in the phone drawer, where `#f27166`
+measures 2.63:1.
 
 ### The one exception: a source excerpt
 
@@ -465,7 +495,7 @@ Every rule below is a test in `frontend/src/ui/design-system.test.ts`, `ui/token
 
 | Rule | Why it is a test |
 | --- | --- |
-| `-accent` in three files only | The first accent reached 29 of 40 components, every one a local decision that looked reasonable. The budget is the rule; the allowlist is the enforcement |
+| `-accent` in four files only | The first accent reached 29 of 40 components, every one a local decision that looked reasonable. The budget is the rule; the allowlist is the enforcement. `ui/badge.tsx` is the newest entry and buys one line — the running dot; a badge or a wash reaching for it there is the first accent growing back |
 | `--material` is `var(--accent)`, never a hex | A second red a hex away from the first is two reds that nearly match — a material badge and the button beside it. `tokens.test.ts` asserts the alias |
 | `--held` and `--cleared` carry no chroma | They are weight now. `tokens.test.ts` fails either one at an OKLCH chroma above 0.01 |
 | No second face — no `font-read`, no `font-serif` | The model's voice is placement, attribution and the reading size. A face leaks; those do not |

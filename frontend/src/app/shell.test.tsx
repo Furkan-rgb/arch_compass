@@ -184,6 +184,25 @@ describe("the application shell", () => {
     expect(indicator).toHaveAttribute("href", "/runs/thread-9");
   });
 
+  /**
+   * The dot is the accent, and the thing worth guarding is that it is not the verdict scale.
+   *
+   * `bg-material` resolves to the same red, so the two are indistinguishable on screen and a
+   * swap would pass every hue guard there is — `ui/badge.tsx` is allowed to say either. What
+   * it would cost is the rail's other red: `material` there means a recorded provider failure,
+   * and two identical dots a few centimetres apart stop meaning two different things. So this
+   * asserts the class, which is the only place the distinction survives.
+   */
+  it("paints the running dot in the accent rather than in a verdict's hue", async () => {
+    vi.mocked(api.reviewRuns).mockResolvedValue([runFixture()]);
+    render(wrap("/policies"));
+
+    const indicator = await screen.findByRole("link", { name: /1 review running/ });
+    const dot = indicator.querySelector("span[aria-hidden]");
+    expect(dot).toHaveClass("bg-accent", "animate-breathe");
+    expect(dot).not.toHaveClass("bg-material");
+  });
+
   it("opens the shortcut sheet from the rail and from the ? key", async () => {
     render(wrap());
 

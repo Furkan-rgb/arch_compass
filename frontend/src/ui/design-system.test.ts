@@ -72,9 +72,18 @@ describe("the design system", () => {
    * The first system had an indigo accent and the same written rule, unenforced, and the
    * indigo reached 29 of 40 components — every one of them a local decision that looked
    * reasonable. So the accent is back on the terms it lost the first time: it means one thing,
-   * look here, and it is spent in four places. Three of them are components and they are named
-   * below. The fourth is a material verdict, which is painted from a tone in `lib/format` and
-   * guarded by `verdict-hues.test.ts` rather than here.
+   * look here, and it is spent in five places: the mark, the primary action, a link to the
+   * source a claim came from, a material verdict, and a review that is running. Four files may
+   * say `-accent` and they are named below; the material verdict is painted from a tone in
+   * `lib/format` and guarded by `verdict-hues.test.ts` rather than here.
+   *
+   * The fifth job is the newest and the one to argue with first. `StatusDot`'s `running` dot
+   * is the accent spent on work being in flight — not on a grade, which is why it is not a
+   * sixth `Tone`. The alternative was to type `tone="material"` at the call site: no `-accent`
+   * string, no entry here, and no test anywhere would have failed, because the red would have
+   * been painted by `bg-material` inside a file `verdict-hues.test.ts` already allows. That is
+   * the budget being widened invisibly, which is the failure both of these files exist to
+   * stop. Widening it in the open, in one line a reader can delete, is the honest version.
    *
    * A focus ring is deliberately not on this list. It answers "where is the keyboard", which
    * is a question about the reader rather than about the content, and a red ring makes every
@@ -85,10 +94,15 @@ describe("the design system", () => {
       "ui/brand.tsx", //  the mark: the identity
       "ui/button.tsx", // the primary action, and the destructive one at a wash
       "ui/tabs.tsx", //   the selected tab's underline — an indicator, never a slab
+      // `StatusDot`'s `running` fill, and nothing else in the file. This is a file-level
+      // allowlist for a one-line licence, so it is the entry most likely to be leant on by
+      // the next accent somebody wants here: a badge, a tag, a wash behind a count. None of
+      // those is "look here" — they are the shapes the first accent grew through.
+      "ui/badge.tsx",
     ]);
     expect(
       offenders(/\b(?:bg|text|border|ring|from|to|via|decoration|fill|stroke)-accent(?:-[a-z-]+)?\b/, allowed),
-      "the accent is the mark, the primary action, a link to the source, and a material verdict",
+      "the accent is the mark, the primary action, a link to the source, a running review, and a material verdict",
     ).toEqual([]);
   });
 

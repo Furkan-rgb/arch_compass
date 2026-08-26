@@ -67,22 +67,39 @@ def test_a_review_produces_a_workbench_with_a_clarification(page, review_url: st
     assert _visible(page.get_by_text("Standing decision").first)
     # Who judged is attribution and is said out loud: the charter's whole point is that a
     # reader always knows which of the three voices is speaking, and a sentence whose author
-    # is one disclosure away is a sentence presented as nobody's. So the identity leads the
-    # model's paragraph.
+    # is one disclosure away is a sentence presented as nobody's. So the identity sits on the
+    # `Judged` line itself, above the model's paragraph — which is what `docs/design-system.md`
+    # promises the model's voice is ("the reading size, under a line naming the model that
+    # produced it").
     #
-    # The same string then appears a second time, inside `Provenance`, where it is one of the
+    # The same identity is recorded a second time inside `Provenance`, where it is one of the
     # inputs to the analysis hash rather than an attribution — and that copy is folded, which
-    # is what a disclosure is for. Under the deterministic provider the model and the prompt
-    # are named identically, so these two are told apart by where they are rather than by
-    # what they say.
-    identity = page.get_by_text("judge:deterministic-v1")
-    assert identity.count() == 2
-    assert _visible(identity.first)
+    # is what a disclosure is for.
+    #
+    # **Asserted by where each copy is, not by counting a string on the page.** This used to
+    # count two matches of `judge:deterministic-v1` and call the first one the attribution
+    # line. It never was: that literal is the *prompt* identity
+    # (`DETERMINISTIC_JUDGE_PROMPT_IDENTITY`), and the deterministic judge's model identity is
+    # `fake:deterministic-architecture-v4` — so both matches were inside `Provenance`, one in
+    # its closed summary and one in its `Prompt` row, and the attribution line was never read.
+    # Shortening that summary to twelve characters of prompt identity took one of the two away
+    # and nothing a reader sees moved. A count over the whole page cannot tell those apart;
+    # scoping each half to the element that carries the promise can, and it survives the next
+    # reformat of either line.
+    model = "fake:deterministic-architecture-v4"
+    # The parent of the voice word is the attribution line, so this asserts adjacency — the
+    # identity is *on* the `Judged` line — rather than merely somewhere in the finding.
+    judged_line = page.get_by_text("Judged", exact=True).first.locator("xpath=..")
+    expect(judged_line).to_contain_text(model)
+
+    provenance = page.locator("details", has=page.get_by_text("Provenance", exact=True)).first
+    recorded = provenance.get_by_text(model)
+    assert recorded.count() == 1
     # `is_visible()` rather than `_visible()`: the helper waits for the thing to appear, which
     # is right for asserting presence and is twenty seconds of nothing when asserting absence.
-    assert not identity.last.is_visible()
-    page.get_by_text("Provenance").first.click()
-    assert _visible(identity.last)
+    assert not recorded.is_visible()
+    provenance.get_by_text("Provenance", exact=True).click()
+    assert _visible(recorded)
 
     # Reading something else about the review does not cost your place in the list: the same
     # row is still open when you come back.
@@ -242,7 +259,13 @@ def test_policies_render_as_markdown_and_navigation_survives_a_phone(  # type: i
     body = page.get_by_label("Policy body")
     body.fill(_authored_policy_body())
     page.get_by_role("tab", name="Preview").click()
-    assert _visible(page.get_by_role("heading", name="Guidance"))
+    # `exact=True` on every one of these. `get_by_role(name=...)` matches a *substring* by
+    # default, and the corpus listed under this form is 54 collapsible cards whose headings
+    # each carry a strength descriptor — so the loose spelling matched 54 headings and the
+    # one it was actually asking about was whichever came first in the DOM. The claim is that
+    # `## Guidance` became a heading element, and a heading whose whole name is "Guidance" is
+    # what says so.
+    assert _visible(page.get_by_role("heading", name="Guidance", exact=True))
     assert _visible(page.get_by_text("No branching in an adapter"))
     page.get_by_role("button", name="Create policy").click()
 
@@ -250,11 +273,17 @@ def test_policies_render_as_markdown_and_navigation_survives_a_phone(  # type: i
     card = page.get_by_role("button", name="Adapters translate, they do not decide")
     card.first.wait_for(timeout=30_000)
     card.first.click()
-    assert _visible(page.get_by_role("heading", name="Guidance"))
+    assert _visible(page.get_by_role("heading", name="Guidance", exact=True))
 
     page.set_viewport_size({"width": 390, "height": 844})
     page.get_by_role("button", name="Open navigation").click()
-    drawer = page.get_by_role("dialog", name="ArchCompass")
+    # *Navigation*, not *ArchCompass*. The drawer used to take the product's name as its
+    # heading and say "review workbench" under it — two lines of branding at the top of the
+    # one surface that exists to say where you can go, sharing no word with the control that
+    # opened it or with the landmark inside it. The name moved to the description and the
+    # heading now says what the sheet holds. What this test is about is unchanged: the
+    # navigation on a phone is a real dialog, opened by name, and its links go where they say.
+    drawer = page.get_by_role("dialog", name="Navigation")
     drawer.wait_for()
     drawer.get_by_role("link", name="Architecture cases").click()
     page.wait_for_url("**/cases")

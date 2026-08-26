@@ -285,11 +285,18 @@ function RunIndicator({ className }: { className?: string }) {
 
   return (
     <Link to={to} className={cn(railControl, "gap-2 whitespace-nowrap", className)}>
-      {/* `neutral` and breathing, which is the reading the model chips already established:
-          this is not a fourth state on the severity scale, it is the scale not knowing yet.
-          `held` would be the wrong claim — nobody is waiting on the reader, the workspace is
-          working. */}
-      <StatusDot tone="neutral" pulse />
+      {/* Still not a state on the severity scale — `held` would claim somebody is waiting on
+          the reader, and `material` would grade a review that has not judged anything yet.
+          What changed is which question the dot answers. The model chips are ambient and
+          `neutral` is right for them; this one only exists while a review is in flight, and
+          it is the one thing in the rail worth crossing the room for. That is the accent's
+          own job, "look here", so it says it in the accent rather than in a grey a reader has
+          to already be looking at. `running` is a value on `StatusDot` alone and not in
+          `lib/format`'s `Tone`, so the scale stays five states wide.
+
+          Breathing still, and `breathe` needs no reduced-motion case: its 0% and 100% frames
+          are the dot's own resting style, so the global freeze leaves a solid 6px dot. */}
+      <StatusDot tone="running" pulse />
       {label}
     </Link>
   );

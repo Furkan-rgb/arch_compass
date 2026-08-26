@@ -735,7 +735,8 @@
    held still: in dark this rule is a no-op, which is the point.
 
    `--accent-on-band` rather than `--accent` for the alarm, for the reason given where it is
-   declared. `--material` stays an alias so a second red still cannot appear. */
+   declared. `--material` stays an alias so a second red still cannot appear, and `--accent`
+   itself is lifted here too — see the note beside it. */
 .on-band {
   --held: #fafafa;
   --held-soft: rgb(255 255 255 / 8%);
@@ -745,6 +746,22 @@
   --cleared-soft: rgb(255 255 255 / 3%);
   --material: var(--accent-on-band);
   --material-soft: var(--accent-on-band-soft);
+
+  /* The accent itself, on the same terms, because the alarm is no longer the only thing on
+     the band wearing it: the run indicator is the accent's fifth job and it is painted from
+     `--accent` rather than from a verdict, on purpose. Without this line it would resolve to
+     the *page's* accent, and on a light page that is `#971b1a` on `#0a0a0a` — 2.35:1, a
+     smudge, while the same dot measures 6.91:1 in dark. Lifted here it is 6.91:1 in both,
+     which is slightly brighter than the `#8f8f8f` dot it replaced at 6.12:1.
+
+     The wash comes with it for the reason `--held-soft` and `--cleared-soft` do: a pair that
+     moves by halves is the next bug in this block, not a saving.
+
+     This does not reach `--mark`. `--mark: var(--accent)` is declared in `:root`, so it is
+     substituted there and inherits its resolved value into the band — which is also why
+     `--material` above has to name `--accent-on-band` outright instead of riding on this. */
+  --accent: var(--accent-on-band);
+  --accent-soft: var(--accent-on-band-soft);
 
   /* The ink ramp had to come with them, and the omission had a live consequence. `StatusDot`
      reads `--ink-3` directly for its `neutral` tone, which is the tone the model chip wears
