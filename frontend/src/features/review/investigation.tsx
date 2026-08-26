@@ -10,10 +10,28 @@ import { humanise, plural } from "../../lib/format";
  */
 export function lookupLabel(item: InvestigationLookup): string {
   const args = item.arguments ?? {};
-  // `qualified_name` is what the tools take; `node_id` is what they took before the model
-  // stopped being handed internal handles. Both are read, because a stored review is an
-  // immutable record and one written last month must still render as a sentence.
+  // `qualified_name` is what the atlas tools take; `node_id` is what they took before the
+  // model stopped being handed internal handles. Both are read, because a stored review is
+  // an immutable record and one written last month must still render as a sentence.
   const subject = args.qualified_name ?? args.node_id;
+  // The repository tools, which are most of what a judgement does. They arrived with the
+  // filesystem the judge reads the reviewed revision through, and nothing here knew their
+  // names — so the majority of every trace rendered as `read_file` with no file in it, on a
+  // surface whose whole job is to say what was checked.
+  if (item.tool === "ls" && args.path) return `listed ${args.path}`;
+  if (item.tool === "read_file" && args.file_path) return `read ${args.file_path}`;
+  if (item.tool === "glob" && args.pattern) return `looked for files matching ${args.pattern}`;
+  if (item.tool === "grep" && args.pattern) {
+    // `path` narrows the search and `glob` narrows it by name; either is worth saying,
+    // because "searched for Protocol" and "searched tests for Protocol" are different checks.
+    const within = args.path ?? args.glob;
+    return within
+      ? `searched ${within} for ${args.pattern}`
+      : `searched the code for ${args.pattern}`;
+  }
+  if (item.tool === "search_policies" && args.query) {
+    return `looked for policies about ${args.query}`;
+  }
   if ((item.tool === "search_code" || item.tool === "find_code") && args.name) {
     return `searched for ${args.name}`;
   }

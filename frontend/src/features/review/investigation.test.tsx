@@ -58,3 +58,55 @@ describe("an investigation as a reader sees it", () => {
     ).toBe("searched for PersistenceGateway");
   });
 });
+
+/**
+ * The tools a judgement actually uses today. They arrived with the filesystem the judge
+ * reads the reviewed revision through, and this surface knew none of their names — so the
+ * majority of every trace rendered as a bare `read_file` with no file in it, on a fold whose
+ * entire job is to say what was checked. Measured on one review: 33 of 49 lookups.
+ */
+describe("what a repository check says it did", () => {
+  const lookup = (tool: string, args: Record<string, string>) =>
+    ({ tool, arguments: args, result: "" }) as Parameters<typeof lookupLabel>[0];
+
+  it("names the file that was read", () => {
+    expect(lookupLabel(lookup("read_file", { file_path: "/ports.py" }))).toBe("read /ports.py");
+    // The offset and limit are how much was read, not what was read, and saying them here
+    // would push the filename out of a line that has to stay scannable.
+    expect(
+      lookupLabel(lookup("read_file", { file_path: "/adapters.py", limit: "100", offset: "0" })),
+    ).toBe("read /adapters.py");
+  });
+
+  it("names what a search was for, and where it looked when that was narrowed", () => {
+    expect(lookupLabel(lookup("grep", { pattern: "Protocol" }))).toContain("Protocol");
+    // "searched for Protocol" and "searched tests for Protocol" are different checks, and a
+    // reader weighing whether substitution was established needs to tell them apart.
+    expect(lookupLabel(lookup("grep", { pattern: "Protocol", path: "/tests" }))).toBe(
+      "searched /tests for Protocol",
+    );
+    expect(lookupLabel(lookup("glob", { pattern: "*.py" }))).toContain("*.py");
+    expect(lookupLabel(lookup("ls", { path: "/" }))).toBe("listed /");
+  });
+
+  it("says a policy search was a policy search", () => {
+    expect(lookupLabel(lookup("search_policies", { query: "substitution" }))).toContain(
+      "policies about substitution",
+    );
+  });
+
+  it("still renders the tools stored reviews were written with", () => {
+    // A stored review is immutable, so the names the product used before must keep reading
+    // as sentences rather than falling through to the raw call.
+    expect(lookupLabel(lookup("describe_code", { qualified_name: "app.Gateway" }))).toBe(
+      "inspected app.Gateway",
+    );
+    expect(lookupLabel(lookup("read_code", { node_id: "node_a1" }))).toContain("node_a1");
+  });
+
+  it("falls back to the tool's own name rather than disappearing", () => {
+    expect(lookupLabel(lookup("some_tool_added_later", {}))).toBe("some_tool_added_later");
+    // A known tool with the argument missing must not render a sentence with a hole in it.
+    expect(lookupLabel(lookup("read_file", {}))).toBe("read_file");
+  });
+});

@@ -193,3 +193,85 @@ def test_only_read_only_tools_are_offered_to_the_model(repository: Path) -> None
     offered = {tool.name for tool in middleware.tools}
     assert offered == {"ls", "read_file", "glob", "grep"}
     assert not offered & {"write_file", "edit_file", "delete", "execute"}
+
+
+def test_a_path_the_model_was_handed_reads_back_without_it_guessing(
+    repository: Path,
+) -> None:
+    """The round trip, which is what was actually broken.
+
+    The vendor's own tool descriptions tell the model that glob "returns absolute paths".
+    Handing back a bare `app/gateway.py` left it to construct what it had been told it
+    already had, and it constructed a root nobody gave it: measured against an eight-boundary
+    repository, 31 of 88 lookups were spent being told `/workspace/narration/planning.py` is
+    not in the revision.
+
+    So every path out is rooted, and a path in is read whichever way it arrives — a stored
+    review from before this still renders, and a model that pastes back what it was given
+    reads the file.
+    """
+
+    revision = _git(repository, "rev-parse", "HEAD")
+    backend = ReviewedRevisionBackend(_source(repository, revision=revision))
+
+    found = [item["path"] for item in backend.glob("*.py").matches or []]
+    assert found, "the fixture repository has Python files in it"
+    assert all(path.startswith("/") for path in found)
+
+    # Every one of them opens, using nothing but the string it was handed.
+    for path in found:
+        assert backend.read(path).error is None, path
+    # And the form the product used to hand out still works, because a path is a path.
+    assert backend.read("app/gateway.py").error is None
+
+    listed = [item["path"] for item in backend.ls("/app").entries or []]
+    assert listed and all(path.startswith("/") for path in listed)
+    assert all(backend.read(path).error is None for path in listed)
+
+    assert all(m["path"].startswith("/") for m in backend.grep("charge").matches or [])
+
+
+def test_a_path_that_is_not_there_says_which_form_is(repository: Path) -> None:
+    """The error is the only thing that can teach the convention, so it names it.
+
+    It used to say only that the path was wrong, and the model answered by making the same
+    wrong path again — six times on one repository and thirty-one on another. An empty
+    listing was worse than useless: a revision cannot hold an empty directory, so "no files
+    found" at a named path invited the reader to conclude the directory was bare.
+    """
+
+    backend = ReviewedRevisionBackend(
+        _source(repository, revision=_git(repository, "rev-parse", "HEAD"))
+    )
+
+    missing = backend.read("/workspace/app/gateway.py").error or ""
+    assert "not in the revision" in missing
+    assert "/adapters.py" in missing
+
+    listed = backend.ls("/workspace")
+    assert not listed.entries
+    assert "/adapters.py" in (listed.error or "")
+
+    # The root still lists, and is never reported as a directory that is not there.
+    assert backend.ls("/").entries
+    assert backend.ls("/").error is None
+
+
+def test_an_empty_file_is_empty_rather_than_absent(repository: Path) -> None:
+    """Two different facts arrive as the same empty string, and only one is an absence.
+
+    `app/__init__.py` has nothing in it, which is what an `__init__.py` usually has — and it
+    is the file a judgement opens to find out whether a directory is a package. Reported as
+    "not in the revision under review", it told the model the package was not there.
+    """
+
+    backend = ReviewedRevisionBackend(
+        _source(repository, revision=_git(repository, "rev-parse", "HEAD"))
+    )
+
+    empty = backend.read("/app/__init__.py")
+
+    assert empty.error is None
+    assert (empty.file_data or {}).get("content") == ""
+    # And a path that genuinely is not there is still an absence.
+    assert backend.read("/app/never_written.py").error
