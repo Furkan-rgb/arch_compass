@@ -63,7 +63,6 @@ class SingleRuntimeProvider:
 
     def __init__(self, runtime: Runtime) -> None:
         self._runtime = runtime
-        _abandon_interrupted_reviews(runtime)
 
     def acquire(self, request: Request) -> Runtime:
         return self._runtime
@@ -126,10 +125,10 @@ class SessionRuntimeProvider:
         sitting still, and it was not true of one in the middle of a review. A background
         run lives on a thread inside the runtime's `ReviewWorkflowService`, and dropping the
         dictionary entry does not stop the thread — so when that session came back,
-        `_open` called `_abandon_interrupted_reviews`, which marks every row still
-        `running` as failed and releases its checkpoints. Against a review that was at that
-        moment still executing. Reproduced: the durable row read `failed` while
-        `is_running` on the same thread id read `True`.
+        `build_runtime` reconciled the workspace, which marks every row still `running` as
+        failed and releases its checkpoints. Against a review that was at that moment still
+        executing. Reproduced: the durable row read `failed` while `is_running` on the same
+        thread id read `True`.
 
         So the eviction skips them. A runtime with live work is not a handle anybody can
         drop, and the cache says so rather than something outside it remembering.
@@ -159,7 +158,6 @@ class SessionRuntimeProvider:
             source_storage=self._source_storage,
             analysis_limits=self._analysis_limits,
         )
-        _abandon_interrupted_reviews(runtime)
         return runtime
 
 
@@ -249,16 +247,3 @@ def _presented_token(headers: Headers) -> str | None:
         if separator and name == SESSION_COOKIE and _SESSION_TOKEN.match(value):
             return value
     return None
-
-
-def _abandon_interrupted_reviews(runtime: Runtime) -> None:
-    """Close out any review a previous process was in the middle of.
-
-    A run cannot outlive the process holding its request, so a row still marked running
-    when a runtime is opened over that workspace belongs to a process that is gone, and
-    leaving it saying "in progress" for ever would be the one thing worse than reporting it
-    failed.
-    """
-
-    runtime.review_workflow_service.abandon_running()
-

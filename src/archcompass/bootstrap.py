@@ -286,13 +286,27 @@ class Runtime:
 #: no run is in flight.
 _CHECKPOINT_RECLAIM_BYTES: Final = 64 * 1024 * 1024
 
+#: A checkpoint is restartable execution state, not durable product history. Four GiB is
+#: enough room for the measured high-water marks while still being a real safety boundary on
+#: a developer machine. SQLite enforces it at the page allocator, so a pathological review
+#: fails through the workflow's existing failure-and-release path instead of filling the
+#: volume. The WAL is separately asked to return retained capacity after checkpoints; its
+#: active transaction can still briefly reflect the bounded database, but cannot make the
+#: database itself grow past this ceiling.
+_CHECKPOINT_MAX_BYTES: Final = 4 * 1024 * 1024 * 1024
+_CHECKPOINT_WAL_RETAIN_BYTES: Final = 64 * 1024 * 1024
+
 
 def _reclaim_checkpoint_space(connection: sqlite3.Connection) -> None:
     """Return the disk a finished review's checkpoints were holding, when it is worth it.
 
-    At open, so that nothing is mid-flight, and never fatal: a database somebody has made
-    read-only, or one another process holds, is a workspace that starts anyway with more
-    disk in use than it needs.
+    Called only after `ReviewWorkflowService.abandon_running` has removed everything except
+    reviews awaiting answers. Ordering is the point: rewriting a leaked 56 GiB database and
+    deleting its abandoned threads afterwards produced a second, equally large WAL before
+    the server could bind its port.
+
+    Never fatal: a database somebody has made read-only, or one another process holds, is a
+    workspace that starts anyway with more disk in use than it needs.
 
     Two reasons to rewrite, and the first is the one that is easy to miss. SQLite honours
     `PRAGMA auto_vacuum` only on a database that has no tables yet — so on every workspace
@@ -315,8 +329,32 @@ def _reclaim_checkpoint_space(connection: sqlite3.Connection) -> None:
         return
     try:
         connection.execute("VACUUM")
+        # The saver uses WAL mode. `VACUUM` therefore writes the compacted database into
+        # the WAL first; without folding it back, the old large main file remains beside a
+        # second copy that can grow just as large. Startup has no live graph transaction,
+        # so this checkpoint cannot contend with a review.
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
     except sqlite3.DatabaseError:
         _log.warning("The checkpoint database could not be compacted", exc_info=True)
+
+
+def _bound_checkpoint_space(connection: sqlite3.Connection) -> None:
+    """Put a hard ceiling under the checkpoint lifecycle's ordinary cleanup."""
+
+    page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
+    requested_pages = _CHECKPOINT_MAX_BYTES // page_size
+    row = connection.execute(f"PRAGMA max_page_count = {requested_pages}").fetchone()
+    actual_pages = int(row[0]) if row is not None else 0
+    if actual_pages > requested_pages:
+        actual_bytes = actual_pages * page_size
+        raise ConfigurationError(
+            "Live review checkpoints occupy "
+            f"{actual_bytes / (1024**3):.1f} GiB, above ArchCompass's "
+            f"{_CHECKPOINT_MAX_BYTES / (1024**3):.0f} GiB safety limit. "
+            "Finish or cancel reviews awaiting answers, or remove "
+            ".archcompass/review-checkpoints.db if none must be resumed."
+        )
+    connection.execute(f"PRAGMA journal_size_limit = {_CHECKPOINT_WAL_RETAIN_BYTES}").fetchone()
 
 
 def build_runtime(
@@ -453,9 +491,8 @@ def build_runtime(
     # Asked before the saver creates its tables, because SQLite only honours it on a
     # database that has none yet. It is what lets `ReviewWorkflowService._release` hand
     # space back rather than only mark it reusable — and on a workspace that already has
-    # tables it does nothing at all, which is what the `VACUUM` below is for.
+    # tables it does nothing at all, which is what the post-reconciliation `VACUUM` is for.
     checkpoint_connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
-    _reclaim_checkpoint_space(checkpoint_connection)
     checkpointer = SqliteSaver(
         checkpoint_connection,
         serde=JsonPlusSerializer(allowed_msgpack_modules=list(CHECKPOINT_RECORD_TYPES)),
@@ -533,6 +570,13 @@ def build_runtime(
         executions=executions,
         cases=core_cases,
     )
+    # Reconcile first, rewrite second. `running` rows belong to a departed process at this
+    # point, and terminal/orphaned checkpoint threads are leaks; copying them through a
+    # legacy-mode VACUUM before deleting them is what made startup consume another 16 GiB
+    # without ever reaching the server. Only awaiting-answer threads survive this sweep.
+    review_workflow_service.abandon_running()
+    _reclaim_checkpoint_space(checkpoint_connection)
+    _bound_checkpoint_space(checkpoint_connection)
     standing_decision_service = StandingDecisionService(
         decisions=core_decisions, reviews=core_reviews
     )

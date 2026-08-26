@@ -694,19 +694,41 @@ class ReviewWorkflowService:
         return self._executions.record(run_id)
 
     def abandon_running(self) -> None:
-        """Mark runs a departed process left behind as failed, and free what they held.
+        """Mark departed runs failed and retain checkpoints only for resumable reviews.
 
-        The thread ids are read before the row is rewritten, because afterwards nothing says
-        which runs were abandoned. They are the largest checkpoints a workspace ever holds —
-        a run that died mid-review died with the whole state checkpointed — and nothing else
-        will ever come back for them: an abandoned thread is `failed`, and a failed thread
-        cannot be resumed.
+        A checkpoint database is execution state, not history. The only execution this
+        product can resume is one awaiting human answers, so every other thread is stale at
+        process start: `running` belongs to the departed process, terminal threads should
+        already have been released, and a thread absent from the execution store is orphaned.
+
+        Sweep the checkpoint store itself rather than the execution listing. The listing is
+        deliberately bounded for presentation and used to cap this cleanup at 1,000 rows;
+        it also cannot name terminal leaks or orphans. Those are exactly the records a
+        lifecycle repair has to remove before the composition root considers compacting the
+        database that held them.
         """
 
-        abandoned = [record.thread_id for record in self._executions.in_flight(limit=1000)]
         self._executions.abandon_running()
-        for thread_id in abandoned:
+        for thread_id in self._checkpoint_thread_ids():
             self._release(thread_id)
+
+    def _checkpoint_thread_ids(self) -> tuple[str, ...]:
+        """Every thread physically present in the SQLite saver, without decoding a blob."""
+
+        saver = cast("object", getattr(self._graph, "checkpointer", None))
+        connection = cast("sqlite3.Connection | None", getattr(saver, "conn", None))
+        lock = cast("AbstractContextManager[object] | None", getattr(saver, "lock", None))
+        if connection is None or lock is None:
+            return ()
+        try:
+            with lock:
+                rows = connection.execute(
+                    "SELECT thread_id FROM checkpoints UNION SELECT thread_id FROM writes"
+                ).fetchall()
+        except sqlite3.DatabaseError:
+            _log.warning("The checkpoint threads could not be listed", exc_info=True)
+            return ()
+        return tuple(str(row[0]) for row in rows)
 
     def _bind(self, thread_id: str, review: Review) -> Review:
         self._executions.bind(thread_id, review)
@@ -770,7 +792,13 @@ class ReviewWorkflowService:
         """
 
         try:
-            if self._executions.status(thread_id) == ReviewStatus.AWAITING_ANSWERS.value:
+            try:
+                status = self._executions.status(thread_id)
+            except ReviewNotFoundError:
+                # A checkpoint with no execution row cannot be addressed or resumed. It is
+                # left by an older schema or an interrupted partial write, not hidden history.
+                status = None
+            if status == ReviewStatus.AWAITING_ANSWERS.value:
                 return
             saver = cast("object", getattr(self._graph, "checkpointer", None))
             delete = cast(

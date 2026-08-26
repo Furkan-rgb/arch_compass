@@ -253,6 +253,15 @@ A checkpoint id is never a review id. Domain lineage is repository and branch id
 sequence number, and `previous_review_id`. Checkpoints are released when a review ends;
 reviews are immutable and kept.
 
+**Only a review awaiting human answers owns durable checkpoint state.** At runtime open,
+rows left `running` by the departed process become failed, and terminal or orphaned
+checkpoint threads are deleted. That reconciliation happens before a legacy database is
+rewritten: compacting first once copied 56 GiB of dead execution state into a 16 GiB-and-
+growing WAL before the web server could bind. The rewrite is followed by a truncating WAL
+checkpoint, and the store has a 4 GiB SQLite page ceiling. Reaching the ceiling fails the
+active review through its normal terminal path; it never turns checkpoints into a second
+history store.
+
 The sequence is **per branch**, not per branch and case: it is `previous.sequence + 1` off
 the branch's latest review, so a review of a different case continues the branch's number
 line rather than starting one. Every snapshot of one review shares that number — each round

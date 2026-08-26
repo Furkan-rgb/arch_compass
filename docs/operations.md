@@ -34,6 +34,12 @@ make dev     # two processes: API on 8765, Vite on 5173 with /api proxied
 Open <http://localhost:5173>. Only the frontend reloads — a Python change needs `make dev`
 restarted, and 8765 keeps serving whatever bundle was last built.
 
+The separate `.archcompass/review-checkpoints.db` contains resumable workflow state, not
+completed review history. Startup keeps checkpoints only for reviews awaiting answers,
+compacts stale space before serving, and enforces a 4 GiB database ceiling. If no unfinished
+review needs to resume, the checkpoint database and its `-wal`/`-shm` sidecars may be removed
+while ArchCompass is stopped; `.archcompass/workspace.sqlite3` must be kept.
+
 Provider and model selection is stored per workspace and changed from the Models screen. A
 single run can pin one instead:
 
