@@ -197,10 +197,22 @@ def show_everything(page) -> None:  # type: ignore[no-untyped-def]
     implicitly, so "the first group" silently became something else and this helper failed on
     a count it could not explain. A name is the thing that identifies this control; its
     position among unrelated controls never was.
+
+    The wait is the second half of the same lesson. `count()` is the one locator method that
+    does not auto-wait: it asks the page what is there *now* and answers immediately, so
+    called straight after the surface tabs put the docket back on screen it counted a filter
+    React had not rendered yet and failed claiming the control was gone. Everything else in
+    this module waits for the thing it is about to touch — `open_first_candidate` waits on
+    its rows, `wait_for_review` on its tablist — and this was the one place that did not.
+    Waiting for the toggle it is going to click is both the wait and the assertion that the
+    control still exists, and `wait_for` reports which one it gave up on.
     """
 
     group = page.get_by_role("group", name="Filter the docket").first
+    group.wait_for(state="visible", timeout=REVIEW_TIMEOUT_MS)
     toggles = group.get_by_role("button")
+    # The widest filter, and the wait that makes the count below a real count.
+    toggles.last.wait_for(state="visible", timeout=REVIEW_TIMEOUT_MS)
     assert toggles.count() >= 2, "the docket filter is no longer a group of toggles"
     toggles.last.click()
 
