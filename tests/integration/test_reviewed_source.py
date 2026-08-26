@@ -15,8 +15,13 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
+from deepagents import FilesystemMiddleware
+from langchain.agents.middleware.types import ModelRequest
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyzer
 from archcompass.analysis.atlas import Atlas
@@ -183,8 +188,6 @@ def test_a_stale_tree_reaches_the_model_as_a_sentence_rather_than_an_exception(
 def test_only_read_only_tools_are_offered_to_the_model(repository: Path) -> None:
     """Omitted from the toolset, not present and refused. There is nothing to deny."""
 
-    from deepagents import FilesystemMiddleware
-
     middleware = FilesystemMiddleware(
         backend=ReviewedRevisionBackend(_source(repository, revision=None)),
         tools=["ls", "read_file", "glob", "grep"],
@@ -275,3 +278,76 @@ def test_an_empty_file_is_empty_rather_than_absent(repository: Path) -> None:
     assert (empty.file_data or {}).get("content") == ""
     # And a path that genuinely is not there is still an absence.
     assert backend.read("/app/never_written.py").error
+
+
+def test_the_model_is_told_where_the_filesystem_is_rooted(repository: Path) -> None:
+    """The one thing a rooted answer cannot fix: the guess made before the first answer.
+
+    Rooting what the tools hand back cured the repeats — a path the model was given reads
+    back — but the opening read comes before it has been given anything, and the vendor's
+    tool descriptions promise "absolute paths" without saying absolute to what. Measured
+    after rooting: 5 of 37 lookups on `speech-vendor` were still a first read into
+    `/workspace/`, a directory nobody had mentioned.
+
+    Asserted through the middleware rather than on the constant, because the constant being
+    right is worth nothing if it is not passed — and it reaches the model through the
+    vendor's own slot for tool prose, which is not the judgement contract and says nothing
+    about what to decide.
+    """
+
+    from archcompass.reasoning.adapters.judge_tools import FILESYSTEM_ROOT_NOTE
+
+    middleware = FilesystemMiddleware(
+        backend=ReviewedRevisionBackend(_source(repository, revision=None)),
+        tools=["ls", "read_file", "glob", "grep"],
+        system_prompt=FILESYSTEM_ROOT_NOTE,
+    )
+    request = ModelRequest(
+        model=GenericFakeChatModel(messages=iter([AIMessage("")])),
+        messages=[HumanMessage("Judge this candidate.")],
+        system_message=SystemMessage("Judge this candidate."),
+        tool_choice=None,
+        tools=list(middleware.tools),
+        response_format=None,
+        state={},
+        runtime=cast("Any", None),
+    )
+    prepared = middleware._filter_unsupported_tools_and_apply_prompt(request)
+
+    said = str(prepared.system_message.content)
+    assert "root is `/`" in said
+    assert "no checkout path in front of it" in said
+    # Appended, not substituted: the judgement's own instruction still opens the system
+    # message and is still the whole of what the model is asked to decide.
+    assert said.index("Judge this candidate.") < said.index("root is `/`")
+
+
+def test_a_glob_matches_zero_directories_as_well_as_many(repository: Path) -> None:
+    """`**/` is documented as "any directories", and `fnmatch` cannot match none of them.
+
+    So `tests/**/*.py` found `tests/unit/test_gateway.py` and missed `tests/test_gateway.py`
+    — and a repository whose tests all sit directly in `tests/` answered a perfectly valid
+    pattern with nothing at all. Measured on a real repository: four of fifty-six lookups
+    spent on a pattern the model was right to write.
+
+    The glob description the model is handed is the vendor's, so the pattern is not ours to
+    narrow. This is the same defect as promising absolute paths and returning relative ones,
+    one tool along.
+    """
+
+    backend = ReviewedRevisionBackend(
+        _source(repository, revision=_git(repository, "rev-parse", "HEAD"))
+    )
+
+    found = [item["path"] for item in backend.glob("tests/**/*.py").matches or []]
+
+    # The fixture keeps its test directly in `tests/`, which is where most repositories
+    # keep them and the case that used to return nothing.
+    assert "/tests/test_gateway.py" in found
+    # And the many-directories reading still works, on the same pattern.
+    nested = [item["path"] for item in backend.glob("app/**/*.py").matches or []]
+    assert "/app/gateway.py" in nested
+    # A bare name is still read as "anywhere", which is what somebody typing it means.
+    assert "/app/gateway.py" in [
+        item["path"] for item in backend.glob("*.py").matches or []
+    ]

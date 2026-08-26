@@ -41,6 +41,24 @@ READ_ONLY_FILESYSTEM = ("ls", "read_file", "glob", "grep")
 #: among them; see `analysis.investigation`.
 ATLAS_TOOLS = ("search_code", "describe_code", "related_code")
 
+#: Where the filesystem tools are rooted, said once instead of guessed at once per candidate.
+#:
+#: This is the vendor's own slot for tool-usage prose — `FilesystemMiddleware(system_prompt=)`
+#: — and not the judgement contract, which is about what to decide rather than about where
+#: the files are. Nothing here tells a judgement what to conclude.
+#:
+#: It is here because the alternative was measured. The vendor's tool descriptions promise
+#: "absolute paths", so a model with no root in front of it invents one, and every one of
+#: them invented `/workspace/`. Rooting what the tools hand back cured the repeats — a path
+#: it was given reads back — but not the opening guess, which comes before it has been given
+#: anything: 5 of 37 lookups on `speech-vendor` were still a first read into a directory that
+#: does not exist. A sentence costs less than the lookup it saves.
+FILESYSTEM_ROOT_NOTE = (
+    "The filesystem tools read the repository under review, at the revision under review. "
+    "Its root is `/`, so `/adapters.py` is a file at the top of the repository. There is no "
+    "enclosing directory above it and no checkout path in front of it."
+)
+
 
 @dataclass
 class OfferedTools:
@@ -92,6 +110,7 @@ class JudgeToolbox:
                 FilesystemMiddleware(
                     backend=ReviewedRevisionBackend(offered.source),
                     tools=list(READ_ONLY_FILESYSTEM),
+                    system_prompt=FILESYSTEM_ROOT_NOTE,
                     # Its own context eviction is switched off: one budget owns how much a
                     # judgement may carry, and it is the one in `deep_judge`.
                     tool_token_limit_before_evict=None,

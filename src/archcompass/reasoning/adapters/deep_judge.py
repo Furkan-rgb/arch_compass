@@ -101,7 +101,14 @@ MAX_JUDGEMENT_SECONDS = 120.0
 #: would have caught for another thirty calls.
 MAX_IDENTICAL_TOOL_CALLS = 2
 
-JUDGEMENT_PROMPT_IDENTITY = "judge:deep-v1"
+#: What a judgement was produced by, on the prompt side. Bumped whenever the model is shown
+#: something different, because a stored finding carries this and `DeterministicRevisionCalculator`
+#: asks whether the stamp still matches what this process would produce.
+#:
+#: `v2` adds `judge_tools.FILESYSTEM_ROOT_NOTE`, which is not part of the judgement contract
+#: but is part of what the model reads — and it changed behaviour, which is the whole test of
+#: whether an identity should move. Everything judged under `v1` re-judges once.
+JUDGEMENT_PROMPT_IDENTITY = "judge:deep-v2"
 
 
 class _Gathering(AgentMiddleware[Any, Any]):

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import fnmatch
 import subprocess
+from itertools import product
 from pathlib import Path
 
 from archcompass.analysis.atlas import Atlas
@@ -35,6 +36,49 @@ _GIT_TIMEOUT_SECONDS = 20.0
 #: Directories no judgement has business reading, skipped when walking the working tree.
 #: Git never offers them, so this only ever applies on the fallback path.
 _UNWALKED = frozenset({".git", ".archcompass", "node_modules", "__pycache__", ".venv"})
+
+
+#: How many `**/` segments are expanded exhaustively. Two covers `src/**/tests/**/*.py`, and
+#: the cap is only there so a pattern nobody meant to write cannot cost 2^n comparisons per
+#: path; past it the pattern is tried whole and with every `**/` removed, which is the two
+#: readings that matter.
+_MAX_EXPANDED_WILDCARDS = 3
+
+
+def _glob_forms(pattern: str) -> tuple[str, ...]:
+    """One glob as every `fnmatch` pattern that means the same thing.
+
+    `fnmatch` has no `**`. It has `*`, which already crosses `/`, so `**` mostly behaves —
+    except in the one place it matters most: `**/` cannot match *zero* directories. So
+    `tests/**/*.py` found `tests/unit/test_x.py` and missed `tests/test_x.py`, and a
+    repository whose tests all sit directly in `tests/` answered a perfectly valid pattern
+    with nothing. Measured on a real repository: four of fifty-six lookups.
+
+    That is not a nicety. The glob description the model is handed is the vendor's, and it
+    says `**` matches "any directories" — so the pattern was right and the matcher was
+    narrow, which is the same shape of defect as promising absolute paths and returning
+    relative ones.
+
+    A bare name is still read as "anywhere". `*.py` means every Python file to whoever typed
+    it, and matching only the root is not what anybody means.
+    """
+
+    seed = pattern if "/" in pattern else f"**/{pattern}"
+    forms = {pattern, seed}
+    for form in (pattern, seed):
+        pieces = form.split("**/")
+        if len(pieces) - 1 > _MAX_EXPANDED_WILDCARDS:
+            forms.add(form.replace("**/", ""))
+            continue
+        for keep in product((True, False), repeat=len(pieces) - 1):
+            forms.add(
+                pieces[0]
+                + "".join(
+                    ("**/" if kept else "") + piece
+                    for kept, piece in zip(keep, pieces[1:], strict=True)
+                )
+            )
+    return tuple(sorted(form for form in forms if form))
 
 
 class AtlasReviewedSource:
@@ -139,14 +183,11 @@ class AtlasReviewedSource:
 
     def find_paths(self, pattern: str, *, within: str | None, limit: int) -> tuple[str, ...]:
         prefix = self._relative(within or "")
-        # A bare name is read as "anywhere", which is what somebody typing `*.py` means and
-        # what `fnmatch` alone does not do: it would only match files at the root.
-        anywhere = pattern if "/" in pattern else f"**/{pattern}"
         matched = [
             item
             for item in self._every_path()
             if (not prefix or item == prefix or item.startswith(f"{prefix}/"))
-            and (fnmatch.fnmatch(item, anywhere) or fnmatch.fnmatch(item, pattern))
+            and any(fnmatch.fnmatch(item, form) for form in _glob_forms(pattern))
         ]
         return tuple(matched[:limit])
 
