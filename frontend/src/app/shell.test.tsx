@@ -103,12 +103,12 @@ describe("the application shell", () => {
     render(wrap());
 
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-    const drawer = await screen.findByRole("dialog", { name: "ArchCompass" });
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     expect(within(drawer).getByRole("link", { name: "Architecture cases" })).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "ArchCompass" })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument(),
     );
   });
 
@@ -143,7 +143,7 @@ describe("the application shell", () => {
     render(wrap());
 
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-    const drawer = await screen.findByRole("dialog", { name: "ArchCompass" });
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     await waitFor(() =>
       expect(within(drawer).getByRole("link", { name: /Reasoning model/ })).toHaveTextContent(
         "deterministic",

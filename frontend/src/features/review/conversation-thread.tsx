@@ -5,10 +5,11 @@ import { api, type Review, type ReviewConversation } from "../../api";
 import { shortId } from "../../lib/format";
 import { Tag } from "../../ui/badge";
 import { Button } from "../../ui/button";
-import { Input } from "../../ui/field";
-import { ChevronDown } from "../../ui/icons";
+import { Textarea } from "../../ui/field";
+import { CheckIcon, ChevronDown } from "../../ui/icons";
 import { Label } from "../../ui/panel";
 import { Spinner } from "../../ui/states";
+import { Attribution } from "./finding-detail";
 import { InvestigationTranscript, investigationSummary } from "./investigation";
 
 /**
@@ -36,18 +37,35 @@ export function ConversationExchange({
   onUseAnswer?: (text: string) => void;
 }) {
   const suggested = message.answer.suggested_answer?.trim();
+  const [taken, setTaken] = useState(false);
   return (
     <div className="grid gap-2">
       <div className="rounded-md border border-rule bg-surface-2 px-3 py-2.5">
         <Label>Question</Label>
         {/* `wrap-anywhere` on both halves: a question is regularly a qualified name with a
             few words around it, and an answer quotes paths back. One token wider than a
-            phone and nothing else in the panel can help. */}
-        <p className="mt-1 text-sm leading-6 text-ink wrap-anywhere">{message.question}</p>
+            phone and nothing else in the panel can help.
+
+            `max-w-[62ch]` because nothing in this exchange capped its measure, and on the Ask
+            surface it is drawn inside the page's whole 76rem column — about 150 characters a
+            line, the longest prose in the product at the loosest measure. */}
+        <p className="mt-1 max-w-[62ch] text-sm leading-6 text-ink wrap-anywhere">
+          {message.question}
+        </p>
       </div>
-      <div className="rounded-md border border-rule bg-sunken/50 px-3 py-2.5">
-        <Label>Agent</Label>
-        <p className="mt-1 whitespace-pre-line text-sm leading-6 text-ink-2 wrap-anywhere">
+      {/* `bg-sunken`, not `bg-sunken/50`: half of `#ebebeb` over the panel composites to a
+          grey on no ramp in light and to something else again in dark. This is a quiet inset,
+          which is the job `--sunken` is named for, in both themes. */}
+      <div className="rounded-md border border-rule bg-sunken px-3 py-2.5">
+        {/* The model's voice, named and set at the reading size — which is the design system's
+            central claim and the one place in the product that ignored it. This was 14px of
+            `--ink-2` under a generic 10px "Agent", so a reader could not tell which model had
+            answered and the paragraph read as chrome rather than as the judged voice. The
+            identity is in the payload and is already trusted enough to be stamped onto the
+            answer the reviewer submits, and `Attribution` is the line the finding and the
+            report already use for exactly this. */}
+        <Attribution voice="Answered" by={message.answer.model_identity || "model not recorded"} />
+        <p className="mt-1 max-w-[62ch] whitespace-pre-line text-[16px] leading-[1.65] text-ink wrap-anywhere">
           {message.answer.text}
         </p>
 
@@ -62,12 +80,36 @@ export function ConversationExchange({
              and they submit the round. */
           <div className="mt-2.5 border-t border-rule pt-2.5">
             <Label>Wording you could use</Label>
-            <p className="mt-1 whitespace-pre-line text-sm leading-6 text-ink wrap-anywhere">
+            {/* `text-ink-2`, under an answer that now carries the stronger ink. Placement
+                already obeyed the argument above — the reasoning is what the reader came for
+                — and the weights reversed it: the explanation was secondary and the
+                ready-made sentence beneath it was full ink, so the eye landed on the words to
+                submit before the reasons for them, under a panel whose own doc says the agent
+                must never decide the answer. */}
+            <p className="mt-1 max-w-[62ch] whitespace-pre-line text-sm leading-6 text-ink-2 wrap-anywhere">
               {suggested}
             </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
-              <Button variant="secondary" size="sm" onClick={() => onUseAnswer(suggested)}>
-                Put this in my answer
+              {/* The tick is the whole confirmation, and it is the device `CopyButton` already
+                  uses. The press writes into a box that is above this in the DOM and does not
+                  yet exist, so the only thing that visibly happened was the panel dropping a
+                  hundred pixels; the control the reader was looking at said nothing at all. */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  onUseAnswer(suggested);
+                  setTaken(true);
+                  window.setTimeout(() => setTaken(false), 1500);
+                }}
+              >
+                {taken ? (
+                  <>
+                    <CheckIcon aria-hidden="true" className="size-3.5" /> In your answer box
+                  </>
+                ) : (
+                  "Put this in my answer"
+                )}
               </Button>
               <span className="text-[11px] leading-5 text-ink-3">
                 It goes in the box for you to change. Nothing is submitted until you do it.
@@ -82,7 +124,9 @@ export function ConversationExchange({
              this is the working behind it. */
           <details className="group mt-2 border-t border-rule pt-2">
             <summary className="flex min-h-11 list-none items-center gap-2">
-              <Label>Looked up</Label>
+              {/* `as="span"`, because `<summary>` takes phrasing content and `Label` renders a
+                  `div` by default — which is the invalid nesting its `as` prop exists for. */}
+              <Label as="span">Looked up</Label>
               <span className="min-w-0 flex-1 font-mono text-[11px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
                 {investigationSummary(message.answer.investigation)}
               </span>
@@ -186,10 +230,14 @@ export function useConversations(review: Review, questionId = "") {
 /**
  * The box a question is typed into, with the button that sends it.
  *
- * Shared for the same reason the exchange is: two surfaces, one gesture. Enter sends, and
- * the button is `shrink-0` — everything on this page may be narrower than its content, which
- * is what keeps a path from widening it, but a three-letter button has nothing to give and
- * at 390px it was being squeezed to "As…".
+ * Shared for the same reason the exchange is: two surfaces, one gesture.
+ *
+ * A textarea, not an input. The placeholder invites a sentence and a real question is two or
+ * three lines of one, so a one-line field meant the words scrolled out of their own box while
+ * being typed and could not be re-read before they were sent — at 1440 the same element was a
+ * 1060px single line, which is the worst shape a sentence can be given. The button moved under
+ * the box with it: beside a growing field it would have to sit somewhere arbitrary in the
+ * vertical, and at 390px it was already being squeezed to "As…".
  */
 export function AskBox({
   label,
@@ -210,28 +258,57 @@ export function AskBox({
    */
   value: string;
   onChange: (value: string) => void;
-  onAsk: (text: string) => void;
+  /**
+   * Send it, and say when it landed if you can.
+   *
+   * The box used to be cleared the instant the button was pressed, before the request
+   * resolved — and an ask has no timeout, because it runs an agent. So a failure took the
+   * reader's sentence off the screen and left them a button offering to resend the identical
+   * text, with no way to rephrase the question that had just failed. A caller that hands back
+   * the mutation's promise gets the words kept until it resolves and kept for good if it
+   * rejects; one that returns nothing keeps exactly the behaviour it had.
+   */
+  onAsk: (text: string) => void | Promise<unknown>;
 }) {
-  const send = () => {
+  const send = async () => {
     if (!value.trim() || pending) return;
-    onAsk(value.trim());
-    onChange("");
+    try {
+      await onAsk(value.trim());
+      onChange("");
+    } catch {
+      // The failure is rendered by the caller, beside this box. What belongs here is the
+      // words, still in the field, still editable.
+    }
   };
   return (
-    <div className="flex gap-2">
-      <Input
+    <div className="grid max-w-[64ch] gap-2">
+      <Textarea
         aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter") send();
+          // `isComposing` is the whole reason this is not one condition. Anyone writing with
+          // an IME — Japanese, Chinese, Korean — presses Enter to commit a candidate, and
+          // that press used to send a half-composed question to an agent. Shift+Enter is then
+          // the newline, in a box whose entire purpose is a written sentence.
+          if (
+            event.key === "Enter" &&
+            !event.shiftKey &&
+            !(event.nativeEvent as KeyboardEvent).isComposing
+          ) {
+            event.preventDefault();
+            void send();
+          }
         }}
-        className="min-w-0 flex-1"
+        rows={2}
+        className="min-h-16"
         placeholder={placeholder}
       />
-      <Button className="shrink-0" disabled={!value.trim() || pending} onClick={send}>
-        {pending ? <Spinner /> : "Ask"}
-      </Button>
+      <div className="flex justify-end">
+        <Button disabled={!value.trim() || pending} onClick={() => void send()}>
+          {pending ? <Spinner /> : "Ask"}
+        </Button>
+      </div>
     </div>
   );
 }

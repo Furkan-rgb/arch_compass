@@ -353,7 +353,17 @@ export function AtlasCanvas({
     const verdictRoom = node.verdictLabel
       ? monoAdvance(META_SIZE, META_TRACKING) * node.verdictLabel.length + VERDICT_GAP
       : 0;
+    /**
+     * The region, phrased so that it survives both shapes of label a box can carry.
+     *
+     * `layout.ts` names an enclosure either for the element that really contains it —
+     * `domain` — or, where its members share nothing but graph distance, for the element the
+     * community grew around: `around Billing`. One "in" in front of both announced the second
+     * as "in around Billing", and a reader hearing the card rather than seeing it has no way
+     * to tell that the clumsy half is the layout's caption and not part of the card's name.
+     */
     const region = clusterLabels.get(node.id);
+    const regionPhrase = !region ? "" : region.startsWith("around ") ? region : `in ${region}`;
     return (
       <g
         key={node.id}
@@ -373,7 +383,7 @@ export function AtlasCanvas({
 
            The region is here because the enclosures are `aria-hidden` and belong that way, so
            without it the whole grouping layer of the map was reachable only by looking at it. */
-        aria-label={`${node.qualified}, ${kind}${region ? `, in ${region}` : ""}${
+        aria-label={`${node.qualified}, ${kind}${regionPhrase ? `, ${regionPhrase}` : ""}${
           node.verdictLabel ? `, ${node.verdictLabel}` : ""
         }`}
         /* The kernel's placement arrives as a settling rather than as a swap.

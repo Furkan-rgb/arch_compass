@@ -71,9 +71,19 @@ export function CandidateTrajectory({
   const elided = steps.length - drawn.length;
 
   return (
-    <div className={cn("flex min-w-0 max-w-[15rem] items-start gap-2", className)}>
+    // A fragment, so the sentence is a sibling of the drawn strip rather than a child of it.
+    // The docket hides the strip below 768px with `hidden md:flex`, and that class landed on
+    // the element the `sr-only` summary lived inside — `display: none` takes a subtree out of
+    // the accessibility tree, so on a phone a screen-reader reader lost the whole fact of
+    // what this candidate had been called in earlier reviews, which is the only place a row
+    // carries its lineage. The sentence now survives every width; only the drawing is
+    // desktop-only.
+    <>
       <span className="sr-only">Across this branch — {said}.</span>
-      <div aria-hidden="true" className="flex min-w-0 items-start gap-2">
+      <div
+        aria-hidden="true"
+        className={cn("flex min-w-0 max-w-[15rem] items-start gap-2", className)}
+      >
         <Label className="shrink-0 pt-[3px]">Across</Label>
         {/* The count of what is not drawn, in the same mono the numbers under the nodes are
             set in: a strip that silently began at review 7 would be claiming the candidate
@@ -104,14 +114,22 @@ export function CandidateTrajectory({
                           // which is also the only option left now that the marks are
                           // themselves circles, because a ring around one reads as two
                           // concentric circles and says nothing.
-                          !step.current && "opacity-45",
+                          //
+                          // 70% rather than 45%, which was never measured. A mark is the whole
+                          // content of its node — no word sits beside it — so it is non-text
+                          // content carrying meaning, and at 45% a cleared one landed at
+                          // 2.01:1 on the row's own ground in light and 2.12:1 in dark, under
+                          // the 3:1 floor. At 70% the same mark measures 3.23:1 and 3.49:1,
+                          // and the current node still separates from the past by a full step
+                          // of weight plus its underline and its ink-weighted number.
+                          !step.current && "opacity-70",
                         )}
                       />
                     ) : (
                       <span
                         className={cn(
                           "block size-[5px] rounded-full border border-rule-strong",
-                          !step.current && "opacity-45",
+                          !step.current && "opacity-70",
                         )}
                       />
                     )}
@@ -139,6 +157,67 @@ export function CandidateTrajectory({
           })}
         </ol>
       </div>
+    </>
+  );
+}
+
+/**
+ * The room the strip will take, held open until the strip itself can be drawn.
+ *
+ * The trajectory is drawn from the full reviews query, which is deliberately the heavy one
+ * and is fired only once the cheap summary listing has shown the lineage has more than one
+ * entry. Until it resolves the docket draws no strip, and when it lands up to 248px appears
+ * on the right of every row at once and every claim sentence rewraps under the eye of
+ * somebody who started reading seconds ago.
+ *
+ * Not a skeleton and not a flat `w-[15rem]`: `max-w-[15rem]` is a cap rather than a width, so
+ * a two-revision lineage draws about 110px and a fixed reservation would over-reserve and
+ * produce a second, smaller shift when the real strip arrived. This draws the real strip's
+ * own structure with the contents left out — the same `Label`, the same computable `+N`, the
+ * same fixed `w-6 sm:w-7` nodes and `w-3 sm:w-4` connectors — so the width it holds open is
+ * the width the strip takes, at every breakpoint, without either component knowing a number
+ * the other does not.
+ */
+export function TrajectoryPlaceholder({
+  depth,
+  className,
+}: {
+  /** How many revisions the lineage has, from the listing that has already answered. */
+  depth: number;
+  className?: string;
+}) {
+  if (depth < 2) return null;
+  const nodes = Math.min(depth, DRAWN);
+  const elided = depth - nodes;
+  return (
+    // `invisible` rather than an empty box: `visibility: hidden` keeps every one of these
+    // elements in the layout and paints none of them, which is exactly what reserving space
+    // means. A skeleton would be a second thing to look at for a strip that is decorative
+    // once its `sr-only` sentence is a sibling of it.
+    <div
+      aria-hidden="true"
+      className={cn("invisible flex min-w-0 max-w-[15rem] items-start gap-2", className)}
+    >
+      <Label className="shrink-0 pt-[3px]">Across</Label>
+      {elided ? (
+        <span className="shrink-0 pt-[3px] font-mono text-[10px] tabular-nums text-ink-3">
+          +{elided}
+        </span>
+      ) : null}
+      <ol className="flex min-w-0 flex-wrap items-center">
+        {Array.from({ length: nodes }, (_, index) => (
+          <li key={index} className="flex items-center">
+            {index ? <span className="mb-4 block h-px w-3 bg-rule-strong sm:w-4" /> : null}
+            {/* The node's own height, said the way the drawn one says it: an 18px mark box, a
+                10px number and a 2px underline, with the same `gap-1` between them. */}
+            <span className="flex w-6 flex-col items-center gap-1 sm:w-7">
+              <span className="block h-[18px]" />
+              <span className="block h-[10px]" />
+              <span className="block h-[2px]" />
+            </span>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

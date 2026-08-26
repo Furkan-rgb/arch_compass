@@ -114,26 +114,30 @@ describe("a docket row's width", () => {
 });
 
 /**
- * The same rule, one level up.
+ * The same rule, one level up — and here it is answered by wrapping rather than by truncating.
  *
  * A workspace path is long by nature — `/Users/…/Documents/arch_compass/examples/cases/…` — and
- * the drawer it now lives in is a fixed 20rem track. `truncate` sets `white-space: nowrap`,
- * which makes the element's min-content width the whole string, so a grid or flex ancestor
- * left at its default `min-width: auto` is widened by the very thing the truncation was
- * supposed to hide. Truncation is a promise the ancestors have to keep.
+ * the drawer it lives in is a fixed 20rem track. It used to be `truncate` with the full value
+ * behind a `title`, which guarded the width and lost the content: this drawer only exists
+ * below `lg`, and `ui/tooltip.tsx` argues at length that a `title` never appears for a keyboard
+ * and never appears at all under a finger. So on the one surface the component was written for,
+ * the fact it carries was unreachable.
  *
- * The 232px sidebar this used to guard is gone — six links and a path down the full height of
- * every screen, charged to the one surface that needed the width. The path moved into the
- * navigation drawer, which is the same fixed track one component along, so the rule outlived
- * the rail and this opens the drawer to reach it.
+ * `wrap-anywhere` answers both halves at once. It gives an absolute path the break opportunity
+ * it does not otherwise have, so the element's min-content width is one character rather than
+ * the whole string, and the path is readable in full. There is vertical room in a drawer and
+ * nothing else claiming it.
+ *
+ * The `min-w-0` chain is still asserted. `wrap-anywhere` makes the truncation promise cheap to
+ * keep rather than unnecessary — an ancestor left at its default `min-width: auto` still sizes
+ * to its own content — and this is the chain the 232px sidebar needed before the path moved
+ * into the drawer.
  */
 describe("the navigation drawer's width", () => {
-  it("keeps a long workspace path inside the rail", async () => {
-    vi.spyOn(api, "workspace").mockResolvedValue(
-      workspaceFixture({
-        workspace: "/Users/someone/Documents/work/platform/services/notifications/.archcompass",
-      }),
-    );
+  const LONG_PATH = "/Users/someone/Documents/work/platform/services/notifications/.archcompass";
+
+  it("keeps a long workspace path inside the rail, and readable in full", async () => {
+    vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture({ workspace: LONG_PATH }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { container } = render(
       <QueryClientProvider client={client}>
@@ -147,13 +151,12 @@ describe("the navigation drawer's width", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
 
-    const path = await screen.findByTitle(
-      "/Users/someone/Documents/work/platform/services/notifications/.archcompass",
-    );
-    expect(path.className).toContain("truncate");
+    const path = await screen.findByText(LONG_PATH);
+    expect(path.className).toContain("wrap-anywhere");
+    expect(path.className).not.toContain("truncate");
 
-    // Every box between the fixed track and the truncated text can be narrower than its
-    // content. Without this the truncation is decorative and the rail grows instead.
+    // Every box between the fixed track and the path can be narrower than its content.
+    // Without this the wrapping is decorative and the rail grows instead.
     let node: HTMLElement | null = path.parentElement;
     let shrinkable = 0;
     while (node && node !== container) {

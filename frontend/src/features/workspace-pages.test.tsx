@@ -136,10 +136,15 @@ describe("the reviews page", () => {
 
     expect(await screen.findByText("billing-service")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Completed" }));
+    // Matched on the leading word rather than on the whole name: a status chip carries its
+    // own count now — "Completed 1" — because a filter that cannot say how much it would
+    // leave is a filter you press to find out. The count is part of the accessible name on
+    // purpose, so a listener is told what a reader is told; what this test is about is that
+    // pressing the chip narrows the history, which the number does not change.
+    fireEvent.click(screen.getByRole("button", { name: /^Completed\b/ }));
     expect(screen.queryByText("repository")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    fireEvent.click(screen.getByRole("button", { name: /^All\b/ }));
     fireEvent.change(screen.getByLabelText("Search reviews"), { target: { value: "billing" } });
     expect(screen.getByText("billing-service")).toBeInTheDocument();
     expect(

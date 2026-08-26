@@ -1,7 +1,7 @@
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 
-import { AppShell } from "./app/shell";
+import { AppShell, pageName } from "./app/shell";
 import { ErrorBoundary } from "./app/error-boundary";
 import { LandingPage } from "./features/landing/landing-page";
 import { ButtonLink } from "./ui/button";
@@ -115,11 +115,44 @@ function Shell() {
   );
 }
 
-/** A route change should start at the top, the way following a link in a document does. */
-function ScrollToTop() {
+/** What the tab says on a route that has not named itself. */
+const PRODUCT_TITLE = "ArchCompass — architecture review workbench";
+
+/**
+ * Everything a navigation owes the reader, in the one effect that knows a navigation happened.
+ *
+ * It was `ScrollToTop` and it did exactly that, which left two things undone on every
+ * navigation in the product — a nav link, a docket row, a palette entry, a lineage row.
+ *
+ * The first is where the keyboard goes. The page area is replaced and focus stays where it
+ * was, so a screen reader hears nothing and the next Tab restarts from the top of the
+ * document. After the palette it is worse: the focus trap restores to whatever opened it, and
+ * ⌘K was opened by `<body>`, which is not focusable — so the most-used way to reach a review
+ * lands you on the review with focus nowhere. The shell built the target for this years ago
+ * and never called it: `<main id="main" tabIndex={-1}>` is programmatically focusable with its
+ * ring suppressed, and it is the same element the skip link names, so the keyboard has one
+ * destination rather than two. Not on the first paint — arriving at a URL is not a navigation,
+ * and stealing focus from a reader who has not moved yet is a bug of its own.
+ *
+ * The second is what the tab is called. `index.html` names the product, and nothing changed it
+ * per route, so eight screens announced themselves identically to a screen reader, to the
+ * history and to a row of open tabs. The names come from the same `NAV` labels the rail and
+ * the palette print. A route that knows more than its section — the run page, which has a
+ * stage — sets its own from deeper in the tree and wins, because a child's effect runs after
+ * this one.
+ */
+function StartOfRoute() {
   const { pathname } = useLocation();
+  const arrived = useRef(false);
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    const name = pageName(pathname);
+    document.title = name ? `${name} · ArchCompass` : PRODUCT_TITLE;
+    if (!arrived.current) {
+      arrived.current = true;
+      return;
+    }
+    document.getElementById("main")?.focus({ preventScroll: true });
   }, [pathname]);
   return null;
 }
@@ -127,7 +160,7 @@ function ScrollToTop() {
 export function App() {
   return (
     <>
-      <ScrollToTop />
+      <StartOfRoute />
       {/* No Suspense here any more: the landing page is static, and everything under
           `Shell` has its own boundary with a fallback that looks like the page it replaces. */}
       <Routes>

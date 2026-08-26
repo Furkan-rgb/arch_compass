@@ -13,12 +13,12 @@ import { Button, ButtonLink, CopyButton, ToggleButton } from "../../ui/button";
 import { Input } from "../../ui/field";
 import { ArrowDown, ArrowUp, ChevronDown, DriftedIcon } from "../../ui/icons";
 import { Label } from "../../ui/panel";
-import { LiveRegion } from "../../ui/states";
+import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
 import { RejudgementNote, type useRejudgementNotice } from "../start/run-progress";
 import { ClarificationRound, type RoundAnswers } from "./clarification";
 import { DecisionBar } from "./decision-bar";
 import { FindingBody } from "./finding-detail";
-import { CandidateTrajectory } from "./trajectory";
+import { CandidateTrajectory, TrajectoryPlaceholder } from "./trajectory";
 import {
   type QueueFilter,
   awaitsAnswers,
@@ -59,6 +59,18 @@ import {
 const SEGMENTS = 24;
 
 /**
+ * The shortest review the strip says anything on.
+ *
+ * `segments` is `Math.min(total, SEGMENTS)`, so a three-candidate review draws three marks
+ * and a one-candidate review draws a single 5px block sitting alone to the left of "0 of 1
+ * settled". At that length the strip carries nothing the sentence beside it does not carry
+ * exactly, and it reads as a bullet or a stray rule rather than as a measure. Below this the
+ * sentence stands on its own; the strip is `aria-hidden` either way, so nothing is lost to a
+ * reader who is not looking at it.
+ */
+const STRIP_FLOOR = 4;
+
+/**
  * How long a list has to be before grouping it by pattern earns its headings.
  *
  * The first review of a lineage has no movement to group on, and the experience doc names
@@ -92,18 +104,39 @@ function Progress({
 }) {
   const hasKeyboard = useHasKeyboard();
   const segments = Math.min(total, SEGMENTS);
-  // By ratio, not by index. A segment index compared against a raw count is only the same
-  // question while the two scales are the same, which they stop being at 25 candidates.
-  const filled = total ? Math.round((settled / total) * segments) : 0;
+  /**
+   * By ratio rather than by index, with both ends of the ratio reserved.
+   *
+   * A segment index compared against a raw count is only the same question while the two
+   * scales are the same, which they stop being at 25 candidates. Comparing ratios fixed
+   * that and left a threshold rather than removing one: `Math.round` fills the last mark at
+   * 98%, so on a hundred candidates the ninety-ninth settlement rounded 23.76 up to 24 and
+   * the whole strip turned to ink while one candidate still wanted a person — and at the
+   * other end the first settlement rounded 0.24 down to 0, so a reader who had just decided
+   * something saw a strip that had not moved. A full strip now means finished, an empty one
+   * means nothing has settled, and every state between is the proportion. The count beside
+   * it is exact either way, which is why the strip is allowed to round at all.
+   */
+  const filled =
+    settled >= total
+      ? segments
+      : Math.min(
+          segments - 1,
+          Math.max(settled ? 1 : 0, Math.round((settled / total) * segments)),
+        );
 
   return (
-    <div className="grid gap-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5">
-        <div className="flex min-w-0 items-center gap-3">
-          {/* One segment per candidate, filled as it settles. Ink and rule, never a verdict
-              hue: how far through you are is not a grade anything was given. Past `SEGMENTS`
-              it is a proportion, and says so on the hover — the count beside it is exact
-              either way, which is why the strip is allowed to round. */}
+    // One row rather than two. Progress spent two stacked lines and about 100px of the first
+    // screen on chrome before any work, on a surface whose first rule is that the queue is
+    // the product — and the four things in it are all short. They wrap on a narrow screen,
+    // which is the row this used to hard-code at every width.
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
+      <div className="flex shrink-0 items-center gap-3">
+        {/* One segment per candidate, filled as it settles. Ink and rule, never a verdict
+            hue: how far through you are is not a grade anything was given. Past `SEGMENTS`
+            it is a proportion, and says so on the hover — the count beside it is exact
+            either way, which is why the strip is allowed to round. */}
+        {total >= STRIP_FLOOR ? (
           <span
             aria-hidden="true"
             title={
@@ -118,98 +151,143 @@ function Progress({
                 key={index}
                 className={cn(
                   "block h-3.5 w-[5px] rounded-xs",
-                  index < filled ? "bg-ink" : "bg-rule-strong",
+                  // The unfilled mark is the denominator, and it was drawn in `--rule-strong`
+                  // — a value declared for 1px hairlines, measuring 1.41:1 in light and
+                  // 1.48:1 in dark against the canvas. At 5x14px that is not a quiet graphic,
+                  // it is an absent one: at the state a reviewer arrives in, 0 of 6 settled,
+                  // every mark is unfilled and the whole strip read as a rendering artefact.
+                  // `--rule-control` is the ramp's answer to exactly this measurement — a
+                  // hairline value that has to clear the 3:1 a reader needs to find a
+                  // non-text graphic — and it clears it on the canvas in both themes.
+                  index < filled ? "bg-ink" : "bg-rule-control",
                 )}
               />
             ))}
           </span>
-          <span className="text-[12.5px] text-ink-2">
-            <span className="font-mono font-semibold tabular-nums text-ink">{settled}</span> of{" "}
-            <span className="font-mono tabular-nums">{total}</span> settled
-          </span>
-        </div>
-
-        <div role="group" aria-label="Filter the docket" className="flex gap-1">
-          {(
-            [
-              ["attention", "Attention", counts.attention],
-              ["settled", "Settled", counts.settled],
-              ["all", "All", counts.all],
-            ] as const
-          ).map(([id, label, count]) => (
-            <ToggleButton
-              key={id}
-              pressed={filter === id}
-              // A count of zero is worth reading — it is telling you there is nothing there —
-              // and worth nothing to press. "Settled 0" was a dead end you were invited to
-              // walk into; the delta's chips already refused that and this is the same rule.
-              disabled={!count && filter !== id}
-              onClick={() => onFilterChange(id)}
-            >
-              {label}
-              <span className="tabular-nums opacity-70">{count}</span>
-            </ToggleButton>
-          ))}
-        </div>
+        ) : null}
+        <span className="text-[12.5px] text-ink-2">
+          <span className="font-mono font-semibold tabular-nums text-ink">{settled}</span> of{" "}
+          <span className="font-mono tabular-nums">{total}</span> settled
+        </span>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        {/* Three filters was the whole of the navigation, and none of them is "the one about
-            SqlAlchemy". A count beside the box rather than under the list, because it is the
-            control's own report on what it did — and a count with a control on it is the
-            form this document asks numbers to take. */}
-        <div className="flex min-w-0 items-center gap-2">
-          <Input
-            type="search"
-            aria-label="Find a candidate in this review"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Find a name, a claim or a pattern"
-            className="h-8 min-w-0 max-w-[22rem] py-1 text-[13px]"
-          />
-          {query.trim() ? (
-            <span className="shrink-0 text-[12px] text-ink-3">
-              <span className="font-mono tabular-nums text-ink-2">{matched.shown}</span> of{" "}
-              <span className="font-mono tabular-nums">{matched.of}</span>
-            </span>
-          ) : null}
-        </div>
+      {/* Three filters was the whole of the navigation, and none of them is "the one about
+          SqlAlchemy". A count beside the box rather than under the list, because it is the
+          control's own report on what it did — and a count with a control on it is the
+          form this document asks numbers to take.
 
-        {/* The keys, beside the control they act on. This sentence used to sit below every
-            row — forty rows past the list the shortcuts exist to move through — and named
-            four of the keys the handler supports. The full list is behind `?`, which the
-            shell binds everywhere.
-
-            Only where there is something to press them on. On a phone this was eleven key
-            caps and four verbs — the single densest thing above the list — describing a
-            keyboard that is not there, and it sat between the reader and the findings. */}
-        {hasKeyboard ? (
-          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-ink-3">
-            <Key>j</Key>
-            <Key>
-              <ArrowDown aria-hidden="true" className="size-3" />
-            </Key>
-            <Key>k</Key>
-            <Key>
-              <ArrowUp aria-hidden="true" className="size-3" />
-            </Key>
-            <span>walk</span>
-            <Key>A</Key>
-            <Key>P</Key>
-            <Key>W</Key>
-            <span>decide</span>
-            <Key>x</Key>
-            <span>select</span>
-            <Key>Esc</Key>
-            <span>close</span>
-            <span aria-hidden="true" className="text-ink-3/50">
-              ·
-            </span>
-            <Key>?</Key>
-            <span>all keys</span>
-          </p>
+          `flex-1`, because the box carries `w-full` from `controlClass` and its parent was
+          content-sized: `width: 100%` against a shrink-to-fit parent resolves back to the
+          input's intrinsic `size=20`, so the declared `max-w-[22rem]` was never reached at
+          any width and the placeholder was severed mid-word on every screen. */}
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-[26rem]">
+        <Input
+          type="search"
+          aria-label="Find a candidate in this review"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Find a name, a claim or a pattern"
+          // Dense, because this sits in the strip above the queue rather than in a form, and
+          // `pointer-coarse:min-h-11` because 32px is not a tap target — the same split every
+          // control in the system makes between a pointer and a finger.
+          className="h-8 min-w-0 max-w-[22rem] py-1 text-[13px] pointer-coarse:min-h-11"
+        />
+        {query.trim() ? (
+          <span className="shrink-0 text-[12px] text-ink-3">
+            <span className="font-mono tabular-nums text-ink-2">{matched.shown}</span> of{" "}
+            <span className="font-mono tabular-nums">{matched.of}</span>
+          </span>
         ) : null}
       </div>
+
+      {/* The track is what says these are alternatives. Without it a one-of-many group
+          resolves to one button and two bare grey words on the canvas, with the distinction
+          deferred to a hover — so the row read as one segmented control that had partly
+          failed to render. `--sunken` is the ground the elevation contract names for a
+          track, and this is the recipe `ui/tabs.tsx` already draws for its solid variant, so
+          the two pickers answering the same kind of question are drawn the same way. The
+          unpressed chip's hover survives it: the fill half is swallowed by the track, and
+          `hover:text-ink` — which is what `Tabs` relies on for the same reason — is not. */}
+      <div
+        role="group"
+        aria-label="Filter the docket"
+        className="flex shrink-0 gap-1 rounded-sm border border-rule bg-sunken p-0.5"
+      >
+        {(
+          [
+            ["attention", "Attention", counts.attention],
+            ["settled", "Settled", counts.settled],
+            ["all", "All", counts.all],
+          ] as const
+        ).map(([id, label, count]) => (
+          <ToggleButton
+            key={id}
+            pressed={filter === id}
+            // A count of zero is worth reading — it is telling you there is nothing there —
+            // and worth nothing to press. "Settled 0" was a dead end you were invited to
+            // walk into; the delta's chips already refused that and this is the same rule.
+            disabled={!count && filter !== id}
+            onClick={() => onFilterChange(id)}
+          >
+            {label}
+            {/* Separated by weight, not by opacity. A flat 70% was applied on top of whichever
+                ink the chip was using: on the pressed chip that is `--ink` and survives, on
+                the unpressed chip it is `--ink-3` — a tier tuned to clear 5:1 on all four
+                grounds — and the multiplier pushed it to 3.09:1 in light at 12px semibold.
+                The count is the informative half of the chip, so it was the half that had
+                been made hardest to read. The label keeps `font-semibold` from
+                `ToggleButton`; dropping to the normal weight here is the whole separation. */}
+            <span className="font-normal tabular-nums">{count}</span>
+          </ToggleButton>
+        ))}
+      </div>
+
+      {/* The keys, beside the control they act on. This sentence used to sit below every
+          row — forty rows past the list the shortcuts exist to move through — and named
+          four of the keys the handler supports. The full list is behind `?`, which the
+          shell binds everywhere.
+
+          Only where there is something to press them on. On a phone this was eleven key
+          caps and four verbs — the single densest thing above the list — describing a
+          keyboard that is not there, and it sat between the reader and the findings. */}
+      {hasKeyboard ? (
+        <p className="ml-auto flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-ink-3">
+          <Key>j</Key>
+          {/* The glyph is drawn and therefore hidden, so the cap has to say the key's name
+              for anything not looking at the screen. Without it the hint announced as "j k
+              walk" — the two keys a reader who has not learned the letter bindings would
+              reach for first were the two silently absent from the only place the docket's
+              keyboard model is taught. `sr-only` takes it out of flow, so nothing moves. */}
+          <Key>
+            <ArrowDown aria-hidden="true" className="size-3" />
+            <span className="sr-only">Down arrow</span>
+          </Key>
+          <Key>k</Key>
+          <Key>
+            <ArrowUp aria-hidden="true" className="size-3" />
+            <span className="sr-only">Up arrow</span>
+          </Key>
+          <span>walk</span>
+          <Key>A</Key>
+          <Key>P</Key>
+          <Key>W</Key>
+          <span>decide</span>
+          <Key>x</Key>
+          <span>select</span>
+          <Key>Esc</Key>
+          <span>close</span>
+          {/* `text-ink-3`, not `text-ink-3/50`. Halving the tier composited to `#afafaf` in
+              light — below every step of the declared ink ramp, and invisible to
+              `tokens.test.ts`, which measures the three named inks and cannot see an alpha
+              written at a call site. `ui/meta.tsx` made the same correction to the same
+              character for the same reason. */}
+          <span aria-hidden="true" className="text-ink-3">
+            ·
+          </span>
+          <Key>?</Key>
+          <span>all keys</span>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -220,10 +298,17 @@ function Progress({
  * A third cap, and deliberately not the shortcut sheet's or the decision bar's: theirs sit on
  * a panel and on an ink fill respectively, and this one sits in a footnote beside the control
  * it describes, where a key at the sheet's size would outweigh the sentence around it.
+ *
+ * `--rule-control` rather than `--rule` for the outline, because the outline is the only
+ * thing here that says these are keys. At 10.5px on the page canvas `--rule` measures
+ * 1.26:1 in light and 1.23:1 in dark, so the caps did not read as caps and the line read as
+ * an undifferentiated run of seventeen micro-tokens rather than as keys and verbs. The
+ * ramp's answer to a boundary a reader has to find is this token, and it clears 3:1 on the
+ * canvas in both themes.
  */
 function Key({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex items-center rounded-xs border border-rule px-1 font-mono text-[10.5px] font-semibold leading-4 text-ink-2">
+    <kbd className="inline-flex items-center rounded-xs border border-rule-control px-1 font-mono text-[10.5px] font-semibold leading-4 text-ink-2">
       {children}
     </kbd>
   );
@@ -253,14 +338,40 @@ function searchableText(finding: Finding): string {
     .toLowerCase();
 }
 
+/**
+ * The claim's opening citation of the row's own identifier, split off so it can recede.
+ *
+ * The group above hoists `ports`, the row's heading says `Clock`, and the server-authored
+ * sentence beneath them then opens `ports.Clock is implemented only by…` — so the eye finds
+ * no new token for roughly twenty-five characters, on the line that exists to save a reader
+ * opening the row. Nothing is rewritten: the sentence is the model's and stays verbatim,
+ * word for word and in order. What changes is that its first phrase is set in the mono tier
+ * the identifier above it already uses, so the reader's eye starts at the third word.
+ *
+ * A literal prefix test rather than a parse, because the summary is prose from a model and
+ * anything cleverer would be this surface guessing at its grammar. A sentence that does not
+ * open with the identifier is left exactly as it arrived.
+ */
+function splitCitation(summary: string, identity: string): [string, string] {
+  return summary.startsWith(`${identity} `)
+    ? [identity, summary.slice(identity.length + 1)]
+    : ["", summary];
+}
+
 /** What a row says about itself once a person, or nobody, has spoken. */
 function RowState({ finding, decision }: { finding: Finding; decision?: Decision }) {
   const stale = decisionIsStale(finding, decision);
   if (decision && !stale) {
     const disposition = dispositionOf(decision.disposition);
     return (
-      <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] font-semibold text-ink-2">
-        <Mark shape={disposition.glyph} className="size-[13px]" />
+      // `min-w-0` and no `shrink-0`. These two spans are the only part of a row that is prose
+      // rather than an identifier, and they were the only part with no way not to grow: the
+      // longest of them measures about 240px against a content column of about 251px on a
+      // 390px phone, which is a fit by a handful of pixels and by nothing else. The meta row
+      // around them already wraps, so the sentence takes its own line when it cannot fit
+      // beside the pattern, and wraps inside itself when even that is not enough.
+      <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] font-semibold text-ink-2">
+        <Mark shape={disposition.glyph} className="size-[13px] shrink-0" />
         {disposition.label} by the team
       </span>
     );
@@ -269,7 +380,7 @@ function RowState({ finding, decision }: { finding: Finding; decision?: Decision
     // The whole sentence, not the word "stale": what a reader needs is the two verdicts, in
     // the order they happened, because that is the entire reason the row is back.
     return (
-      <span className="flex shrink-0 items-center gap-1 text-[11.5px] font-semibold text-ink">
+      <span className="flex min-w-0 items-center gap-1 text-[11.5px] font-semibold text-ink">
         <DriftedIcon className="size-[13px] shrink-0" />
         Decided against {verdictOf(decision.finding_verdict).label.toLowerCase()}, now{" "}
         {verdictOf(finding.verdict).label.toLowerCase()}
@@ -293,6 +404,7 @@ function DocketRow({
   decision,
   delta,
   lineage,
+  lineageDepth,
   open,
   takeFocus,
   hoistedNamespace,
@@ -310,6 +422,8 @@ function DocketRow({
   /** Where this candidate stands against the previous review, or null on a first review. */
   delta: string | null;
   lineage: Review[];
+  /** How deep the lineage is according to the listing, for the strip's reserved room. */
+  lineageDepth: number;
   open: boolean;
   /**
    * Whether the keyboard should follow the cursor onto this row.
@@ -337,6 +451,7 @@ function DocketRow({
   const identity = finding.candidate.participants[0]?.qualified_name ?? finding.candidate.summary;
   const { namespace, leaf } = splitQualified(identity);
   const settled = !needsAttention(finding, decision);
+  const [citation, claim] = splitCitation(finding.candidate.summary, identity);
   const panelId = `finding-panel-${finding.candidate.id}`;
   const ref = useRef<HTMLElement>(null);
 
@@ -361,34 +476,66 @@ function DocketRow({
     <article
       ref={ref}
       aria-labelledby={`finding-${finding.candidate.id}`}
-      className={cn(
-        // The verdict as an edge. A docket is worked down a column, and the question asked
-        // of the whole column at once — where does the red start — is not one a mark inside
-        // a row can answer: at any size that fits beside a name, a glyph has to be looked
-        // *at*. An edge is read without being looked at, costs no horizontal space, and is
-        // a rule rather than a card, which is the structure this system already uses.
-        "border-b border-l-[3px] border-rule last:border-b-0",
+      className={
+        // The bottom rule moved to the `<ul>`, as `divide-y divide-rule`, and this is the
+        // whole of why. `border-b … last:border-b-0` was written here, on an `<article>` that
+        // is the only child of its own `<li>` — so `:last-child` matched on every row, the
+        // rule was compiled and never painted, and six candidates rendered as one unbroken
+        // sheet. Sibling position is a fact the parent knows and a child cannot, so the rule
+        // now lives where the answer is.
+        //
         // 48px of opaque topbar and 44px of pinned surface strip, and the docket scrolls with
         // the page — so a row walked *up* to with `k` was aligned flush with the viewport and
         // landed underneath both, hiding the identifier and the verdict of the row just
         // arrived at. 96px clears the pair with four to spare. It was 56px when only the
         // topbar was pinned; the strip was pinned afterwards and this is the measurement that
         // had to move with it.
-        "scroll-mt-24",
-        settled ? "border-l-transparent" : TONE_EDGE[descriptor.tone],
-        open && "bg-surface",
-        !open && settled && "bg-transparent",
-      )}
+        //
+        // `relative`, because the verdict edge is drawn as an inset span rather than as this
+        // element's own `border-l`. Neither `bg-surface` on an open row nor `bg-transparent`
+        // on a settled one is here any more: the `<ul>` around them is already `bg-surface`,
+        // so both composited to the colour underneath them and said nothing. A row at rest
+        // has no ground of its own; what says a row is open is the panel that appears below
+        // it, which is not something a reader can miss.
+        "relative scroll-mt-24"
+      }
     >
+      {/* The verdict as an edge, inset four pixels at each end.
+          A docket is worked down a column, and the question asked of the whole column at
+          once — where does the red start — is not one a mark inside a row can answer: at any
+          size that fits beside a name, a glyph has to be looked *at*. An edge is read without
+          being looked at, costs no horizontal space, and is a rule rather than a card, which
+          is the structure this system already uses.
+
+          It is a positioned span rather than the article's `border-l` because a border runs
+          the full height of its box: a run of same-verdict rows — the common case on a second
+          visit — fused into one continuous bar down the whole list that read as the panel's
+          own border rather than as six verdicts. `inset-y-1` breaks that bar into one segment
+          per row at no cost in width. The class is still `TONE_EDGE`, so the hue arrives from
+          `lib/format` and is never picked here; the span is 3px wide and its left border is
+          3px, so the border is the whole of it. */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute inset-y-1 left-0 w-[3px] border-l-[3px]",
+          settled ? "border-l-transparent" : TONE_EDGE[descriptor.tone],
+        )}
+      />
+
       {/* The row's own name, for anything that reads the document rather than looks at it —
           heading navigation being the fastest way down a long list with a screen reader.
           The whole qualified name and the claim, because two candidates in one package share
           a name and a column of identical headings is a column of nothing. What is *drawn*
           drops the namespace where the group above it already said it, which is a different
-          question. */}
-      <h2 id={`finding-${finding.candidate.id}`} className="sr-only">
+          question.
+
+          `h3`, under the group heading's `h2`. It was the other way round — the group was an
+          `h3` and every row inside it an `h2` — so heading navigation reported each candidate
+          as a peer of the section above it and jumping by heading walked *out* of the group
+          rather than through it. */}
+      <h3 id={`finding-${finding.candidate.id}`} className="sr-only">
         {identity} — {finding.candidate.summary}
-      </h2>
+      </h3>
 
       <div className="flex items-stretch">
         {/* Outside the row's own button, because a checkbox inside a button is a control
@@ -398,7 +545,13 @@ function DocketRow({
             reveals it, and a finger has none. */}
         <label
           className={cn(
-            "flex shrink-0 cursor-pointer items-start pl-3 pt-4 transition sm:pl-4",
+            // `pt-3` and `mt-px` on the box below, which is exactly what the verdict mark
+            // beside it carries. At `pt-4` the 16px checkbox sat with its centre 24px from
+            // the row's top and the 15px mark's centre at 20.5px — two same-sized squares,
+            // adjacent, on visibly different centre lines and both below the identifier they
+            // belong to. On a docket where this column only appears on hover, the
+            // misalignment is what the eye notices at the moment it appears.
+            "flex shrink-0 cursor-pointer items-start pl-3 pt-3 transition sm:pl-4",
             selected || selecting
               ? "opacity-100"
               : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 hover:opacity-100",
@@ -408,7 +561,7 @@ function DocketRow({
             type="checkbox"
             checked={selected}
             onChange={(event) => onSelect(event.target.checked)}
-            className="size-4 accent-[var(--ink)]"
+            className="mt-px size-4 accent-[var(--ink)]"
           />
           <span className="sr-only">Select {identity}</span>
         </label>
@@ -421,10 +574,14 @@ function DocketRow({
           aria-controls={panelId}
           title={identity}
           onClick={onToggle}
-          className={cn(
-            "flex min-w-0 flex-1 min-h-14 items-start gap-3 px-3 py-3 text-left transition sm:px-4",
-            open ? "bg-surface" : "hover:bg-surface-2",
-          )}
+          // The product's most-clicked control, and its hover was `--surface-2` painted on a
+          // `<ul>` that is already `--surface`: about 1.04:1 in either theme, which is below
+          // the point at which a background change is perceptible at all. `--sunken` is the
+          // ground the elevation contract assigns to a row on hover — twenty values in light
+          // and eighteen in dark — and it is what the revision rail beneath this list already
+          // uses, so the two agree. Unconditional, because an open row's header is still the
+          // control that closes it.
+          className="flex min-w-0 flex-1 min-h-14 items-start gap-3 px-3 py-3 text-left transition hover:bg-sunken sm:px-4"
         >
           <Mark
             shape={descriptor.glyph}
@@ -460,30 +617,61 @@ function DocketRow({
                   did we decide, and about what" — a waived material finding was indistinguishable
                   from a cleared one. The charter says a verdict is a glyph, a word and a hue, and
                   settling is not a reason to keep one of the three. */}
-              <Label as="span" className={settled ? undefined : TONE_TEXT[descriptor.tone]}>
+              {/* The size is overridden and nothing else is. `Label` is 10px, correct for a
+                  section eyebrow and wrong for a verdict: it set the word smaller than the
+                  row's own metadata and less than half the size of its claim, so the four
+                  lines of a row ranked by size in the reverse of the order the docket is
+                  scanned in, and the verdict word — one of the three things the charter says
+                  a verdict must always state — was the first thing to disappear when the
+                  column was squinted at. Weight, case and tracking still come from
+                  `ui/panel.tsx`, so this does not become a sixth hand-rolled label. */}
+              <Label
+                as="span"
+                className={cn("text-[11px]", settled ? undefined : TONE_TEXT[descriptor.tone])}
+              >
                 {descriptor.label}
               </Label>
             </span>
 
             {/* The claim. This is the line that makes the list readable, and the reason most
-                rows never need opening. */}
+                rows never need opening — which is also why it is the one prose block in the
+                review that had no measure on it: at 13px in a 1050px column it set 165
+                characters to the line, two and a half times the 60–64ch the type contract
+                names, on the most-read sentence in the product. */}
             <span
               className={cn(
-                "mt-1 text-[13px] leading-[1.5] text-ink-2",
+                "mt-1 max-w-[64ch] text-[13px] leading-[1.5] text-ink-2",
                 open ? "block" : "line-clamp-2",
               )}
             >
-              {finding.candidate.summary}
+              {citation ? <span className="font-mono text-ink-3">{`${citation} `}</span> : null}
+              {claim}
             </span>
 
             <span className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-ink-3">
               <span>{humanise(finding.candidate.pattern)}</span>
-              {delta && delta !== "unchanged" ? <span>· {humanise(delta)} this review</span> : null}
+              {/* The separator as its own element rather than as a literal `· ` inside the
+                  phrase. Written into the string, its two sides were set by two mechanisms at
+                  two values — the container's `gap-x-2.5` before it and a single space after
+                  — so the dot had 12px on one side and 5px on the other and attached itself
+                  to the next word, and a screen reader read it aloud as punctuation inside
+                  the phrase. Both gaps now come from the same `gap-x-2.5`. */}
+              {delta && delta !== "unchanged" ? (
+                <>
+                  <span aria-hidden="true" className="text-ink-3">
+                    ·
+                  </span>
+                  <span>{humanise(delta)} this review</span>
+                </>
+              ) : null}
               <RowState finding={finding} decision={decision} />
             </span>
           </span>
 
           <span className="flex shrink-0 items-center gap-2 pt-0.5">
+            {/* The strip once the heavy reviews query has landed, and the room it will take
+                until then. Sized from the cheap listing's depth rather than from a flat
+                width, so the row is laid out once. */}
             {lineage.length > 1 ? (
               <CandidateTrajectory
                 lineage={lineage}
@@ -491,7 +679,9 @@ function DocketRow({
                 currentReviewId={review.id}
                 className="hidden md:flex"
               />
-            ) : null}
+            ) : (
+              <TrajectoryPlaceholder depth={lineageDepth} className="hidden md:flex" />
+            )}
             <ChevronDown
               aria-hidden="true"
               className={cn("size-4 text-ink-3 transition", open && "rotate-180")}
@@ -510,7 +700,14 @@ function DocketRow({
       </div>
 
       {open ? (
-        <div id={panelId} className="animate-expand border-t border-rule">
+        // `--rule-strong`, the same hairline the decision block below already uses. This is
+        // the seam where the row's identifiers stop and the model's argument starts — "the
+        // machine assembles, the model judges, the person decides" is the most distinctive
+        // idea in the product and it was drawn at a whisper, one value away from invisible,
+        // so five stacked zones of an open finding read as one flat sheet. Marked rather than
+        // moved: giving the block a ground would paint it the same as the Measured strip
+        // inside it, which is the one band that already earns one.
+        <div id={panelId} className="animate-expand border-t border-rule-strong">
           <FindingBody
             review={review}
             finding={finding}
@@ -568,37 +765,73 @@ function BulkBar({
     },
   });
 
+  /** The disposition in flight, so the button that was pressed is the one that spins. */
+  const running = decide.isPending ? decide.variables : null;
+
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-rule-strong bg-surface px-4 py-2.5 shadow-rim">
-      <span className="text-[13px] font-semibold text-ink">
-        {plural(selected.length, "candidate")} selected
-      </span>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={decide.isPending}
-          onClick={() => decide.mutate("accept")}
-        >
-          Accept all
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={decide.isPending}
-          onClick={() => decide.mutate("park")}
-        >
-          Park all
-        </Button>
-        <Button variant="ghost" size="sm" disabled={decide.isPending} onClick={onClear}>
-          Clear
-        </Button>
+    <div className="grid gap-2.5 rounded-lg border border-rule-strong bg-surface px-4 py-2.5 shadow-rim">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="text-[13px] font-semibold text-ink">
+          {plural(selected.length, "candidate")} selected
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* A spinner in the pressed button, because this request fans out over a dozen
+              candidates and then invalidates and refetches the whole branch. The only
+              feedback it had was three buttons going inert, which is indistinguishable from
+              a press that did nothing. The per-row `DecisionBar` has done both of these
+              since it was written; this bar is where the twelve-candidate case lives. */}
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={decide.isPending}
+            onClick={() => decide.mutate("accept")}
+          >
+            {running === "accept" ? <Spinner label="" /> : null}
+            Accept all
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={decide.isPending}
+            onClick={() => decide.mutate("park")}
+          >
+            {running === "park" ? <Spinner label="" /> : null}
+            Park all
+          </Button>
+          <Button variant="ghost" size="sm" disabled={decide.isPending} onClick={onClear}>
+            Clear
+          </Button>
+        </div>
+        {/* Waiving is the one disposition that cannot be taken in a batch, and a reader who
+            has just been offered two of three is owed the reason. */}
+        <span className="text-[11.5px] leading-5 text-ink-3">
+          Waiving stays one at a time: a reason that fits twelve findings is not a reason.
+        </span>
       </div>
-      {/* Waiving is the one disposition that cannot be taken in a batch, and a reader who has
-          just been offered two of three is owed the reason. */}
-      <span className="text-[11.5px] leading-5 text-ink-3">
-        Waiving stays one at a time: a reason that fits twelve findings is not a reason.
-      </span>
+
+      {/* A failure across twelve candidates used to look exactly like a decision that was
+          never pressed: the buttons dimmed, re-enabled, and nothing on screen said anything.
+          The selection needs no rescuing — `onClear` is called inside `onSuccess`, so a
+          refusal has already left every checked row checked — which is what makes offering
+          the same disposition again the whole of the way out. */}
+      {decide.error ? (
+        <ErrorNotice
+          error={decide.error}
+          title="Those decisions were not recorded"
+          action={
+            decide.variables ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={decide.isPending}
+                onClick={() => decide.mutate(decide.variables!)}
+              >
+                Try {dispositionOf(decide.variables).label.toLowerCase()} again
+              </Button>
+            ) : null
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -629,14 +862,26 @@ function ClarificationCard({
   onToggle: () => void;
 }) {
   const recorded = !awaitsAnswers(review) && rejudging;
+  // The docket row twenty lines away names what its disclosure reveals; this one announced
+  // that it was expanded and never said what it had expanded, on the docket's first item and
+  // the one thing nothing below it can be finished without.
+  const panelId = `round-panel-${review.id}`;
   return (
     <section className="overflow-hidden rounded-lg border border-rule bg-surface shadow-rim">
       <button
         type="button"
         aria-expanded={open}
+        aria-controls={panelId}
         onClick={onToggle}
         className={cn(
-          "flex w-full min-h-14 items-start gap-3 px-4 py-3 text-left transition sm:px-5",
+          // `group`, for the chevron below. This card is the docket's first item and, by its
+          // own copy, the blocker for everything under it, and it was the one row-shaped
+          // control in the feature that answered the pointer with nothing at all. The fill
+          // cannot carry it: `--held-soft` composites to `#ebebeb` over a panel in light,
+          // which is `--sunken` exactly, so a `hover:bg-sunken` here would be a no-op in
+          // light and a twenty-value step in dark — a state that works in one theme is not a
+          // state. The glyph carries it instead, on both branches and in both themes.
+          "group flex w-full min-h-14 items-start gap-3 px-4 py-3 text-left transition sm:px-5",
           recorded ? "bg-sunken" : "bg-held-soft",
         )}
       >
@@ -671,11 +916,14 @@ function ClarificationCard({
         </span>
         <ChevronDown
           aria-hidden="true"
-          className={cn("mt-0.5 size-4 shrink-0 text-ink-3 transition", open && "rotate-180")}
+          className={cn(
+            "mt-0.5 size-4 shrink-0 text-ink-3 transition group-hover:text-ink",
+            open && "rotate-180",
+          )}
         />
       </button>
       {open ? (
-        <div className="animate-expand border-t border-rule py-3">
+        <div id={panelId} className="animate-expand border-t border-rule py-3">
           {recorded && rejudging ? (
             <RoundRecorded
               review={review}
@@ -776,25 +1024,38 @@ function RoundRecorded({
  * through" is the state the page is in, not a verdict anything was given.
  */
 function WorkedThrough({
-  review,
+  total,
   decided,
   onReadReport,
 }: {
-  review: Review;
+  /** Every candidate in the review, which is the one total the sentence partitions. */
+  total: number;
   decided: number;
   onReadReport?: () => void;
 }) {
-  const cleared = review.findings.filter((finding) => finding.verdict === "cleared").length;
   return (
+    // `h2`, a sibling of the group headings rather than a child of one. This block stands
+    // where a section's list would, under the page's `h1`.
     <div className="flex flex-col items-center rounded-lg border border-rule bg-surface px-5 py-10 text-center shadow-rim">
       <span className="flex size-9 items-center justify-center rounded-full border border-rule-strong text-ink">
         <Mark shape="check" className="size-[17px]" />
       </span>
-      <h3 className="mt-3 text-[15px] font-semibold tracking-tight text-ink">Worked through</h3>
+      <h2 className="mt-3 text-[15px] font-semibold tracking-tight text-ink">Worked through</h2>
+      {/* One total, partitioned. This used to add two overlapping sets and call the second
+          "others": a cleared candidate that was accepted is in both, so a three-candidate
+          review that came back cleared and was then accepted read "3 candidates were decided
+          by the team and 3 others came back cleared" — six implied where there were three.
+          At the other end a first review read "0 candidates were decided by the team and 7
+          others came back cleared", where "others" named nothing. A review is worked through
+          exactly when every candidate is either decided or cleared, so those two are the
+          partition and the sentence says so. */}
       <p className="mt-1.5 max-w-[52ch] text-[13px] leading-6 text-ink-2">
-        Nothing in this review is waiting on a person. {plural(decided, "candidate")}{" "}
-        {decided === 1 ? "was" : "were"} decided by the team and {plural(cleared, "other")} came
-        back cleared.
+        Nothing in this review is waiting on a person.{" "}
+        {decided
+          ? `${decided} of ${plural(total, "candidate")} ${decided === 1 ? "was" : "were"} decided by the team${
+              decided === total ? "." : "; the rest came back cleared."
+            }`
+          : `All ${plural(total, "candidate")} came back cleared.`}
       </p>
       {/* A way on, not a dead end: the record of what was just decided, and the next review
           against it. Reaching the bottom of the list is the moment both are wanted. */}
@@ -828,6 +1089,8 @@ export function Docket({
   onSelectedChange,
   onOpenContext,
   onReadReport,
+  onReadDelta,
+  lineageDepth = 0,
   rejudging = null,
   rejudgementNotice,
 }: {
@@ -885,6 +1148,18 @@ export function Docket({
   onSelectedChange: (update: (current: string[]) => string[]) => void;
   onOpenContext?: () => void;
   onReadReport?: () => void;
+  /** The way to the surface the empty review's own sentence names. */
+  onReadDelta?: () => void;
+  /**
+   * How many revisions this lineage has, according to the cheap listing.
+   *
+   * `lineage` above is the reviews themselves, which is the heavy request and arrives
+   * seconds later — so until it lands no row draws a trajectory and, when it does, up to
+   * 248px appears on the right of every row at once and every claim rewraps under the
+   * reader's eye. This is the depth known from the request that has already answered, and it
+   * is used for nothing but reserving the space the strip will take.
+   */
+  lineageDepth?: number;
 }) {
   const { pathname } = useLocation();
   const [query, setQuery] = useState("");
@@ -1084,11 +1359,46 @@ export function Docket({
       const to = at === -1 ? (step > 0 ? 0 : ids.length - 1) : at + step;
       if (to < 0 || to >= ids.length) return;
       event.preventDefault();
+      // The walked-to row takes focus the same way an advanced-to row does. `advanced` was
+      // written only by the settle effect, so walking the docket with `j`/`k` opened rows
+      // while DOM focus stayed wherever it had been — typically a filter chip — and the next
+      // Tab left the list entirely. Moving focus onto the row button is also what makes the
+      // walk audible: the screen reader reads the row it lands on. Deliberately not also fed
+      // to the live region, which would then say the same thing twice and would be talking
+      // over every keystroke of the walk.
+      advanced.current = ids[to];
       onOpen(ids[to]);
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [visible, waiting, openId, onOpen, onSelectedChange]);
+
+  /**
+   * What the search did, said into the region that is already mounted.
+   *
+   * Typing narrows the list to a count printed in a static span, which reaches nobody who is
+   * not looking at it — the same complaint the settle announcement was added to answer, one
+   * control over. The chips need nothing: they are `aria-pressed` buttons, so the press
+   * itself is announced.
+   *
+   * Debounced, because this fires on a keystroke and an announcement per character is a
+   * region that talks over the typing. Keyed on the query alone so a decision landing under
+   * the reader cannot overwrite what the settle effect just said — the counts are read from
+   * the render the query changed on, which is the render that already recomputed them.
+   */
+  const reportable = query.trim();
+  const shown = visible.length;
+  const of = matching.length;
+  useEffect(() => {
+    // Clearing the box restores the list the chips describe, which the chips already say.
+    if (!reportable) return;
+    const timer = window.setTimeout(() => {
+      setAnnouncement(`${shown} of ${of} match “${reportable}”.`);
+    }, 400);
+    return () => window.clearTimeout(timer);
+    // The counts belong to the query, and re-running on them would announce every decision.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportable]);
 
   // The end of the work is a state, and it is reached the moment nothing is outstanding —
   // not the moment the list empties. `visible` deliberately retains the rows that settled
@@ -1121,8 +1431,14 @@ export function Docket({
           read — which is what a `{success ? <LiveRegion/> : null}` is. */}
       <LiveRegion>{announcement}</LiveRegion>
 
+      {/* Pinned under the surface strip, because selecting rows is something a reviewer does
+          while working *down* a long docket — with `x` on the open row, or by checkbox — and
+          a bar that renders once between the progress strip and the list is several screens
+          above the rows it acts on by the time three are checked. 5.75rem is the 48px topbar
+          plus the 44px strip, which is the same measurement `scroll-mt-24` on a row is taken
+          against, and `z-10` keeps it under the strip's own `z-20`. */}
       {checked.length ? (
-        <div className="mt-3">
+        <div className="sticky top-[5.75rem] z-10 mt-3">
           <BulkBar
             review={review}
             selected={checked}
@@ -1156,7 +1472,11 @@ export function Docket({
         {/* Above the rows it is about, because the rows below it are the ones that settled
             under you and the sentence is what they add up to. */}
         {workedThrough ? (
-          <WorkedThrough review={review} decided={decided} onReadReport={onReadReport} />
+          <WorkedThrough
+            total={findings.length}
+            decided={decided}
+            onReadReport={onReadReport}
+          />
         ) : null}
 
         {!visible.length ? (
@@ -1169,6 +1489,19 @@ export function Docket({
                     ? `Nothing in this review matches “${query.trim()}”.`
                     : "Choose another filter to see the rest of this review."}
               </p>
+              {/* The one branch whose named destination is genuinely another surface, and
+                  therefore the one that cannot get there by itself. The other two name a
+                  control that is a few pixels above this panel and on screen — the search box
+                  the reader just typed into, and the chips — so a duplicate of either buys
+                  nothing. `WorkedThrough` above already proves the pattern with "Read the
+                  report". */}
+              {!findings.length && onReadDelta ? (
+                <div className="mt-4">
+                  <Button variant="secondary" size="sm" onClick={onReadDelta}>
+                    Read the delta
+                  </Button>
+                </div>
+              ) : null}
             </div>
           )
         ) : (
@@ -1181,12 +1514,29 @@ export function Docket({
               const shared = sharedNamespace(section.findings);
               return (
                 <section key={section.label ?? "all"}>
+                  {/* `h2`, over the `h3` each row carries. The outline used to run h1, then
+                      this at h3, then every row inside it at h2 — so heading navigation, the
+                      fastest way down a long list with a screen reader, reported every
+                      candidate as a peer of the group containing it and jumping by heading
+                      walked out of a group rather than through it. An ungrouped docket now
+                      skips a level instead, which is a best-practice miss where the inversion
+                      was an active lie about what contains what.
+
+                      No `px-1`. Four pixels of inset put the heading off the left edge of the
+                      card below it, the list's own edge and the search box above it — a
+                      near-alignment, which reads as a mistake where a clear step would not. */}
                   {section.label || shared ? (
                     <Label
-                      as="h3"
-                      className="mb-1.5 flex flex-wrap items-baseline gap-x-2 px-1 text-ink-2"
+                      as="h2"
+                      className="mb-1.5 flex flex-wrap items-baseline gap-x-2 text-ink-2"
                     >
-                      <span>{section.label ?? "All"}</span>
+                      {/* No `?? "All"`. Where a section has no label the heading exists only
+                          to hoist the namespace the rows share, and the fallback invented a
+                          word that is also the name of a filter chip a few pixels above it —
+                          so a reader working the Attention filter was headed "ALL 3 IN ports",
+                          which claims the list is unfiltered at the exact moment it is not.
+                          Nothing on the docket prints "All" except the chip that means it. */}
+                      {section.label ? <span>{section.label}</span> : null}
                       <span className="font-mono tabular-nums text-ink-3">
                         {section.findings.length}
                       </span>
@@ -1206,7 +1556,14 @@ export function Docket({
                     aria-label={
                       section.label ? `Candidates ${section.label.toLowerCase()}` : "Candidates"
                     }
-                    className="overflow-hidden rounded-lg border border-rule bg-surface shadow-rim"
+                    // `divide-y` here rather than `border-b` on each row, because this is the
+                    // element that knows where a row sits among its siblings. Written on the
+                    // row it was `border-b … last:border-b-0` on an `<article>` that is the
+                    // only child of its `<li>`, so `:last-child` matched every row and the
+                    // rule never painted once: six candidates rendered as one unbroken sheet,
+                    // on the surface whose design system calls hairlines its primary
+                    // structural device.
+                    className="divide-y divide-rule overflow-hidden rounded-lg border border-rule bg-surface shadow-rim"
                   >
                     {section.findings.map((finding) => (
                       <li key={finding.candidate.id}>
@@ -1216,6 +1573,7 @@ export function Docket({
                           decision={decisions.get(finding.candidate.id)}
                           delta={deltaStateOf(delta, finding.candidate.id)}
                           lineage={lineage}
+                          lineageDepth={lineageDepth}
                           hoistedNamespace={shared ?? undefined}
                           open={openId === finding.candidate.id}
                           takeFocus={advanced.current === finding.candidate.id}
@@ -1246,9 +1604,16 @@ export function Docket({
 
       {/* What the filters cannot count: "settled" includes everything ArchCompass cleared by
           itself, and this is the part the team did. The keys that used to be printed here
-          moved up beside the control they act on. */}
-      {findings.length ? (
-        <p className="mt-3 px-1 text-[11px] text-ink-3">
+          moved up beside the control they act on.
+
+          Not while the review is worked through: `WorkedThrough` states the same partition of
+          the same total a few hundred pixels above, and one number printed twice on one
+          screen in two wordings is a reader checking whether they disagree. The line survives
+          for every review that is *not* finished, which is the case it was written for. Left
+          on the column's own edge rather than inset by `px-1`, for the reason the group
+          heading above it is. */}
+      {findings.length && !workedThrough ? (
+        <p className="mt-3 text-[11px] text-ink-3">
           {decided
             ? `${decided} of ${plural(findings.length, "candidate")} decided by the team.`
             : "Nothing decided by the team yet."}

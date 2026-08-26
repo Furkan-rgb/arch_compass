@@ -3,6 +3,7 @@ import {
   type Dispatch,
   type ReactNode,
   type SetStateAction,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -11,9 +12,10 @@ import {
 import { api, type Question, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { Button } from "../../ui/button";
-import { CheckIcon } from "../../ui/icons";
+import { ChevronDown } from "../../ui/icons";
+import { Mark } from "../../ui/mark";
 import { Label } from "../../ui/panel";
-import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
+import { ErrorNotice, LiveRegion, Notice, Spinner } from "../../ui/states";
 import { QuestionItem } from "./question";
 
 /** Where a question stands, which is the only thing its marker has to draw. */
@@ -24,7 +26,9 @@ type Standing = "answered" | "skipped" | "open";
  *
  * A round is a form, and a form's contents cannot live in a component that three ordinary
  * gestures unmount. `useRoundAnswers` is called by the page and handed down, so collapsing
- * the card, walking the docket or reading the report all leave the answers where they were.
+ * the card, walking the docket or reading the report all leave the answers where they were —
+ * and the draft it reads is held above the page too, so leaving the page does as well. See
+ * `RoundDraft` for where the words actually live and how long they live for.
  */
 export type RoundAnswers = {
   values: Record<string, string>;
@@ -56,14 +60,155 @@ export type RoundAnswers = {
    */
   drafts: Record<string, { text: string; model: string }>;
   setDrafts: Dispatch<SetStateAction<Record<string, { text: string; model: string }>>>;
+  /**
+   * Which questions have their help panel open, per question.
+   *
+   * Open-or-closed is DOM state on a `<details>`, and the round only mounts a question's
+   * children while its row is open — so a panel somebody deliberately opened, with two typed
+   * sentences in it, came back shut and the sentences came back invisible. `asking` above
+   * kept the words and this keeps the door they are behind.
+   */
+  helpOpen: Set<string>;
+  setHelpOpen: Dispatch<SetStateAction<Set<string>>>;
+  /**
+   * Say that what is in the draft right now has been recorded, which is what takes the
+   * unload guard off it.
+   *
+   * Not a reset: `RoundRecorded` in the docket reads these same values back to show what was
+   * said while the rejudgement runs, and a draft thrown away on success would replace every
+   * answer there with "recorded on this review's case revision". So the words stay and only
+   * the claim on them changes.
+   */
+  settle: () => void;
 };
 
+/**
+ * The draft itself, held for exactly as long as the page is loaded.
+ *
+ * Hoisting the round's state into the review page bought three gestures — collapsing the
+ * card, walking the docket, switching surface — and nothing outside that page: the topbar's
+ * links, the command palette, the back gesture and a reload all unmount the page and take ten
+ * minutes of typing with them. The experience doc's rule is *never navigate away from unsaved
+ * input*, without the qualification that it was only being enforced against the three
+ * controls the hoist happened to be written for.
+ *
+ * So the draft lives in module state, the way `features/start/choice.ts` holds the start
+ * page's half-made choice, and for the same reason: the lifetime wanted is the lifetime of
+ * the loaded page. `sessionStorage` would hand a half-answered round back after a reload the
+ * reviewer meant as a reset, and `localStorage` would hand it back next week — both do more
+ * than was asked, in the one direction that was ruled out. The reload itself is guarded by
+ * `beforeunload` below rather than survived.
+ *
+ * Keyed by question id and by nothing else, because a question id is unique across reviews:
+ * the entries a round reads are exactly the ones it names, and no second review can pick up
+ * the first's answers by sharing a slot with it.
+ */
+type RoundDraft = {
+  values: Record<string, string>;
+  skipped: Set<string>;
+  own: Set<string>;
+  asking: Record<string, string>;
+  helpOpen: Set<string>;
+  drafts: Record<string, { text: string; model: string }>;
+  /**
+   * The draft as it stood when a round was last recorded, or null before one was.
+   *
+   * A fingerprint rather than a flag, so a second round re-arms the guard the moment somebody
+   * types into it. It is the same shape as the policy editor's `dirty`: what is on screen
+   * against what has been filed.
+   */
+  filed: string | null;
+};
+
+function emptyDraft(): RoundDraft {
+  return {
+    values: {},
+    skipped: new Set(),
+    own: new Set(),
+    asking: {},
+    helpOpen: new Set(),
+    drafts: {},
+    filed: null,
+  };
+}
+
+let remembered: RoundDraft = emptyDraft();
+
+/**
+ * Module state outlives a `render`, so without this one test answering a round would hand its
+ * answers to every test after it in the file. `features/start/choice.ts` exports the same
+ * escape for the same reason, and `start-page.test.tsx` calls it in `beforeEach`.
+ */
+export function forgetRoundAnswers(): void {
+  remembered = emptyDraft();
+}
+
+/**
+ * One slice of the draft, as state that writes itself back to the module on every change.
+ *
+ * The write happens inside the updater rather than in an effect, so the module and what is on
+ * screen can never disagree: `choose` sets a value and clears `own` in one event, and an
+ * effect would have both of them reading the same stale copy. React may run an updater twice
+ * in development, and writing the same object twice is the same write.
+ */
+function useDraftSlice<K extends keyof RoundDraft>(
+  key: K,
+): [RoundDraft[K], Dispatch<SetStateAction<RoundDraft[K]>>] {
+  const [value, setValue] = useState<RoundDraft[K]>(remembered[key]);
+  const set = useCallback<Dispatch<SetStateAction<RoundDraft[K]>>>(
+    (next) => {
+      setValue((current) => {
+        const resolved =
+          typeof next === "function"
+            ? (next as (previous: RoundDraft[K]) => RoundDraft[K])(current)
+            : next;
+        remembered[key] = resolved;
+        return resolved;
+      });
+    },
+    [key],
+  );
+  return [value, set];
+}
+
 export function useRoundAnswers(): RoundAnswers {
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [skipped, setSkipped] = useState<Set<string>>(new Set());
-  const [own, setOwn] = useState<Set<string>>(new Set());
-  const [asking, setAsking] = useState<Record<string, string>>({});
-  const [drafts, setDrafts] = useState<Record<string, { text: string; model: string }>>({});
+  const [values, setValues] = useDraftSlice("values");
+  const [skipped, setSkipped] = useDraftSlice("skipped");
+  const [own, setOwn] = useDraftSlice("own");
+  const [asking, setAsking] = useDraftSlice("asking");
+  const [helpOpen, setHelpOpen] = useDraftSlice("helpOpen");
+  const [drafts, setDrafts] = useDraftSlice("drafts");
+  const [filed, setFiled] = useDraftSlice("filed");
+
+  // What is in the round, as one comparable value. `own` and `helpOpen` are left out: neither
+  // is anything a person typed, and a menu taken off with nothing written in the box is not
+  // work worth stopping a reload for.
+  const fingerprint = JSON.stringify([values, [...skipped].sort(), asking]);
+  const started =
+    Object.values(values).some((value) => value.trim()) ||
+    skipped.size > 0 ||
+    Object.values(asking).some((value) => value.trim());
+
+  const settle = useCallback(() => setFiled(fingerprint), [setFiled, fingerprint]);
+
+  /**
+   * The one way out of a half-answered round that no control on this page can intercept.
+   *
+   * A reload, a typed address, the back gesture — none of them go through a button, and a
+   * browser only offers to stop them if something asks. `preventDefault` is the whole ask;
+   * the wording is the browser's and cannot be set. Modelled on the policy editor, which
+   * reasoned this out for the other long form in the product.
+   *
+   * Armed only where there is something to lose: nothing typed yet, or everything typed
+   * already recorded, and a reload is exactly what the reader asked for.
+   */
+  useEffect(() => {
+    if (!started || fingerprint === filed) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [started, fingerprint, filed]);
+
   return {
     values,
     setValues,
@@ -75,39 +220,43 @@ export function useRoundAnswers(): RoundAnswers {
     setAsking,
     drafts,
     setDrafts,
+    helpOpen,
+    setHelpOpen,
+    settle,
   };
 }
 
 /**
- * The mark in the gutter beside one question.
+ * The mark in the gutter beside one question, which is the round's whole scanning device.
  *
- * Two states are shown at once and they are independent — a reviewer can have question 3
- * open while 1 and 2 are answered — so they are carried by different devices. Fill says
- * resolved, the ring says you are here. One device for both would make reopening an answered
- * question indistinguishable from arriving at an open one.
+ * It was a hand-drawn disc carrying two things at once — a fill for resolved, a ring for "you
+ * are here" — and only one of the three standings could be seen. An answered question was ink
+ * on white at 19.8:1; a skip was a dashed `--rule-strong` circle at 1.41:1 and an open one a
+ * `--surface-2` circle at 1.04:1, so the round scanned as *done* against *not drawn yet* and
+ * a skip — a decision somebody took — had no mark at all.
+ *
+ * Three drawn glyphs on the ink ramp now, from the vocabulary `ui/mark.tsx` already defines
+ * and the Rounds surface already uses for these same three standings: `check` for an answer,
+ * `slash` from the person's-own-move register for a skip, `pause` for a question nobody has
+ * reached. Every one of them clears 5:1 on the panel in both themes, and the slice has one
+ * mark system rather than two.
+ *
+ * The ring is gone rather than fixed. `design-system.md` killed a ring around a circle by
+ * name — it is two concentric circles and says nothing — and the present is marked by taking
+ * emphasis off everything else: the open row is the only expanded one on screen, it carries
+ * `aria-current="step"`, and its question is full ink where a closed row's is `--ink-3`.
  */
-function Marker({
-  standing,
-  current,
-}: {
-  standing: Standing;
-  current: boolean;
-}) {
+function Marker({ standing }: { standing: Standing }) {
   return (
-    <span
-      aria-hidden="true"
+    <Mark
+      shape={standing === "answered" ? "check" : standing === "skipped" ? "slash" : "pause"}
       className={cn(
-        "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border transition",
-        standing === "answered" && "border-ink bg-ink text-canvas",
-        // Dashed, because a skip is a question deliberately left open rather than one that
-        // has an answer in it.
-        standing === "skipped" && "border-dashed border-rule-strong bg-sunken",
-        standing === "open" && "border-rule bg-surface-2",
-        current && "ring-2 ring-rule-strong ring-offset-2 ring-offset-surface",
+        "mt-1 size-[15px]",
+        standing === "answered" && "text-ink",
+        standing === "skipped" && "text-ink-2",
+        standing === "open" && "text-ink-3",
       )}
-    >
-      {standing === "answered" ? <CheckIcon className="text-[11px]" /> : null}
-    </span>
+    />
   );
 }
 
@@ -161,7 +310,7 @@ function RoundRow({
         aria-current="step"
         className="grid grid-cols-[auto_1fr] items-start gap-x-3 border-t border-rule py-4 first:border-t-0"
       >
-        <Marker standing={standing} current />
+        <Marker standing={standing} />
         {/* Mounted only while the row is open, so the expansion plays every time a row is
             opened rather than once for the life of the round. Nothing unmounts around it —
             the rows above and below keep their height — which is what stops the panel
@@ -193,9 +342,14 @@ function RoundRow({
         aria-label={`${question.text} — ${said}. Open to change it.`}
         // Bled into the gutter so the hover band reads as a target with room around the
         // words, rather than as a rectangle drawn flush against them.
-        className="-mx-2 grid min-h-11 w-[calc(100%+1rem)] grid-cols-[auto_1fr] items-start gap-x-3 rounded-md px-2 py-3 text-left transition hover:bg-sunken/60"
+        //
+        // `hover:bg-sunken` rather than `hover:bg-sunken/60`: sixty per cent of `#ebebeb` over
+        // the panel's white composites to `#f2f2f2`, six values, which is not a state a reader
+        // finds under a pointer. The ramp's own hover step is twenty values in light and
+        // eighteen in dark, and it is the one this row is entitled to.
+        className="-mx-2 grid min-h-11 w-[calc(100%+1rem)] grid-cols-[auto_1fr_auto] items-start gap-x-3 rounded-md px-2 py-3 text-left transition hover:bg-sunken"
       >
-        <Marker standing={standing} current={false} />
+        <Marker standing={standing} />
         <span className="min-w-0">
           {/* A resolved row leads with what was said, so its question steps back to being the
               caption on an answer. An unresolved one has nothing else to lead with. */}
@@ -216,6 +370,12 @@ function RoundRow({
             </span>
           )}
         </span>
+        {/* The only thing at rest that says a closed row is a control. It carried a hover fill
+            and nothing else — invisible to a touch reader — while the card above it and the
+            help panel below it both announce themselves with a rotating chevron. Three
+            disclosures on one screen, two of them announced. The open row keeps two columns,
+            so the chevron's presence is itself the "this can be opened" signal. */}
+        <ChevronDown aria-hidden="true" className="mt-1 size-4 shrink-0 text-ink-3" />
       </button>
     </li>
   );
@@ -255,7 +415,9 @@ export function ClarificationRound({
    * Delta, Report or Ask each unmounted it and wiped every answer in the round, with no
    * warning and nothing to undo it with. The experience doc's rule is *never navigate away
    * from unsaved input*, and it had been enforced against the links inside the round and not
-   * against the three controls around it.
+   * against the three controls around it. It is enforced against everything now: the draft
+   * outlives the page as well as the card, and what no in-app state can survive — a reload, a
+   * closed tab — is stopped by a `beforeunload` in the hook rather than lost quietly.
    */
   answers: RoundAnswers;
   className?: string;
@@ -281,6 +443,9 @@ export function ClarificationRound({
     setAsking,
     drafts,
     setDrafts,
+    helpOpen,
+    setHelpOpen,
+    settle,
   } = answers;
   // Null until the reviewer moves it themselves. The round opens on the first row that wants
   // a person, and which row that is changes as the round is worked — so it is derived rather
@@ -293,13 +458,28 @@ export function ClarificationRound({
   const isResolved = (questionId: string) =>
     skipped.has(questionId) || Boolean(values[questionId]?.trim());
 
+  /**
+   * The skip wins, because the skip is what gets sent.
+   *
+   * This read the value first, and the payload below reads the skip first — so typing an
+   * answer and then pressing *Skip explicitly* collapsed the row to a tick and the sentence
+   * you had written, over a payload recording `skipped` with no value at all. The screen and
+   * the record disagreed about what a person had said, on the one question the charter is
+   * most explicit about: a skipped question is recorded as skipped and nothing is inferred.
+   *
+   * `toggleSkip` deliberately keeps the words — undoing a skip hands them back rather than
+   * making somebody retype them — so the precedence is what has to say which one counts.
+   */
   function standingOf(questionId: string): Standing {
-    if (values[questionId]?.trim()) return "answered";
-    return skipped.has(questionId) ? "skipped" : "open";
+    if (skipped.has(questionId)) return "skipped";
+    return values[questionId]?.trim() ? "answered" : "open";
   }
 
-  const answered = review.questions.filter((question) =>
-    Boolean(values[question.id]?.trim()),
+  // Through `standingOf` rather than straight off `values`, so the count agrees with the
+  // gutter and with the payload: a question with words in it that was then skipped is one
+  // skip, not one of each.
+  const answered = review.questions.filter(
+    (question) => standingOf(question.id) === "answered",
   );
   const resolved = review.questions.filter((question) =>
     isResolved(question.id),
@@ -358,10 +538,21 @@ export function ClarificationRound({
         stop,
       ),
     onSuccess: () => {
+      // The words stay where they are — the docket reads them back while the rejudgement
+      // runs — but they are on the record now, so a reload is no longer something to stop.
+      settle();
       void client.invalidateQueries({ queryKey: ["review", review.id] });
       void client.invalidateQueries({ queryKey: ["review-runs"] });
     },
   });
+
+  /**
+   * The round has been taken, whether or not the review has come back saying so.
+   *
+   * `isPending` alone was the gate, and it ends at the 202 — which leaves a window, the length
+   * of a refetch, where the form is live over a round the server already has.
+   */
+  const sent = resume.isPending || resume.isSuccess;
 
   /**
    * Open the next row that still wants a person, having just settled this one.
@@ -464,10 +655,29 @@ export function ClarificationRound({
       {bare ? (
         // One line, because the item this sits inside already carries the name and the
         // sentence. What it cannot carry is how far through the round you are.
+        //
+        // Two things changed about that line. It said "2 of 6 resolved", which folds the
+        // round's one real distinction — an answer against a deliberate skip — into a single
+        // number, while the split existed on the page only in the screen-reader region below:
+        // the sighted reader was told less than the listening one about what pressing Save
+        // would file. And it was set at 11.5px in the meta tier, a few hundred pixels under
+        // the docket's own progress line, which says the same kind of fact at 12.5px with the
+        // count in full ink. Same fact, same column, and the smaller treatment belonged to the
+        // thing blocking everything below it. This is the docket's recipe, without a second
+        // segment strip: the item above already carries one.
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-4 pt-1 sm:px-5">
           <Label>Clarification round {round}</Label>
-          <span className="font-mono text-[11.5px] tabular-nums text-ink-3">
-            {resolved.length} of {total} resolved
+          <span className="text-[12.5px] text-ink-2">
+            <span className="font-mono font-semibold tabular-nums text-ink">
+              {answered.length}
+            </span>{" "}
+            answered ·{" "}
+            <span className="font-mono font-semibold tabular-nums text-ink">{skipped.size}</span>{" "}
+            skipped ·{" "}
+            <span className="font-mono font-semibold tabular-nums text-ink">
+              {total - resolved.length}
+            </span>{" "}
+            open
           </span>
         </div>
       ) : (
@@ -500,71 +710,110 @@ export function ClarificationRound({
         </header>
       )}
 
-      <ol
-        aria-label={`Questions in clarification round ${round}`}
-        className="px-4 py-2 sm:px-5"
-      >
-        {review.questions.map((question) => (
-          <RoundRow
-            key={question.id}
-            question={question}
-            standing={standingOf(question.id)}
-            open={question.id === open}
-            // `opened` is null only until the reviewer touches the round, so this is exactly
-            // "the round moved because somebody moved it" without a second piece of state.
-            takeFocus={opened !== null}
-            answer={values[question.id]?.trim() || ""}
-            onOpen={() => setOpened(question.id)}
-          >
-            <QuestionItem
+      {/* Inert from the press, not from the refetch.
+          `isPending` ends when the 202 arrives, and the card only swaps to the recorded state
+          once the invalidated `["review", id]` query comes back — so between the two the
+          radios, the boxes and the skip toggles were live over a round that had already been
+          taken, and both buttons re-enabled. A `fieldset` is the one element that turns a
+          whole form off in one place, and every control inside it is drawn off by the
+          `disabled:` recipes the design system already gives them. `min-w-0` because a
+          `fieldset` defaults to `min-width: min-content`, which would let a long answer widen
+          the column. */}
+      <fieldset disabled={sent} className="min-w-0">
+        <ol
+          aria-label={`Questions in clarification round ${round}`}
+          className="px-4 py-2 sm:px-5"
+        >
+          {review.questions.map((question) => (
+            <RoundRow
+              key={question.id}
               question={question}
-              affected={review.findings.filter((finding) =>
-                question.candidate_ids.includes(finding.candidate.id),
-              )}
-              review={review}
-              value={values[question.id] || ""}
-              writingOwn={own.has(question.id)}
-              skipped={skipped.has(question.id)}
-              asking={asking[question.id] || ""}
-              onChoose={(option) => choose(question.id, option)}
-              onWriteOwn={() => chooseOwn(question.id)}
-              onWrite={(value) =>
-                setValues((current) => ({ ...current, [question.id]: value }))
-              }
-              onAsking={(value) =>
-                setAsking((current) => ({ ...current, [question.id]: value }))
-              }
-              onUseDraft={(text, model) => useDraft(question.id, text, model)}
-              onToggleSkip={() => toggleSkip(question.id)}
-            />
-          </RoundRow>
-        ))}
-      </ol>
+              standing={standingOf(question.id)}
+              open={question.id === open}
+              // `opened` is null only until the reviewer touches the round, so this is exactly
+              // "the round moved because somebody moved it" without a second piece of state.
+              takeFocus={opened !== null}
+              answer={values[question.id]?.trim() || ""}
+              onOpen={() => setOpened(question.id)}
+            >
+              <QuestionItem
+                question={question}
+                affected={review.findings.filter((finding) =>
+                  question.candidate_ids.includes(finding.candidate.id),
+                )}
+                review={review}
+                value={values[question.id] || ""}
+                writingOwn={own.has(question.id)}
+                skipped={skipped.has(question.id)}
+                asking={asking[question.id] || ""}
+                helpOpen={helpOpen.has(question.id)}
+                onChoose={(option) => choose(question.id, option)}
+                onWriteOwn={() => chooseOwn(question.id)}
+                onWrite={(value) =>
+                  setValues((current) => ({ ...current, [question.id]: value }))
+                }
+                onAsking={(value) =>
+                  setAsking((current) => ({ ...current, [question.id]: value }))
+                }
+                onHelpOpen={(next) =>
+                  setHelpOpen((current) => {
+                    if (current.has(question.id) === next) return current;
+                    const updated = new Set(current);
+                    if (next) updated.add(question.id);
+                    else updated.delete(question.id);
+                    return updated;
+                  })
+                }
+                onUseDraft={(text, model) => useDraft(question.id, text, model)}
+                onToggleSkip={() => toggleSkip(question.id)}
+              />
+            </RoundRow>
+          ))}
+        </ol>
+      </fieldset>
 
-      <footer className="border-t border-rule bg-sunken/40 px-4 py-3.5 sm:px-5">
+      {/* `bg-surface-2`, not `bg-sunken/40`. Forty per cent of `#ebebeb` over the card
+          composites to `#f7f7f7` in light — a sixth grey belonging to no ramp — and to
+          `#141414` in dark, which is `--surface-2` arrived at by accident. A footer is a
+          static strip set into a panel, which is the job the token is named for. */}
+      <footer className="border-t border-rule bg-surface-2 px-4 py-3.5 sm:px-5">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <p className="text-xs leading-5 text-ink-3">
+          {/* Three sentences, because there are three things the press can cost and the copy
+              named one of them. The second is the clause the unreachable header held and no
+              reader has ever seen: skipping is a first-class move, not a failure to answer.
+              The third belongs to the button beside it — *Conclude with remaining uncertainty*
+              seals the case without another round, and it stood here with no sentence saying
+              what it ends while the reversible button beside it had one. */}
+          <p className="max-w-[62ch] text-xs leading-5 text-ink-3">
             Anything left blank is recorded as skipped. Nothing is inferred on
-            your behalf.
+            your behalf. Skip anything that should stay explicitly unknown; concluding files
+            the review as it stands, with these questions unanswered.
           </p>
           {/* Two full-width rows on a phone rather than one squashed one: the longer of these
               labels is a sentence, and flex-wrap has no answer for a single item that is wider
               than the row it is in. */}
           <div className="grid gap-2 sm:flex sm:flex-wrap">
+            {/* The pending state goes on the button that was pressed. Both share one
+                `isPending`, and only the primary ever drew it — so pressing Conclude drew the
+                spinner on its neighbour and said "Saving context…", which is the other action.
+                `resume.variables` already carries which one is in flight; it was read for the
+                retry and nowhere else. */}
             <Button
               variant="secondary"
               className="min-h-11"
-              disabled={resume.isPending}
+              disabled={sent}
               onClick={() => resume.mutate(true)}
             >
-              Conclude with remaining uncertainty
+              {resume.isPending && resume.variables === true ? (
+                <>
+                  <Spinner label="" /> Filing this review…
+                </>
+              ) : (
+                "Conclude with remaining uncertainty"
+              )}
             </Button>
-            <Button
-              className="min-h-11"
-              disabled={resume.isPending}
-              onClick={() => resume.mutate(false)}
-            >
-              {resume.isPending ? (
+            <Button className="min-h-11" disabled={sent} onClick={() => resume.mutate(false)}>
+              {resume.isPending && resume.variables === false ? (
                 <>
                   <Spinner label="" /> Saving context…
                 </>
@@ -574,10 +823,28 @@ export function ClarificationRound({
             </Button>
           </div>
         </div>
-        {/* Deliberately not the counter's own words. A live region that reads back a line
-            already on screen is the same sentence twice to anyone using both. */}
+        {/* Said on the frame the 202 lands on, rather than when the refetched review gets
+            here. The mutation's own comment argues that the invalidations are deliberately not
+            awaited because the acknowledgement belongs on the next frame — and there was no
+            acknowledgement, so for the length of a refetch the only thing that had happened
+            was that two buttons went grey. */}
+        {resume.isSuccess ? (
+          <div className="mt-3">
+            <Notice tone="working">
+              {resume.variables
+                ? "Your answers are recorded on this review's case revision, and the review is being filed as it stands."
+                : "Your answers are recorded on this review's case revision. Every candidate is being judged again."}
+            </Notice>
+          </div>
+        ) : null}
+        {/* The same three facts as the counter above, and deliberately so now that the counter
+            carries them: a count that changes only on screen tells a listener nothing, and a
+            live region is how a change gets announced. The wording differs because a listener
+            hearing the round move should hear a sentence, not a row of separators. */}
         <LiveRegion>
-          {`${answered.length} answered, ${skipped.size} skipped, ${total - resolved.length} still open.`}
+          {resume.isSuccess
+            ? "Recorded. Every candidate is being judged again."
+            : `${answered.length} answered, ${skipped.size} skipped, ${total - resolved.length} still open.`}
         </LiveRegion>
         {resume.error ? (
           <div className="mt-3">

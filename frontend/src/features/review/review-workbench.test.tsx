@@ -18,6 +18,7 @@ import {
   reviewSummaryFixture,
   runFixture,
 } from "../../test-fixtures";
+import { forgetRoundAnswers } from "./clarification";
 import { ReviewPage } from "./review-page";
 
 function CurrentPath() {
@@ -82,6 +83,22 @@ function progress() {
   };
 }
 
+/**
+ * The clarification round's progress line — answered, skipped and still open.
+ *
+ * Read as one element rather than by its words, because the three counts are separate spans
+ * so that the numbers can be set in mono against their labels. What the round promises is
+ * that it says how far through it is *and* keeps an answer apart from a deliberate skip, and
+ * that is a property of the whole line.
+ */
+const roundProgress = () =>
+  screen.findByText(
+    (_, element) =>
+      /^\d+ answered · \d+ skipped · \d+ open$/.test(
+        element?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      ),
+  );
+
 /** A review with more candidates than the docket's own devices are sized for. */
 function wideReview(count: number, cleared: number) {
   const base = reviewFixture({ status: "completed", questions: [] });
@@ -141,6 +158,11 @@ function recordDecisions(review: ReturnType<typeof reviewFixture>) {
 
 beforeEach(() => {
   setViewportWidth(VIEWPORT.desktop);
+  // A half-answered round outlives the page it was typed into — that is the point of it, and
+  // `clarification.tsx` says why — so it outlives a `render` too, and one test answering a
+  // question would hand that answer to every test after it in this file. The same escape
+  // `start-page.test.tsx` calls for the start page's half-made choice, for the same reason.
+  forgetRoundAnswers();
   vi.spyOn(api, "decisions").mockResolvedValue({
     branch_id: "branch-1",
     decisions: [],
@@ -347,8 +369,13 @@ describe("the review workbench", () => {
 
     render(wrap(<ReviewPage />));
 
-    const resolved = await screen.findByText(/of 1 resolved/);
-    expect(resolved).toHaveTextContent("0 of 1 resolved");
+    // The counter splits the round's one real distinction rather than folding it. It said
+    // "0 of 1 resolved", which counts an answer and a deliberate skip as the same event —
+    // and the split existed on the page only in the live region below it, so the sighted
+    // reader was told less than the listening one about what Save would file.
+    expect(await roundProgress()).toHaveTextContent(
+      "0 answered · 0 skipped · 1 open",
+    );
     // The round is a stack, so there is nothing to step with — no Previous, no Next, and no
     // position to report. What is left is the counter, which says how much is left to do.
     expect(
@@ -358,8 +385,10 @@ describe("the review workbench", () => {
       screen.queryByRole("button", { name: /Previous/ }),
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Skip explicitly" }));
-    expect(screen.getByText(/of 1 resolved/)).toHaveTextContent(
-      "1 of 1 resolved",
+    // A skip resolves the question, and it is counted as the skip it is rather than as an
+    // answer nobody gave.
+    expect(await roundProgress()).toHaveTextContent(
+      "0 answered · 1 skipped · 0 open",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Save and rejudge" }));
@@ -2071,7 +2100,15 @@ describe("the review workbench", () => {
 
     // Round 1, closed, with both of its answers — including the skip, which is a decision and
     // not an absence.
-    expect(await screen.findByText("Round 1 · case revision 2")).toBeInTheDocument();
+    //
+    // Read off the heading rather than off a string. The round number and the revision are
+    // one address and they are still said together, but the number is now a heading a screen
+    // reader can move between — three sections with no heading in any of them meant a
+    // listener could not get from one round to the next — and the revision beside it is the
+    // meta label it always was. Two elements, one fact.
+    expect(
+      await screen.findByRole("heading", { name: "Round 1 case revision 2" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("The domain owns it and adapters implement its ports"),
     ).toBeInTheDocument();
@@ -2082,7 +2119,7 @@ describe("the review workbench", () => {
     // revision when it records an answer, so until then `review.case.revision` is still the
     // number of the review before it — printed here it headed the open round with a label
     // identical to a group already on screen.
-    expect(screen.getByText("Round 2")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Round 2" })).toBeInTheDocument();
     expect(screen.getByText("Which layer owns retries?")).toBeInTheDocument();
     // The ceiling, which lived only in the charter: a review asks at most twice.
     expect(screen.getByText(/at most twice/)).toBeInTheDocument();
@@ -2277,9 +2314,13 @@ describe("the review workbench", () => {
     expect(await screen.findByText(/3 rounds of questions on this case/)).toBeInTheDocument();
     expect(screen.getByText(/A review asks at most twice/)).toBeInTheDocument();
     // And the open round does not repeat a header already on screen: it has opened no
-    // revision, so it is labelled by its round alone.
-    expect(screen.getAllByText("Round 1 · case revision 1")).toHaveLength(1);
-    expect(screen.getByText("Round 1")).toBeInTheDocument();
+    // revision, so it is labelled by its round alone. Counted rather than fetched: two rounds
+    // on this case are numbered one, and that only one of them carries a revision is the
+    // whole distinction being asserted.
+    expect(
+      screen.getAllByRole("heading", { name: "Round 1 case revision 1" }),
+    ).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { name: "Round 1" })).toHaveLength(1);
   });
 
   it("says when a snapshot has been replaced, and points at the one that replaced it", async () => {

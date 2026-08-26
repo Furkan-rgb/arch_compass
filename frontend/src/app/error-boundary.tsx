@@ -33,11 +33,23 @@ function Fallback({ error, onReset }: { error: Error; onReset: () => void }) {
         {/* The message verbatim, the way `problem()` surfaces a server's own words: a reader
             about to report this needs the sentence, not a paraphrase of it. `wrap-anywhere`
             because it is regularly a URL or an absolute path with no break opportunity. */}
-        <p className="mt-4 rounded-md border border-rule bg-sunken/70 px-3.5 py-3 font-mono text-[12px] leading-5 text-ink-2 wrap-anywhere">
+        <p className="mt-4 rounded-md border border-rule bg-sunken px-3.5 py-3 font-mono text-[12px] leading-5 text-ink-2 wrap-anywhere">
           {error.message || String(error)}
         </p>
+        {/* The cheapest move first, and it is the one the component already knew how to make.
+            `onReset` was wired only to the onClick of a link that navigates away, so the two
+            things on offer were "throw the whole application away and reload" and "leave this
+            screen" — and a render error is very often transient: a poll that landed mid-render,
+            a fixture that arrived half-written. Re-rendering the same route costs nothing.
+
+            It is a promise about the attempt rather than about the outcome. A deterministic
+            error throws again on the first paint after the reset and the fallback comes
+            straight back, which looks like a dead button unless it is written down. */}
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button onClick={() => window.location.reload()}>Reload the page</Button>
+          <Button onClick={onReset}>Try this screen again</Button>
+          <Button variant="secondary" onClick={() => window.location.reload()}>
+            Reload the page
+          </Button>
           <Link
             to="/reviews"
             onClick={onReset}

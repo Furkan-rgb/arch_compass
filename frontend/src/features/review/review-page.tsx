@@ -18,7 +18,7 @@ import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
 import { TONE_TEXT } from "../../ui/meta";
 import { Mark } from "../../ui/mark";
-import { Label } from "../../ui/panel";
+import { Label, Panel, PanelFooter } from "../../ui/panel";
 import { ErrorNotice, LoadingPanel, Notice } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
 import {
@@ -117,8 +117,12 @@ function ReviewCounts({
   const waiting = awaitsAnswers(review);
   // The open clarification wants a person as much as any candidate does, and the docket lists
   // it as the first item, so the head counts it as one. Two totals of the same list that
-  // disagree on one screen are worse than one total nobody reads.
-  const wants = outstanding + (waiting ? review.questions.length : 0);
+  // disagree on one screen are worse than one total nobody reads — which is what this was,
+  // because it added `questions.length` rather than one: a held review with five outstanding
+  // candidates and four questions said "9 things still want you" forty pixels above a chip
+  // reading "Attention 5". Nothing is lost by counting the round once; the sentence directly
+  // below this already names how many questions are unanswered.
+  const wants = outstanding + (waiting ? 1 : 0);
 
   const asked = new Set(review.questions.flatMap((question) => question.candidate_ids));
   const blocked = findings.filter((finding) => asked.has(finding.candidate.id)).length;
@@ -341,7 +345,7 @@ export function ReviewPage() {
    * Which surface is on screen, read from the URL rather than held in state.
    *
    * A tab that only lives in memory is a tab that cannot be linked to, refreshed onto, or
-   * opened in a second window beside the first — and this page's tabs are five documents
+   * opened in a second window beside the first — and this page's tabs are six documents
    * about one review, which is exactly the kind of thing somebody sends to a colleague.
    *
    * A query parameter rather than a path segment, which is the less pretty of the two and
@@ -654,6 +658,16 @@ export function ReviewPage() {
    * out from under the reader a moment later, and — because the keyboard is live from the
    * first paint — offers `A` on a row that was never outstanding.
    *
+   * There is a real case for splitting this — the decisions request cannot even *start*
+   * until the review has resolved, because it needs `repository.branch_id`, so a cold open
+   * spends two sequential round trips showing one generic panel while the repository, the
+   * branch, the commit and the surface strip have all been known since the first. What
+   * stopped it is that the review's *failure* is known at the same moment, and
+   * `review-workbench.test.tsx` holds that a failed review shows its failure without hiding
+   * the rest of it — the notice and the findings on one screen, which a docket arriving a
+   * request later does not give. Splitting the gate is a change to that promise and belongs
+   * with it, not underneath it.
+   *
    * `ready` is true the moment the request settles either way, so a workspace that cannot
    * answer this does not hold the page: it draws the review with nothing decided, which is
    * what an unanswerable question about decisions honestly amounts to.
@@ -725,7 +739,7 @@ export function ReviewPage() {
       {value.superseded_by ? <SupersededNotice review={value} /> : null}
 
       {/* Pinned under the topbar, because this strip is the only thing on the page that says
-          which of the five documents is on screen and the only way to reach the other four.
+          which of the six documents is on screen and the only way to reach the other five.
           A real docket is dozens of rows long: scrolled to the fortieth, everything that
           oriented you had scrolled off, and reaching the atlas meant scrolling back to the
           top of a list you had just worked your way down. It is 44px under the 48px rail,
@@ -734,16 +748,29 @@ export function ReviewPage() {
           `z-20` sits under the rail's `z-30` so the two never fight over an overlap, and far
           under the drawers, which have to cover both. The docket itself is untouched: it
           still scrolls with the page rather than inside a box, which `overflow.test.tsx`
-          holds — a sticky sibling above it is not a scrollport around it. */}
-      <div className="sticky top-12 z-20 border-b border-rule bg-surface">
-        <div className="mx-auto w-full max-w-[76rem] px-2 sm:px-4">
-          <Tabs
-            label="What to read about this review"
-            items={SURFACES}
-            active={surface}
-            onChange={setSurface}
-          />
-        </div>
+          holds — a sticky sibling above it is not a scrollport around it.
+
+          No `border-b` of its own, and no container of its own either. `Tabs`'s line variant
+          draws that rule itself, on a wrapper of its own that the selected tab's `-mb-px`
+          underline is registered against — so the two were drawn at the same seam: 2px of
+          hairline across the centred column and 1px in the margins either side of it, which
+          reads as a rendering fault rather than as a decision. The measure and the padding
+          go onto that same wrapper through `className` rather than into a third div around
+          it, which is one element fewer between the strip and the tabs.
+
+          `px-2 sm:px-3` because a tab is `px-2 sm:px-3`: 8+8 and 12+12 put the first label
+          on the same optical left edge as the head's repository name above it and the
+          docket's rows below it, which are `px-4 sm:px-6`. It was `px-2 sm:px-4`, right
+          below `sm` and 4px out above it — a visible break in the one vertical line three
+          stacked regions share. */}
+      <div className="sticky top-12 z-20 bg-surface">
+        <Tabs
+          label="What to read about this review"
+          items={SURFACES}
+          active={surface}
+          onChange={setSurface}
+          className="mx-auto w-full max-w-[76rem] px-2 sm:px-3"
+        />
       </div>
 
       {value.failure ? (
@@ -759,8 +786,11 @@ export function ReviewPage() {
           decisions={decisions}
           // Empty rather than short while the reviews are still arriving. A trajectory drawn
           // from half a lineage is a claim that the candidate was not raised in the revisions
-          // that are missing, which is a different thing from not knowing yet.
+          // that are missing, which is a different thing from not knowing yet. The depth
+          // beside it comes from the cheap listing, which has already answered, and buys the
+          // row the space the strip will want so nothing reflows when it lands.
           lineage={trajectory}
+          lineageDepth={lineage.length}
           answers={answers}
           rejudging={rejudging}
           rejudgementNotice={rejudgementNotice}
@@ -774,25 +804,45 @@ export function ReviewPage() {
           onSelectedChange={setSelected}
           onOpenContext={() => setContextOpen(true)}
           onReadReport={() => setSurface("report")}
+          onReadDelta={() => setSurface("delta")}
         />
         {/* The lineage, under the work rather than beside it: which revision you are reading
             is a fact about the page, not a thing you consult while deciding. */}
         <div className="mx-auto w-full max-w-[76rem] px-4 pb-8 sm:px-6">
-          <div className="rounded-lg border border-rule bg-surface px-4 py-3 shadow-rim">
+          {/* `Panel`, rather than its recipe written out by hand with padding added on top.
+              The wrapper was `rounded-lg border border-rule bg-surface px-4 py-3 shadow-rim`
+              — the `raised` tone, literally — and `RevisionRail` pads itself as well, so the
+              heading sat 28px from the panel edge and a rail entry's text 38px, where
+              everything else on the page starts at the container's 16 or 24. The rail keeps
+              its own padding; the panel stops adding a second copy of it. */}
+          <Panel>
             {/* A failed request used to fall back to `[value]` — this review, alone — so a
                 review 4 whose lineage could not be read printed "One immutable revision" and
                 every trajectory on the page quietly vanished. A lineage that cannot be read
-                is not a lineage of one. */}
+                is not a lineage of one.
+
+                And neither is a lineage that has not been read yet. `lineage` is derived from
+                `summaries.data ?? []`, so while the listing was in flight the rail was handed
+                an empty array and printed its zero-entry copy — "The first review of this
+                case" — over an empty timeline, to somebody who had just opened review 6. That
+                sentence is a positive claim and it is only true once the listing has actually
+                answered. */}
             {summaries.error ? (
-              <ErrorNotice
-                error={summaries.error}
-                title="The lineage could not be read"
-                action={
-                  <Button variant="secondary" size="sm" onClick={() => void summaries.refetch()}>
-                    Try again
-                  </Button>
-                }
-              />
+              <div className="px-3 py-3">
+                <ErrorNotice
+                  error={summaries.error}
+                  title="The lineage could not be read"
+                  action={
+                    <Button variant="secondary" size="sm" onClick={() => void summaries.refetch()}>
+                      Try again
+                    </Button>
+                  }
+                />
+              </div>
+            ) : summaries.isLoading ? (
+              <div className="px-3 py-3">
+                <LoadingPanel label="Reading the lineage…" rows={2} />
+              </div>
             ) : (
               <RevisionRail reviews={lineage} currentReviewId={value.id} pending={pendingRun} />
             )}
@@ -801,13 +851,19 @@ export function ReviewPage() {
                 survivable while a run was always a revision the rail could link to. It is not
                 any more: a run continuing this revision is now that revision's own row, so
                 without this the only way to watch a round you had just answered was to
-                already know the run's URL. */}
+                already know the run's URL.
+
+                A `PanelFooter`, which is what this block is: a strip set into a panel, on
+                `--surface-2`, with a full-bleed rule above it. The rule used to be drawn
+                inside the wrapper's own padding, so it stopped 16px short of the panel on
+                both sides — a hairline in this system separates a panel's parts and can only
+                do that by spanning it. */}
             {pendingRun ? (
-              <div className="mt-3 border-t border-rule px-3 pt-3">
+              <PanelFooter>
                 <RunProgress state={pendingRun} />
-              </div>
+              </PanelFooter>
             ) : null}
-          </div>
+          </Panel>
         </div>
       </TabPanel>
 

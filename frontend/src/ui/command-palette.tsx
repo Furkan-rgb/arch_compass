@@ -4,15 +4,34 @@ import { useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { cn } from "../lib/cn";
-import { relativeTime, repositoryName } from "../lib/format";
+import { repositoryName } from "../lib/format";
 import { hasOpenModal, isTyping } from "../lib/keyboard";
 import { useOverlay } from "../lib/motion";
 import { SearchIcon } from "./icons";
 import { Label } from "./panel";
+import { KeyCap } from "./shortcuts";
 
 export type PaletteSection = { to: string; label: string };
 
-type Entry = { id: string; to: string; label: string; hint?: string; group: string };
+/**
+ * `measured` is which voice the label is in, and it is a fact about the entry rather than a
+ * style the row picks.
+ *
+ * The palette is the way a reviewer reaches a specific review, and it used to set every label
+ * in sans-medium and push the machine facts — the branch, the repository root — to the right
+ * margin in mono. `payments · review 4` is a name and a count, which `design-system.md`
+ * assigns to the measured voice; a section is a place a person goes, which is not. So the two
+ * kinds of row are set in the two faces they belong to, and the rule the docket already obeys
+ * holds here too.
+ */
+type Entry = {
+  id: string;
+  to: string;
+  label: string;
+  hint?: string;
+  group: string;
+  measured?: boolean;
+};
 
 /**
  * `aria-activedescendant` points at an id, so the options need ids that are stable for as
@@ -21,6 +40,9 @@ type Entry = { id: string; to: string; label: string; hint?: string; group: stri
  */
 const LIST_ID = "palette-results";
 const optionId = (index: number) => `${LIST_ID}-${index}`;
+
+/** How many rows a filtered list may draw before it says it has more. */
+const CAP = 24;
 
 /**
  * Open from anywhere with the one shortcut every tool has trained people to try.
@@ -92,40 +114,57 @@ export function CommandPalette({
     enabled: open,
   });
 
-  const entries = useMemo<Entry[]>(() => {
-    const all: Entry[] = [
-      ...sections.map((item) => ({
-        id: `section:${item.to}`,
-        to: item.to,
-        label: item.label,
-        group: "Go to",
-      })),
-      ...(reviews.data ?? []).map((review) => ({
-        id: `review:${review.id}`,
-        to: `/reviews/${review.id}`,
-        label: `${repositoryName(review.repository.path)} · review ${review.sequence}`,
-        hint: [review.repository.branch, relativeTime(review.started_at)]
-          .filter(Boolean)
-          .join(" · "),
-        group: "Reviews",
-      })),
-      ...(repositories.data ?? []).map((repository) => ({
-        id: `repository:${repository.root_path}`,
-        // Every entry used to lead to a bare `/repositories`, so searching `billing-service`
-        // and pressing Enter landed on whichever repository the page happened to select —
-        // indistinguishable from the palette not working. The page reads `?root=` on mount
-        // and an explicit one beats its own search filter.
-        to: `/repositories?root=${encodeURIComponent(repository.root_path)}`,
-        label: repositoryName(repository.root_path),
-        hint: repository.root_path,
-        group: "Repositories",
-      })),
-    ];
+  const { entries, cut } = useMemo<{ entries: Entry[]; cut: boolean }>(() => {
+    const goTo: Entry[] = sections.map((item) => ({
+      id: `section:${item.to}`,
+      to: item.to,
+      label: item.label,
+      group: "Go to",
+    }));
+    const reviewEntries: Entry[] = (reviews.data ?? []).map((review) => ({
+      id: `review:${review.id}`,
+      to: `/reviews/${review.id}`,
+      label: `${repositoryName(review.repository.path)} · review ${review.sequence}`,
+      // The branch alone. It used to carry the branch *and* a relative time, which put two
+      // mono runs on one row competing for the same glance — and a relative time is prose
+      // rather than a machine fact, so it was the one of the two that did not belong in the
+      // measured voice at all.
+      hint: review.repository.branch || undefined,
+      group: "Reviews",
+      measured: true,
+    }));
+    const repositoryEntries: Entry[] = (repositories.data ?? []).map((repository) => ({
+      id: `repository:${repository.root_path}`,
+      // Every entry used to lead to a bare `/repositories`, so searching `billing-service`
+      // and pressing Enter landed on whichever repository the page happened to select —
+      // indistinguishable from the palette not working. The page reads `?root=` on mount
+      // and an explicit one beats its own search filter.
+      to: `/repositories?root=${encodeURIComponent(repository.root_path)}`,
+      label: repositoryName(repository.root_path),
+      hint: repository.root_path,
+      group: "Repositories",
+      measured: true,
+    }));
+
     const needle = query.trim().toLowerCase();
-    if (!needle) return all.slice(0, 24);
-    return all
-      .filter((entry) => `${entry.label} ${entry.hint ?? ""}`.toLowerCase().includes(needle))
-      .slice(0, 24);
+    // Capped per group rather than over the concatenation, because Repositories was last and
+    // the cap was 24: six sections plus eighteen reviews and a workspace showed no repository
+    // at all in the palette's resting state, with nothing saying the list had been cut. A
+    // reader browsing ⌘K learnt that repositories were not in here. They were.
+    if (!needle) {
+      const resting = [...goTo, ...reviewEntries.slice(0, 10), ...repositoryEntries.slice(0, 8)];
+      return {
+        entries: resting,
+        cut: reviewEntries.length > 10 || repositoryEntries.length > 8,
+      };
+    }
+    const found = [...goTo, ...reviewEntries, ...repositoryEntries].filter((entry) =>
+      `${entry.label} ${entry.hint ?? ""}`.toLowerCase().includes(needle),
+    );
+    // A cut list says so rather than ending at a row that looks like the last one. `cut` is
+    // returned from here rather than inferred from the drawn length, which cannot tell a list
+    // of exactly `CAP` matches from one that was trimmed.
+    return { entries: found.slice(0, CAP), cut: found.length > CAP };
   }, [sections, reviews.data, repositories.data, query]);
 
   // A filter that shortens the list must not leave the cursor past the end of it, and
@@ -169,6 +208,30 @@ export function CommandPalette({
 
   let group: string | null = null;
 
+  /**
+   * What the palette says when it has no rows to show, and it is three sentences rather than
+   * one.
+   *
+   * Both lists are fetched only once this opens, so for the first few hundred milliseconds the
+   * only entries that exist are the six sections — and a reader who pressed ⌘K and typed a
+   * repository name was told, definitively, that nothing matched. If either query failed they
+   * were told the same thing for ever. The palette is the product's answer to "how do I reach
+   * that review", and a confident false negative is the worst failure it has.
+   */
+  const loading = reviews.isPending || repositories.isPending;
+  const failed = reviews.isError || repositories.isError;
+  const emptyLine = loading
+    ? "Still reading reviews and repositories…"
+    : failed
+      ? "Could not read the workspace's reviews and repositories, and nothing in the sections matches that."
+      : "Nothing matches that.";
+
+  // The same thing the eye is shown, for the ear. A count where there are rows, because "which
+  // of these" is answered by walking them and "are there any" is not.
+  const status = entries.length
+    ? `${entries.length} result${entries.length === 1 ? "" : "s"}${cut ? ", more not shown" : ""}`
+    : emptyLine;
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]">
       <div
@@ -205,10 +268,18 @@ export function CommandPalette({
             placeholder="Search reviews, repositories and sections…"
             className="min-h-12 min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-3"
           />
-          <kbd className="hidden shrink-0 rounded-xs border border-rule px-1 font-mono text-[10px] leading-4 text-ink-3 sm:inline">
-            esc
-          </kbd>
+          <KeyCap className="hidden shrink-0 sm:inline-flex">esc</KeyCap>
         </div>
+
+        {/* Everything this dialog says has to reach a listener through the combobox, because
+            focus never leaves the input by design. The visible sentence below is an ordinary
+            paragraph in an unmounted branch of a listbox, so a query that matched nothing
+            announced `aria-expanded` going false and then silence — indistinguishable from the
+            palette having stopped responding. This is the line that is always mounted and
+            always says the same thing the eye is being shown. */}
+        <p className="sr-only" role="status" aria-live="polite">
+          {status}
+        </p>
 
         {entries.length ? (
           <ul
@@ -235,18 +306,46 @@ export function CommandPalette({
                     id={optionId(index)}
                     data-entry={entry.id}
                     aria-selected={index === at}
-                    onMouseEnter={() => setAt(index)}
+                    // `mousemove`, not `mouseenter`. The palette scrolls the keyboard cursor
+                    // into view, and it opens at `pt-[12vh]` — roughly where a pointer is left
+                    // after clicking the search button in the rail. So holding ArrowDown
+                    // scrolled rows under a stationary pointer, each arrival fired
+                    // `mouseenter`, and the selection was dragged back up the list with
+                    // nothing on screen explaining why. A move is a move; a row arriving under
+                    // a still pointer is not.
+                    onMouseMove={() => setAt(index)}
                     onClick={() => go(entry)}
                     className={cn(
-                      "flex min-h-10 cursor-pointer items-baseline gap-2.5 px-3.5 py-1.5 text-left transition",
-                      index === at ? "bg-sunken" : "hover:bg-sunken/60",
+                      "relative flex min-h-10 cursor-pointer items-baseline gap-2.5 px-3.5 py-1.5 text-left transition",
+                      // The fill is 1.19:1 in light and 1.18:1 in dark, which is a division a
+                      // reader is not asked to notice — and it was the only thing saying which
+                      // of up to 24 rows Enter would take, in a list whose labels differ by one
+                      // digit. So the row carries the docket's device as well: an edge, read
+                      // without being looked at, in ink rather than a verdict hue. The
+                      // inactive rows keep a transparent one so nothing shifts as it moves.
+                      "before:absolute before:inset-y-0 before:left-0 before:w-0.5",
+                      index === at
+                        ? "bg-sunken before:bg-ink"
+                        : "before:bg-transparent hover:bg-sunken",
                     )}
                   >
-                    <span className="min-w-0 shrink-0 truncate text-[13.5px] font-medium text-ink">
+                    {/* `shrink-0` is gone. With it the label took its whole content width and
+                        never truncated, and the hint — `flex-1`, so basis zero — absorbed the
+                        entire overflow and disappeared, which on two repositories sharing a
+                        leaf name is the only thing telling them apart. The hint is capped
+                        instead, so the label keeps priority and both can still be read. */}
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-ink",
+                        entry.measured
+                          ? "font-mono text-[13px] font-medium"
+                          : "text-[13px] font-medium",
+                      )}
+                    >
                       {entry.label}
                     </span>
                     {entry.hint ? (
-                      <span className="min-w-0 flex-1 truncate text-right font-mono text-[11px] text-ink-3">
+                      <span className="min-w-0 max-w-[45%] shrink-0 truncate text-right font-mono text-[11px] text-ink-3">
                         {entry.hint}
                       </span>
                     ) : null}
@@ -254,9 +353,22 @@ export function CommandPalette({
                 </Fragment>
               );
             })}
+            {/* A cut list states that it was cut. `presentation` rather than an option: it is
+                not somewhere Enter can take you, and counting it would make the option count
+                a lie for anyone listening. */}
+            {cut ? (
+              <li role="presentation" className="px-3.5 py-2 text-[12px] text-ink-3">
+                More matches — keep typing to narrow this.
+              </li>
+            ) : null}
           </ul>
         ) : (
-          <p className="px-3.5 py-6 text-[13px] text-ink-3">Nothing matches that.</p>
+          // `id={LIST_ID}` so the input's `aria-controls` resolves in this branch too; it
+          // pointed at an element that did not exist whenever the list was empty, which is
+          // exactly when a listener most needs to be told something.
+          <p id={LIST_ID} className="px-3.5 py-6 text-[13px] text-ink-3">
+            {emptyLine}
+          </p>
         )}
       </div>
     </div>

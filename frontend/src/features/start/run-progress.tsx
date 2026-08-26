@@ -131,13 +131,23 @@ function currentPhase(state: ReviewRun, stages: readonly string[]): number {
  * line read "Judging candidate 1 of 50" from the moment the round selected — a claim about a
  * candidate nothing had looked at yet, on a number that then sat still long enough to read
  * as a stuck run. It says what is actually happening now, and the number under it moves.
+ *
+ * A phase the run is behind says what it did, and one that judged nothing says nothing at
+ * all. The list is the six phases every run enters rather than the stages one actually went
+ * through, so *Conclude with remaining uncertainty* — which routes a stopped round straight
+ * to `seal_case` without selecting a single candidate — draws a ticked Judgement row anyway.
+ * Read as "no counts, so fall back to the plain label", that row said "Judging candidates"
+ * about a run that judged none, on the same screen as a progress panel correctly reading
+ * "Writing this review's case revision". Nothing to count and nothing left to run is nothing
+ * to say; the ticked row is the whole fact. The fallback is kept where it is still true — a
+ * run *in* judgement whose counts have not arrived is judging candidates.
  */
-function judgingLabel(state: ReviewRun, done: boolean): string {
+function judgingLabel(state: ReviewRun, done: boolean): string | null {
   const total = state.candidates_to_judge ?? 0;
   const judged = state.candidates_judged ?? 0;
   const retrieved = state.candidates_retrieved ?? 0;
+  if (done) return total ? `Judged ${plural(total, "candidate")}` : null;
   if (!total) return "Judging candidates";
-  if (done) return `Judged ${plural(total, "candidate")}`;
   // Judging is the later half, so any judgement at all means retrieval is no longer what a
   // reader is waiting on — and a resumed run reports no retrievals but may report verdicts.
   if (judged || !retrieved) {
