@@ -369,6 +369,15 @@ export function ReviewPage() {
 
   const [filter, setFilter] = useState<QueueFilter>("attention");
   /**
+   * Which review this page has already chosen an opening filter for.
+   *
+   * A ref rather than state because choosing must not itself be a render, and per review
+   * rather than once because the route carries no key — walking to another revision does not
+   * remount this page, and a page that chose once would open every later review on whatever
+   * the last one wanted.
+   */
+  const openedFilterFor = useRef<string | null>(null);
+  /**
    * Which row is open, once somebody or something has chosen. `undefined` means nobody has,
    * and the page falls back to `defaultOpen` below — three states rather than two, because
    * "closed everything deliberately" and "has not chosen yet" are different and the second
@@ -522,6 +531,34 @@ export function ReviewPage() {
   // Armed here rather than in the card that renders its button, because the card unmounts the
   // instant the run leaves the listing — which is the instant the notification is owed.
   const rejudgementNotice = useRejudgementNotice(rejudging, runs.data);
+  /**
+   * Open on a filter that has something in it.
+   *
+   * `attention` is the right first question and it is the wrong first answer for a review
+   * that cleared everything: the docket opened on `Attention 0`, and seven judged boundaries
+   * sat behind a chip the reader had to notice and press. What they saw instead was a tick
+   * and a sentence, on a page they had just waited on — which reads as a review that found
+   * nothing rather than one that settled everything. Measured on a real repository: seven
+   * candidates, seven cleared, nothing on screen.
+   *
+   * Once per review and never after. The filter belongs to the reader the moment they touch
+   * it — the docket's own rule is that nothing moves it while they work down the list — so
+   * this only ever answers the question "what should be showing when the page arrives".
+   *
+   * Waits for `ready`, because a decided candidate is settled and the decisions arrive
+   * separately: choosing before they land would open on `attention` for a review whose only
+   * open rows had already been decided.
+   */
+  useEffect(() => {
+    if (!value || !ready || openedFilterFor.current === value.id) return;
+    openedFilterFor.current = value.id;
+    const wanting = findings.some((finding) =>
+      needsAttention(finding, decisions.get(finding.candidate.id)),
+    );
+    // `all` rather than `settled`: with nothing wanting attention the two hold the same rows,
+    // and `all` is the one that cannot hide a finding whatever else is true of the review.
+    setFilter(wanting ? "attention" : "all");
+  }, [value, ready, findings, decisions]);
   /**
    * The revision this reader's own answer produced, followed as soon as it exists.
    *

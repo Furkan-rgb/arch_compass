@@ -826,6 +826,50 @@ describe("the review workbench", () => {
     expect(await screen.findByText("Waived by the team")).toBeInTheDocument();
   });
 
+  /**
+   * A review that cleared everything opened on `Attention 0` and showed a tick.
+   *
+   * The reader had waited on the run, and what arrived was a page with no findings on it —
+   * which reads as a review that found nothing rather than one that settled everything.
+   * Measured on a real repository: seven candidates judged, seven cleared, nothing on screen.
+   */
+  it("opens on a filter that has something in it when nothing wants a person", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    review.findings = review.findings.map((item) => ({
+      ...item,
+      verdict: "cleared" as const,
+      hinge: null,
+      recommended_response: null,
+    }));
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    // Every finding on screen, rather than behind a chip the reader has to notice.
+    expect(await docket()).toHaveLength(review.findings.length);
+    expect(screen.getByRole("button", { name: /^All 3/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("still opens on what wants a person when anything does", async () => {
+    // The rule is "a filter with something in it", not "the widest filter": a review with
+    // open rows must still lead with them, which is the whole point of the docket.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    await docket();
+    expect(screen.getByRole("button", { name: /^Attention/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("widens the queue's filter when another surface hands it a candidate", async () => {
     const review = reviewFixture({
       status: "completed",
