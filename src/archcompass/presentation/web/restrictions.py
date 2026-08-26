@@ -131,6 +131,12 @@ class _DailyBudget:
 
     Counted on admission rather than on completion, because work that fails halfway has
     already spent what it spent.
+
+    A limit of zero or less is no limit, and nothing is counted against it. Written as a
+    value rather than as a second switch because "how many a day" is already the question
+    this class answers, and "none of your business" is one of its answers — a deployment
+    showing the product to somebody it invited is not the deployment these caps are for.
+    Read it as what it is: unlimited means the day costs whatever the day costs.
     """
 
     #: What is being rationed, said two ways: to everyone, and to the one visitor who has
@@ -146,13 +152,19 @@ class _DailyBudget:
         self._sessions: dict[str, int] = {}
         self._total = 0
 
+    @property
+    def unlimited(self) -> bool:
+        return self._session_limit <= 0 and self._global_limit <= 0
+
     def admit(self, token: str) -> None:
+        if self.unlimited:
+            return
         with self._lock:
             self._roll_over()
-            if self._total >= self._global_limit:
+            if self._global_limit > 0 and self._total >= self._global_limit:
                 raise self._refusal(self.exhausted_for_everyone)
             spent = self._sessions.get(token, 0)
-            if spent >= self._session_limit:
+            if self._session_limit > 0 and spent >= self._session_limit:
                 raise self._refusal(
                     self.exhausted_for_you.format(limit=self._session_limit)
                 )

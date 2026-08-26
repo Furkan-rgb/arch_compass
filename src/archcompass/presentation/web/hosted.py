@@ -196,20 +196,20 @@ def create_hosted_app() -> FastAPI:
         ),
         hosted=True,
         budget=RunBudget(
-            session_daily_runs=_positive_int(
+            session_daily_runs=_daily_cap(
                 SESSION_DAILY_RUNS_VARIABLE, DEFAULT_SESSION_DAILY_RUNS
             ),
-            global_daily_runs=_positive_int(
+            global_daily_runs=_daily_cap(
                 GLOBAL_DAILY_RUNS_VARIABLE, DEFAULT_GLOBAL_DAILY_RUNS
             ),
         ),
         # Only where there is something to fetch. A budget on a route that always refuses
         # would be counting refusals.
         fetch_budget=FetchBudget(
-            session_daily_fetches=_positive_int(
+            session_daily_fetches=_daily_cap(
                 SESSION_DAILY_FETCHES_VARIABLE, DEFAULT_SESSION_DAILY_FETCHES
             ),
-            global_daily_fetches=_positive_int(
+            global_daily_fetches=_daily_cap(
                 GLOBAL_DAILY_FETCHES_VARIABLE, DEFAULT_GLOBAL_DAILY_FETCHES
             ),
         )
@@ -266,6 +266,33 @@ def _source_hosts() -> frozenset[str]:
             f"not know how to fetch from. It knows {', '.join(SUPPORTED_SOURCE_HOSTS)}."
         )
     return named
+
+
+def _daily_cap(variable: str, default: int) -> int:
+    """A daily cap, where zero is a deliberate "no cap" rather than a mistake.
+
+    Its own reader rather than a relaxation of `_positive_int`, because zero means something
+    different everywhere else that one is used: no bytes, no files, no nodes and no seconds
+    are all limits nothing can be done under. A cap on how many reviews a day is the one
+    number here whose absence is a coherent choice — a deployment showing the product to
+    somebody it invited is not the deployment the free-tier caps are for.
+
+    Negative is refused rather than read as zero. "Minus one" is not a way anybody means to
+    say "unlimited", and a stray sign in a deployment variable should say so.
+    """
+
+    raw = os.environ.get(variable, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise ConfigurationError(f"{variable} must be a whole number, not {raw!r}.") from error
+    if value < 0:
+        raise ConfigurationError(
+            f"{variable} must be zero or more, not {value}. Zero lifts the cap."
+        )
+    return value
 
 
 def _positive_int(variable: str, default: int) -> int:

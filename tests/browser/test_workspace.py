@@ -169,21 +169,23 @@ def test_answering_a_clarification_completes_the_revision(page, review_url: str)
     choices.first.click()
     page.get_by_role("button", name="Save and rejudge").click()
 
-    # The page stays where it is. Answering used to navigate to the run's own address, which
-    # swapped the heading, the findings and the surface for a progress list — for a review the
-    # reader was already on, being judged again. Waiting for the banner here proves both
-    # halves: it is drawn on this record, so arriving at it means the page never left.
-    current = page.get_by_role("link", name="Read the current record")
-    current.wait_for(timeout=REVIEW_TIMEOUT_MS)
-    assert page.url == first_url
-
-    # A waiting snapshot is superseded by the one that came back with the verdicts, and this
-    # record says so rather than going on presenting itself as the review. The revision it
-    # belongs to does not move: this is still review 1, now holding the case revision the
-    # answer completed.
-    current.click()
+    # Answering does not navigate to the run's own address — that used to swap the heading,
+    # the findings and the surface for a progress list, on a review the reader was already
+    # looking at. But it does not leave them on the record their answer superseded either.
+    # The page waits where it is and then carries them to the revision they asked for, which
+    # is the whole reason they answered.
+    #
+    # Waiting on the URL rather than on a click: nothing here presses anything after "Save
+    # and rejudge", and arriving anywhere at all is the assertion.
     page.wait_for_url(lambda url: url != first_url, timeout=REVIEW_TIMEOUT_MS)
     page.get_by_text("Review 1", exact=False).first.wait_for(timeout=REVIEW_TIMEOUT_MS)
+    # And it is the current record, not another earlier one: the banner that says otherwise
+    # is drawn on every superseded record, and this page must not be showing it.
+    assert page.get_by_role("link", name="Read the current record").count() == 0
+
+    # Back does not go to the record that announces itself as out of date. The follow
+    # replaces rather than pushes, so the way back from here is where the reader came from.
+    assert page.url != first_url
 
     page.get_by_role("tab", name="Docket").click()
     assert _visible(page.get_by_text("Review lineage"))

@@ -88,6 +88,21 @@ jobs:
       # The cost of the flag that IS set: CPU is billed for as long as an instance is alive
       # rather than only while it serves. `--max-instances 1` bounds that to one, and with no
       # minimum an idle demo still scales to zero and bills nothing.
+      #
+      # The daily caps are all zero, which lifts them. They were sized for a public demo
+      # rationing a free tier — three runs a visitor, ten a day for everyone — and this is
+      # not that: an instance being shown to somebody who was invited to look at it must not
+      # refuse the fourth review of the afternoon. What that trades away is the ceiling on
+      # what a day can cost, so the OpenRouter spend is now bounded by the key's own budget
+      # and by nothing here. Put a number back to ration it again.
+      #
+      # Reviews still do not survive the instance. Session workspaces are written under
+      # `/tmp` inside the container, which is memory that goes when Cloud Run scales to zero
+      # and again on every deploy — so a visitor who comes back to a review from yesterday,
+      # or from before the last push, finds it gone. That is not a bug in the workspace: it
+      # is this deployment having no disk. Fixing it means a mounted volume and
+      # `ARCHCOMPASS_SESSION_ROOT` pointing into it, which is a change to the service rather
+      # than to a variable, and is not made here.
       - name: Deploy
         run: |
           gcloud run deploy "$SERVICE" \
@@ -100,7 +115,7 @@ jobs:
             --concurrency 12 \
             --timeout 600 \
             --no-cpu-throttling \
-            --set-env-vars ARCHCOMPASS_HOSTED=1,ARCHCOMPASS_PROVIDERS=openrouter,ARCHCOMPASS_SOURCE_HOSTS=github.com,ARCHCOMPASS_GLOBAL_DAILY_RUNS=10,ARCHCOMPASS_SESSION_DAILY_RUNS=3,ARCHCOMPASS_GLOBAL_DAILY_FETCHES=20,ARCHCOMPASS_SESSION_DAILY_FETCHES=3,ARCHCOMPASS_EMBEDDING_PROVIDER=openrouter,ARCHCOMPASS_EMBEDDING_MODEL=google/gemini-embedding-2,ARCHCOMPASS_EMBEDDING_DIMENSIONS=3072,ARCHCOMPASS_EMBEDDING_API_KEY_ENV=OPENROUTER_API_KEY \
+            --set-env-vars ARCHCOMPASS_HOSTED=1,ARCHCOMPASS_PROVIDERS=openrouter,ARCHCOMPASS_SOURCE_HOSTS=github.com,ARCHCOMPASS_GLOBAL_DAILY_RUNS=0,ARCHCOMPASS_SESSION_DAILY_RUNS=0,ARCHCOMPASS_GLOBAL_DAILY_FETCHES=0,ARCHCOMPASS_SESSION_DAILY_FETCHES=0,ARCHCOMPASS_EMBEDDING_PROVIDER=openrouter,ARCHCOMPASS_EMBEDDING_MODEL=google/gemini-embedding-2,ARCHCOMPASS_EMBEDDING_DIMENSIONS=3072,ARCHCOMPASS_EMBEDDING_API_KEY_ENV=OPENROUTER_API_KEY \
             --set-secrets OPENROUTER_API_KEY=archcompass-openrouter-api-key:latest
 
       - name: Check the deployment answers

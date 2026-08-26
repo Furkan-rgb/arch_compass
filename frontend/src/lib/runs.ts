@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ReviewRun } from "../api";
 
@@ -65,4 +65,58 @@ export function useRunsBecomeReviews(runs: ReviewRun[] | undefined) {
     void client.invalidateQueries({ queryKey: ["reviews"] });
     void client.invalidateQueries({ queryKey: ["review"] });
   }, [listed, client]);
+}
+
+/**
+ * The record this page's own rejudgement produced, once there is one to read.
+ *
+ * Answering a round does not navigate anywhere, and that is right: it used to jump to the
+ * run's address, which swapped the heading, the findings and the surface for a progress list
+ * — on a review the reader was already looking at. But staying put was only half the
+ * behaviour. The waiting snapshot becomes an *earlier record* the moment its successor is
+ * filed, so the reader who answered was left on a page announcing itself as out of date,
+ * holding their own question and the verdicts from before their answer, with a link they had
+ * to notice and press. The revision they asked for was one click away and nothing took them
+ * to it.
+ *
+ * So the page follows, and only ever its own work. `watched` is set when a rejudgement of
+ * *this* record is seen running, which means a reader who opened an old record from the rail
+ * is never carried off it: nothing was watched, so nothing is followed. A run is listed until
+ * it is genuinely done, so leaving the list is the signal — the same one `useRunsBecomeReviews`
+ * reads, and for the same reason its docstring gives.
+ *
+ * Two steps rather than one, because the successor does not exist at the moment the run ends.
+ * The run leaving invalidates the review, the review comes back carrying `superseded_by`, and
+ * only then is there an address to go to. Both halves are state rather than refs so the
+ * second reacts to the first.
+ */
+export function useRecordToFollow(
+  review: { id: string; superseded_by?: string | null } | undefined,
+  rejudging: ReviewRun | null,
+  inFlight: readonly ReviewRun[] | undefined,
+): string | null {
+  const [watched, setWatched] = useState<string | null>(null);
+  const [ended, setEnded] = useState(false);
+  const listed = (inFlight ?? [])
+    .map((run) => run.run_id)
+    .sort()
+    .join(" ");
+
+  useEffect(() => {
+    if (rejudging && rejudging.status === "running") {
+      setWatched(rejudging.run_id);
+      setEnded(false);
+      return;
+    }
+    // `undefined` is the list not having answered yet, which is not an absence — reading it
+    // as one would follow before anything had run.
+    if (!watched || inFlight === undefined) return;
+    if (!listed.split(" ").filter(Boolean).includes(watched)) setEnded(true);
+  }, [rejudging, listed, inFlight, watched]);
+
+  if (!ended || !watched) return null;
+  const next = review?.superseded_by;
+  // Never itself: a successor that is this record is not a successor, and navigating to it
+  // would be a loop the reader cannot leave.
+  return next && next !== review?.id ? next : null;
 }

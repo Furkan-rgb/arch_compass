@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, type Finding, type Review } from "../../api";
 import { cn } from "../../lib/cn";
-import { runPollInterval, useRunsBecomeReviews } from "../../lib/runs";
+import { runPollInterval, useRecordToFollow, useRunsBecomeReviews } from "../../lib/runs";
 import {
   VERDICT_ORDER,
   plural,
@@ -522,6 +522,16 @@ export function ReviewPage() {
   // Armed here rather than in the card that renders its button, because the card unmounts the
   // instant the run leaves the listing — which is the instant the notification is owed.
   const rejudgementNotice = useRejudgementNotice(rejudging, runs.data);
+  /**
+   * The revision this reader's own answer produced, followed as soon as it exists.
+   *
+   * `replace`, because the record left behind is the one that says it is out of date: putting
+   * it in the history would make Back a way to arrive at a stale page from a fresh one.
+   */
+  const follow = useRecordToFollow(value, rejudging, runs.data);
+  useEffect(() => {
+    if (follow) navigate(`/reviews/${follow}`, { replace: true });
+  }, [follow, navigate]);
 
   /**
    * Which item the docket opens on: the clarification when one is waiting, otherwise the

@@ -556,3 +556,45 @@ def test_a_swept_repository_comes_back_when_the_next_run_asks_for_it(
 
         # And the run that follows it works, rather than meeting a path that is not there.
         assert client.post("/api/repositories/index", json={"root_path": root}).status_code == 201
+
+
+@pytest.mark.usefixtures("hosted_environment")
+def test_a_cap_of_zero_is_no_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deployment showing the product to somebody it invited is not what these ration.
+
+    Zero rather than a very large number, and rather than a second switch: "how many a day"
+    is already the question this answers and "as many as you like" is one of its answers.
+    The counting is skipped rather than made generous, so nothing accumulates and no reader
+    is ever a request away from a refusal they were not expecting.
+    """
+
+    monkeypatch.setenv("ARCHCOMPASS_SESSION_DAILY_RUNS", "0")
+    monkeypatch.setenv("ARCHCOMPASS_GLOBAL_DAILY_RUNS", "0")
+    application = create_hosted_app()
+    request = {"case_id": "case-nobody-has", "repository_root": "/nowhere"}
+    with TestClient(application, base_url=HOSTED_URL) as client:
+        # 404 every time, which is the route refusing the request on its merits. Never 429:
+        # admission is counted before the route runs, so a capped instance would have run
+        # out here and this one never does.
+        for _ in range(12):
+            assert client.post("/api/reviews", json=request).status_code == 404
+
+
+@pytest.mark.usefixtures("hosted_environment")
+def test_one_cap_lifted_does_not_lift_the_other(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The instance ceiling is the one that stops a day costing more than it is worth.
+
+    Lifting the per-visitor cap so a demo is not interrupted is a different decision from
+    lifting the ceiling over everybody, and a deployment must be able to make one of them.
+    """
+
+    monkeypatch.setenv("ARCHCOMPASS_SESSION_DAILY_RUNS", "0")
+    monkeypatch.setenv("ARCHCOMPASS_GLOBAL_DAILY_RUNS", "2")
+    application = create_hosted_app()
+    request = {"case_id": "case-nobody-has", "repository_root": "/nowhere"}
+    with TestClient(application, base_url=HOSTED_URL) as client:
+        assert client.post("/api/reviews", json=request).status_code == 404
+        assert client.post("/api/reviews", json=request).status_code == 404
+        refused = client.post("/api/reviews", json=request)
+        assert refused.status_code == 429
+        assert refused.json()["code"] == "budget_exhausted"
