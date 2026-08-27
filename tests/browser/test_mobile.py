@@ -585,3 +585,138 @@ def test_the_hero_puts_the_judgement_beside_the_copy_on_a_tablet(  # type: ignor
         )
     finally:
         context.close()
+
+
+# --------------------------------------------------------------------------------------
+# Where the way out of a held finding sits, on the width where the rail stacks
+# --------------------------------------------------------------------------------------
+
+#: How far **Answer it** may sit from the question it answers, in CSS pixels, at 390x844.
+#:
+#: Four, today: `mt-1` on the control and nothing else between it and the `<p>` its
+#: `aria-describedby` names. The bound is a line box rather than the measurement, so an honest
+#: change of margin does not fail it and a change of *place* does — which is the whole subject.
+#:
+#: `docs/known-defects.md` carries the other half of this: below `lg` the rail stacks under the
+#: argument, so the control is reached after the model's paragraph. What that entry got wrong
+#: for two passes was how far. It reasoned from a 2,139-character argument standing above an
+#: **Answer it**, and no held finding can carry one:
+#: `FindingOutput.the_verdict_carries_what_it_is_allowed_to` in `reasoning/adapters/langchain.py`
+#: refuses a hinge on any verdict but `held`, and `finding-detail.tsx` draws no control without
+#: a hinge. The arguments this control can ever stand under run 156 to 971 characters across the
+#: 69 recorded held judgements, and swept over all 69 with their own hinges it lands 275px to
+#: 956px below the *top* of the argument, median 624px — and 4px below the question.
+ANSWER_IT_FROM_ITS_QUESTION_PX = 26
+
+
+def test_the_way_out_of_a_held_finding_is_the_first_control_a_phone_reaches(  # type: ignore[no-untyped-def]
+    phone_page, review_url: str
+) -> None:
+    """Where **Answer it** sits below `lg`, as three rectangles instead of an argument.
+
+    Below `lg` the Judged band is one column and the rail stacks under the argument, so
+    everything in the rail is reached by scrolling past the model's paragraph. That is the cost
+    of an open row and every verdict pays it. What this pins is that the held row's extra
+    control is not the one being buried: it arrives first — before **Judgement context**, and
+    long before Accept / Park / Waive, which every row carries — and it arrives attached to the
+    question it answers rather than a screen away from it.
+
+    The distances to the other two controls are asserted as an *order* and not as a budget.
+    They are whatever the argument, the readings and the excerpts of a given finding come to,
+    and a bound on them would be a bound on how much the model wrote.
+
+    jsdom holds the other half, in `features/review/finding-detail.test.tsx`: a cleared finding
+    has no hinge and so no control here at all, which is why nothing in this layout may depend
+    on one existing.
+    """
+
+    wait_for_review(phone_page, review_url)
+    show_everything(phone_page)
+    open_first_candidate(phone_page)
+    phone_page.locator("[class*='max-w-[58ch]']").first.wait_for(
+        state="visible", timeout=REVIEW_TIMEOUT_MS
+    )
+    phone_page.evaluate("() => document.fonts.ready")
+
+    where = phone_page.evaluate(
+        """() => {
+             const argument = document.querySelector(
+               '[class*="max-w-[58ch]"][class*="text-[16px]"]',
+             );
+             if (!argument) return null;
+             const named = (pattern) =>
+               [...document.querySelectorAll("button")].filter((control) =>
+                 pattern.test((control.textContent || "").trim()),
+               );
+             const ways = named(/^Answer it/);
+             const answer = ways[0];
+             if (!answer) return null;
+             const question = document.getElementById(answer.getAttribute("aria-describedby"));
+             if (!question) return null;
+             const context = named(/judgement context/i)[0];
+             const decisions = named(/^(Accept and act|Park|Waive)$/);
+             const top = (node) => node.getBoundingClientRect().top;
+             const bottom = (node) => node.getBoundingClientRect().bottom;
+             return {
+               ways: ways.length,
+               fromItsQuestion: top(answer) - bottom(question),
+               belowArgument: top(answer) - bottom(argument),
+               contextBelowArgument: context ? top(context) - bottom(argument) : null,
+               decisionsBelowArgument: decisions.length
+                 ? Math.min(...decisions.map(top)) - bottom(argument)
+                 : null,
+             };
+           }"""
+    )
+    assert where is not None, "the first row of this review is not a held finding with a way out"
+
+    # One control for one action. The repair this test replaces proposed a second one on the
+    # phone, which `features/review/review-workbench.test.tsx` holds the line against elsewhere.
+    assert where["ways"] == 1, f"{where['ways']} ways out of one held finding"
+
+    assert where["fromItsQuestion"] <= ANSWER_IT_FROM_ITS_QUESTION_PX, (
+        f"**Answer it** is {where['fromItsQuestion']:.0f}px below the question it answers, past "
+        f"the {ANSWER_IT_FROM_ITS_QUESTION_PX}px this layout allows — the pair reads as one "
+        "thing or it reads as a control in a corner"
+    )
+
+    assert where["contextBelowArgument"] is not None, "an open finding has a Judgement context"
+    assert where["decisionsBelowArgument"] is not None, "an open finding has a decision bar"
+
+    # **Below the argument, before the ordering.** The three distances are signed, and an
+    # ordering is a *relative* claim: it survives the one term this test is really about going
+    # negative, because the other two are measured from the same edge and fall with it. That is
+    # not a hypothetical. Move the rail above `<ModelProse>` in `finding-detail.tsx`, rebuild
+    # the bundle and run this test, and it passed with **Answer it** drawn above the model's
+    # paragraph on a phone. `docs/known-defects.md` names this test as what stops that shape
+    # changing, so the shape has to be what it measures. jsdom catches the same move as a
+    # document-order failure (`finding-detail.test.tsx`, "puts the rail after the argument");
+    # this is the half that knows the rail was *drawn* after it.
+    #
+    # Measured, on this review's first held row at 390x844 with the rail hoisted: **Answer it**
+    # at **-202.17px**, **Judgement context** at **+631.38px**, the decision bar at
+    # **+1,625.55px**, ascending — one term negative and two positive, and the ordering
+    # assertion below is satisfied by all three. Only the first term *can* go negative: the
+    # other two are drawn below the grid that the rail and the argument share, so hoisting the
+    # rail inside that grid cannot lift them past it. The argument on this row is 79.17px tall,
+    # which is the whole of why the first distance is 202px, and it is why the -1,058 / -938 /
+    # 682 this comment used to carry does not reproduce here — that triple was taken over a
+    # different row, and a distance measured against one judgement is a fact about that
+    # judgement's length.
+    #
+    # Zero, not a margin: the two boxes are the argument and a control below it, and any
+    # positive gap is a layout decision rather than a property. What is being refused is a
+    # negative one.
+    assert where["belowArgument"] >= 0, (
+        f"**Answer it** is drawn {-where['belowArgument']:.0f}px *above* the bottom of the "
+        "model's argument — the rail is painting before the paragraph it is a margin note on, "
+        "which is the stacked reading order this layout is built on running backwards"
+    )
+    assert (
+        where["belowArgument"] < where["contextBelowArgument"] < where["decisionsBelowArgument"]
+    ), (
+        "on a phone the way out of a held finding is reached before the controls every row "
+        f"carries: **Answer it** at {where['belowArgument']:.0f}px below the argument, "
+        f"**Judgement context** at {where['contextBelowArgument']:.0f}px, the decision bar at "
+        f"{where['decisionsBelowArgument']:.0f}px"
+    )

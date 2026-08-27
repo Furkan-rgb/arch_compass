@@ -12,7 +12,7 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from tests.browser.harness import REVIEW_TIMEOUT_MS
+from tests.browser.harness import REVIEW_TIMEOUT_MS, open_first_candidate
 
 pytestmark = pytest.mark.browser
 
@@ -128,6 +128,179 @@ def test_a_review_produces_a_workbench_with_a_clarification(page, review_url: st
     # reasoning model, because they are two independent selections.
     assert _visible(page.get_by_role("link", name="Embedding").first)
     assert "nomic-embed-text" in page.get_by_role("link", name="Embedding").first.inner_text()
+
+
+def test_the_judged_rails_rule_stops_where_its_words_stop(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
+    """The one claim about the Judged band that jsdom is structurally unable to check.
+
+    The rail beside the model's argument draws a hairline down its left edge, and a grid item
+    stretches down its row by default — so the rule ran the height of the *argument* rather than
+    the height of the rail: 239px of margin note at the top of an 1,147px border on the longest
+    recorded reasoning, and the rest of it a line with nothing beside it. `lg:self-start` is the
+    fix and it is one class, which is what makes it the kind of thing somebody deletes as
+    redundant.
+
+    `finding-detail.test.tsx` asserts that class and says in its own comment that it cannot do
+    better: jsdom applies no stylesheet and computes no layout, so it can see that
+    `lg:self-start` was written and never that it resolved to anything. That is a real gap and
+    this is where it closes.
+
+    Two assertions, and they are not the same one twice.
+
+    The first is the mechanism, read out of the cascade. `align-self: start` on the item beats
+    `align-items` on the container, so this is the whole of the guarantee and it is exactly what
+    a deleted class costs.
+
+    The second is the effect, read off a rectangle — and it is a bound rather than a proof on
+    this fixture, which is worth saying plainly. The deterministic judge writes a short
+    reasoning, so here the *rail* is the taller of the two and the row's height is its own; the
+    defect only paints when the argument is taller. So this bites on a `min-h-full`, a stray
+    bottom padding, or any future fixture whose argument outgrows its rail, and it is silent on
+    the case that produced the original 908px. That case is the first assertion's.
+
+    Desktop only, deliberately. Below `lg` the grid is one column, the rail carries no border at
+    all, and there is nothing here to be true or false.
+    """
+
+    page.goto(review_url, wait_until="networkidle")
+    page.get_by_role("button", name="All", exact=False).click()
+    open_first_candidate(page)
+    page.get_by_text("Judged").first.wait_for(timeout=REVIEW_TIMEOUT_MS)
+
+    measured = page.evaluate(
+        """
+        () => {
+          // The argument is the one block on the surface set at the reading size, which is the
+          // same property `design-system.test.ts` enforces — so this finds it by the thing that
+          // is guarded rather than by a class list that may be rewritten.
+          const argument = [...document.querySelectorAll('[class*="text-[16px]"]')][0];
+          if (!argument) return null;
+          const grid = argument.parentElement;
+          // The last of the grid's three children, not the second. The verdict's sentence is a
+          // grid item now — placed in the argument's own column so its cap cannot take it past
+          // the argument's edge, which the test below measures — so the rail is the argument's
+          // neighbour by placement rather than by index.
+          const rail = grid.lastElementChild;
+          const style = getComputedStyle(rail);
+          const last = rail.lastElementChild;
+          return {
+            columns: getComputedStyle(grid).gridTemplateColumns.split(" ").length,
+            alignSelf: style.alignSelf,
+            border: style.borderLeftWidth,
+            railBottom: rail.getBoundingClientRect().bottom,
+            contentBottom: last.getBoundingClientRect().bottom,
+          };
+        }
+        """
+    )
+    assert measured is not None, "no block at the reading size — the argument moved or lost 16px"
+    # The band really is two columns at this width, or the rest of this is about nothing.
+    assert measured["columns"] == 2, measured
+
+    # The rule is drawn at all. Without this the two below pass on a rail with no edge, which is
+    # a different bug wearing the same numbers.
+    assert measured["border"] == "1px", measured
+    # Chromium reports `align-self: start` back as `flex-start`, so both spellings of the
+    # one value are accepted and `stretch` — which is the default and the defect — is not.
+    assert measured["alignSelf"] in {"start", "flex-start"}, measured
+
+    # And it stops where the words stop. One pixel of slack for the sub-pixel rounding a
+    # fractional line height leaves on a bounding box; the defect this replaces was 908px.
+    overhang = measured["railBottom"] - measured["contentBottom"]
+    assert overhang <= 1, f"the rail's rule runs {overhang:.0f}px past its own content"
+
+
+#: The widths the lede's residual was found at, plus the two either side of where it closes.
+#:
+#: `lg` is 1024 and the Judged band splits into two columns there, so the argument stops being
+#: the width of the section and becomes a `1fr` track beside a 20rem rail. The rail is fixed and
+#: the track is not, so the narrower the viewport the narrower the argument — and the verdict's
+#: sentence above it was capped at a *constant* 616px. Swept before the repair: 34.00px past the
+#: argument's right edge at 1024, 18.00px at 1040, and agreeing to the deliberate -1.11px from
+#: about 1060 up. 1280 is where the rail widens to 26rem, which moves the track again.
+JUDGED_BAND_WIDTHS = (1024, 1040, 1060, 1280, 1440)
+
+#: How far short of the argument's right edge the lede is allowed to stop, and how far past it.
+#:
+#: Past: nothing. The two are drawn one above the other and read as sharing an edge, and the
+#: whole subject here is a case where they did not. One pixel of slack for the sub-pixel
+#: rounding a fractional track width leaves on a bounding box.
+#:
+#: Short: the lede's own `max-w-[38.5rem]` is 616px against the argument's `58ch` = 617.12px, so
+#: at any width where both caps bite the lede stops 1.12px short by a deliberate choice of round
+#: number over matching `ch` count. Anything much larger than that means the sentence has been
+#: given a cap of its own again.
+LEDE_EDGE_SLACK_PX = 1.5
+
+
+def test_the_lede_never_reaches_past_the_argument_it_stands_over(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
+    """Defect 9's residual, measured across the widths that produced it.
+
+    The verdict's sentence sits directly above the model's argument and reads as sharing its
+    right edge. `finding-detail.test.tsx` asserts that in jsdom by resolving both declared
+    measures against both declared font sizes — which was the repair for the two of them wearing
+    one `58ch`, and which is **blind by construction to this**: a declared measure is a cap, and
+    what a block is drawn at is the smaller of that cap and the box it sits in. jsdom computes no
+    layout, so it never has the second term. Two caps a pixel apart in boxes 34px apart pass it.
+
+    Which is what the band did. The sentence stood above the grid at the section's full width,
+    capped at 616px; the argument stood in a `1fr` track beside a 20rem rail. At 1024 that track
+    is 582px. The repair is containment — the sentence is now placed in the argument's own column
+    — and jsdom asserts *that*, as a fact about the document. This asserts the rectangles it
+    produces, which is the half a class list cannot promise.
+
+    Held at every width above `lg`, and checked below it too: there the band is one column, both
+    blocks are laid out in the section, and the caps are all that separate them. The claim is the
+    same claim and it is worth knowing it holds on both sides of the breakpoint.
+    """
+
+    page.goto(review_url, wait_until="networkidle")
+    page.get_by_role("button", name="All", exact=False).click()
+    open_first_candidate(page)
+    page.get_by_text("Judged").first.wait_for(timeout=REVIEW_TIMEOUT_MS)
+    page.evaluate("() => document.fonts.ready")
+
+    for width in (390, *JUDGED_BAND_WIDTHS):
+        page.set_viewport_size({"width": width, "height": 1000})
+        measured = page.evaluate(
+            """
+            () => {
+              // The argument is the one block on the surface set at the reading size, which is
+              // the property `design-system.test.ts` enforces — so it is found by the thing that
+              // is guarded rather than by a class list somebody may rewrite.
+              const argument = [...document.querySelectorAll('[class*="text-[16px]"]')][0];
+              if (!argument) return null;
+              // The lede is the 13px semibold sentence above it, and it is identified by its
+              // place rather than by its words: the three strings `lib/format` can put here are
+              // product copy and this file does not own them.
+              const above = [...document.querySelectorAll('p[class*="text-[13px]"]')].filter(
+                (node) =>
+                  node.compareDocumentPosition(argument) & Node.DOCUMENT_POSITION_FOLLOWING,
+              );
+              const lede = above[above.length - 1];
+              if (!lede) return null;
+              return {
+                ledeRight: lede.getBoundingClientRect().right,
+                argumentRight: argument.getBoundingClientRect().right,
+                argumentWidth: argument.getBoundingClientRect().width,
+                columns: getComputedStyle(argument.parentElement).gridTemplateColumns,
+              };
+            }
+            """
+        )
+        assert measured is not None, f"at {width}px the band has no argument and lede to compare"
+
+        past = measured["ledeRight"] - measured["argumentRight"]
+        assert past <= LEDE_EDGE_SLACK_PX, (
+            f"at {width}px the verdict's sentence ends {past:.2f}px past the argument it stands "
+            f"over — argument column {measured['argumentWidth']:.0f}px, tracks "
+            f"{measured['columns']}"
+        )
+        assert past >= -LEDE_EDGE_SLACK_PX, (
+            f"at {width}px the sentence stops {-past:.2f}px short of the argument. Both are "
+            "capped by the same column, so the only gap they can honestly show is the 1.12px "
+            "between 38.5rem and 58ch — anything wider is a second measure that has grown back"
+        )
 
 
 def test_the_report_leads_with_the_summary_and_says_it_once(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
