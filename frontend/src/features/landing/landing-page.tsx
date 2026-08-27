@@ -411,7 +411,15 @@ function IntentBand() {
         className="pointer-events-none absolute inset-x-0 -z-10 max-md:opacity-[0.34]"
       />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
-        <Reveal className="max-w-[58ch]">
+        {/* `38.5rem` and not `58ch`. A `ch` follows the font size of the element it is set on,
+            and this one is set on a column rather than on a block of text: inside it are an
+            11px mono eyebrow, a heading at `clamp(29px,3.8vw,46px)` and three paragraphs at
+            16.5px. So `58ch` resolved against the 16px it inherited from the root — 617.12px,
+            a width belonging to none of the four — and the paragraphs it was meant to be
+            measuring have their own 58ch at 636.4px, nineteen pixels wider. A stack of four
+            sizes cannot be described in a unit that follows one of them. 616px is what it drew,
+            to within a pixel, said in a unit that does not move when any of the four does. */}
+        <Reveal className="max-w-[38.5rem]">
           <Mono className="text-[11px] uppercase tracking-[0.13em] text-band-ink-2">
             Unwritten intent
           </Mono>
@@ -946,7 +954,13 @@ function SectionIntro({
   body?: string;
 }) {
   return (
-    <div className="max-w-[62ch]">
+    /* `41.25rem` and not `62ch`, for the reason the section above it carries in full: this is a
+       column holding an 11px eyebrow, a `clamp(26px,3.2vw,34px)` heading and a 15px paragraph,
+       and a `ch` on it resolved against the root's inherited 16px rather than against any of
+       them. 660px is the 659.68px it drew, to a third of a pixel. The paragraph inside keeps
+       its own `56ch` and should: that one is on the block whose size it is resolved against,
+       which is the whole distinction. */
+    <div className="max-w-[41.25rem]">
       <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">{eyebrow}</Mono>
       <h2 className="mt-2.5 font-display text-[clamp(26px,3.2vw,34px)] font-semibold leading-[1.12] tracking-[-0.028em] text-ink">
         {title}

@@ -65,6 +65,41 @@ function offenders(pattern: RegExp, allowed: ReadonlySet<string> = new Set()): s
     });
 }
 
+/**
+ * Each `className=` value in a file, with the line it starts on.
+ *
+ * Whole expressions rather than lines, because a class list here is routinely a `cn(...)` call
+ * spanning four of them and the rule below is about what **one element** declares — a size in
+ * the second string of a call answers for a measure in the first. A line scanner reports those
+ * as offences and is therefore unusable, which is the same lesson `withoutComments` records one
+ * function up.
+ */
+function classNameExpressions(source: string): { line: number; expression: string }[] {
+  const found: { line: number; expression: string }[] = [];
+  for (const match of source.matchAll(/className=/g)) {
+    const start = match.index + match[0].length;
+    let end = start;
+    if (source[start] === '"') {
+      end = source.indexOf('"', start + 1) + 1;
+    } else if (source[start] === "{") {
+      let depth = 0;
+      for (end = start; end < source.length; end += 1) {
+        if (source[end] === "{" || source[end] === "(") depth += 1;
+        else if (source[end] === "}" || source[end] === ")") depth -= 1;
+        if (depth === 0) break;
+      }
+      end += 1;
+    } else {
+      continue;
+    }
+    found.push({
+      line: source.slice(0, match.index).split("\n").length,
+      expression: source.slice(start, end),
+    });
+  }
+  return found;
+}
+
 describe("the design system", () => {
   /**
    * There is an accent again, and this is the budget on it.
@@ -352,6 +387,53 @@ describe("the design system", () => {
     expect(
       offenders(/\b(?:bg|text|border|from|to|via|fill|stroke)-(?:canvas|sunken|surface|surface-2|control|control-2|ink|ink-2|ink-3|band)\/\d/),
       "name the value in styles.css — an alpha composites to a different step in each theme",
+    ).toEqual([]);
+  });
+  /**
+   * A `ch` is resolved against the size the element's own text is set at, or it is resolved
+   * against something nobody reading the line can see.
+   *
+   * `ch` is the advance of the digit zero in the element's **own** used font. Written on a block
+   * that declares its size, it is a promise that the width follows the type, and that is what
+   * `ui/prose.tsx` sets the model's argument in and what `Footnote` caps its rationale with.
+   * Written on a block that declares no size, it silently resolves against an ancestor — in this
+   * tree, the root's 16px — and the number in the class list is then a fact about the document
+   * rather than about the text under it.
+   *
+   * Four had gone that way, and each was wrong by a different amount:
+   *
+   * - `<ul className="grid max-w-[46ch] gap-2">` in the Policies fold, 489.44px around a note
+   *   set at 14px whose own 46ch is 428.26px;
+   * - `<div className="grid max-w-[64ch] gap-2">` around the Ask composer, 680.96px around a
+   *   `Textarea` set at `text-sm` whose own 64ch is 595.84px;
+   * - two column wrappers on the landing page, `58ch` and `62ch`, each holding a stack of three
+   *   or four sizes that a unit following one size cannot describe at all.
+   *
+   * This is the same fault `ui/markdown.tsx` carries a doc comment about, where one `46ch` on
+   * seven renderers meant five widths — and it is the strictly worse half of it, because there
+   * at least each width could be read off the class list that stated it.
+   *
+   * The rule is deliberately local to one element and does not chase the inherited size. A size
+   * that arrives from an ancestor may well be the right one; what it can never be is checkable
+   * by the person reading the line, and a measure nobody can check is how all five of these
+   * lasted. The repair is either to state the size or to state the width in `rem`.
+   */
+  it("resolves every font-relative measure against a size the same element declares", () => {
+    const named = /(?:^|[\s"'`])text-(?:xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)(?=[\s"'`,]|$)/;
+    const arbitrary = /(?:^|[\s"'`])text-\[(?:[\d.]+px|clamp\()[^\]]*\](?=[\s"'`,]|$)/;
+    const fontRelative = /(?:max-|min-)?w-\[[\d.]+(?:ch|em)\]/;
+
+    const unsized = sourceFiles(ROOT).flatMap((file) =>
+      classNameExpressions(readFileSync(join(ROOT, file), "utf8"))
+        .filter(({ expression }) => fontRelative.test(expression))
+        .filter(({ expression }) => !named.test(expression) && !arbitrary.test(expression))
+        .map(({ line, expression }) => `${file}:${line} — ${expression.split(/\s+/).join(" ")}`),
+    );
+
+    expect(
+      unsized,
+      "a `ch` or `em` width is declared on an element that sets no font size, so it resolves " +
+        "against an ancestor and nothing in that class list says what it draws",
     ).toEqual([]);
   });
 });

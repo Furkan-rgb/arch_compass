@@ -23,7 +23,9 @@ import type { Finding, Investigation, RetrievalProvenance, Review } from "../../
  * page printed `google:gemini-3.6` above the fold long after the direct Google integration
  * was deleted and `_ALL_PROVIDERS` became ollama, openrouter and fake — a provider prefix no
  * build can produce, in a shape (`provider:model:thinking=…`) it does not have. Same for
- * `judge:v1` against `judge:v3` and `1-k8` against the dual-query retriever's own version.
+ * `judge:v1` against the identity the judge in force actually stamps, and `1-k8` against
+ * the dual-query retriever's own version. A judgement this build produces goes through the
+ * judge that may read the repository, so the prompt it cites is that judge's.
  * `landing.test.tsx` pins them to the values the product exports now.
  */
 
@@ -135,7 +137,7 @@ const GATEWAY: Finding = {
     "Inline the adapter until a second provider is committed, or take the provider's error type out of the interface so the port is one a second provider could satisfy.",
   reused_from_review_id: null,
   model_identity: "openrouter:google/gemini-3.6:thinking=None",
-  prompt_identity: "judge:v3",
+  prompt_identity: "judge:deep-v2",
   retrieval_identity: "9d41b7c0e5a2f38b6c1d4e7a9058f2b3c6d81e4a7b02c95f3e6a1d84b7c0e529",
   investigation_identity: "",
 };
@@ -199,7 +201,7 @@ const ORDERS: Finding = {
   recommended_response: null,
   reused_from_review_id: null,
   model_identity: "openrouter:google/gemini-3.6:thinking=None",
-  prompt_identity: "judge:v3",
+  prompt_identity: "judge:deep-v2",
   retrieval_identity: "4c7e1a9b03d5f682e4a7c0b19d3f6528a1b4c7e0d3f69258a1c4b7e0d3f69258",
   investigation_identity: "b2f5c8e1a4d70396b5e8c1a4d70396b5e8c1a4d70396b5e8c1a4d70396b5e8c1",
 };
@@ -258,7 +260,7 @@ const INVOICE: Finding = {
   recommended_response: null,
   reused_from_review_id: null,
   model_identity: "openrouter:google/gemini-3.6:thinking=None",
-  prompt_identity: "judge:v3",
+  prompt_identity: "judge:deep-v2",
   retrieval_identity: "7a0d3f69258c1b4e7a0d3f69258c1b4e7a0d3f69258c1b4e7a0d3f69258c1b4e",
   investigation_identity: "",
 };
@@ -449,7 +451,7 @@ export const CASE_FILE: Review = {
   synopsis: null,
   synopsis_identity: "",
   model_identity: "openrouter:google/gemini-3.6:thinking=None",
-  prompt_identity: "judge:v3",
+  prompt_identity: "judge:deep-v2",
   started_at: "2026-08-21T08:30:00Z",
   finished_at: "2026-08-21T08:34:00Z",
   failure: null,

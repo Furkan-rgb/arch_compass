@@ -330,7 +330,19 @@ export function AskBox({
     }
   };
   return (
-    <div className="grid max-w-[64ch] gap-2">
+    /* `38.5rem`, and it was `max-w-[64ch]`, which is two mistakes in one class list.
+       The first is that a `ch` is the advance of the zero of the element's **own** used font
+       and this `div` declares no font size, so 64 of them resolved against the root's 16px and
+       drew 680.96px — while the `Textarea` inside it is `text-sm`, whose own 64ch is 595.84px.
+       Eighty-five pixels between the number written down and the text it was written about.
+       The second is that a measure is a property of prose and this is a box to type in. What it
+       should be capped at is not a count of characters but the column the exchange is read in:
+       an answer above it is `ModelProse` at 58ch and 16px, which draws 617.12px, and the
+       question above that stops at 577.22px. At 680.96px the composer was the widest thing in
+       the thread by 64px, which reads as a second column rather than as the end of the one
+       above it. 38.5rem is 616px — the answer's edge to within about a pixel, said in the unit
+       `ui/markdown.tsx` argues for, where a quarter-rem reads as a value somebody chose. */
+    <div className="grid max-w-[38.5rem] gap-2">
       <Textarea
         aria-label={label}
         value={value}
