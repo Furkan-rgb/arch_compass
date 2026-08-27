@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Finding, Review } from "../../api";
 import { verdictOf } from "../../lib/format";
-import { chMeasure, zeroAdvanceFor } from "../../ui/onest.test-metrics";
+import { FULL_LINE_CHARACTER, chMeasure, zeroAdvanceFor } from "../../ui/onest.test-metrics";
 import { plainProse } from "../../ui/prose";
 import { WIDEST_UNBREAKABLE_TOKEN_PX } from "../../ui/prose.test-corpus";
 import { spacingPx } from "../../ui/tailwind.test-spacing";
@@ -100,7 +100,14 @@ import { FindingBody } from "./finding-detail";
  * deleted rather than corrected: a counterfactual whose method nobody wrote down is a number
  * nobody can check, and this surface has shipped seven rounds of those.
  */
-const AVERAGE_CHARACTER_PX = 617.12 / 75.7;
+/*
+ * Read from `ui/onest.test-metrics.ts` rather than divided again here. The division stood in
+ * this file while a second reading of the same quantity — the same sweep over the 514 policy
+ * notes — stood in `ui/onest.test-metrics.ts` and a third, in em, in `ui/markdown.tsx`, with
+ * nothing saying the three were one method over three corpora. That is the copies-that-drift
+ * shape this file exists to catch, arriving in the file that exists to stop it.
+ */
+const AVERAGE_CHARACTER_PX = FULL_LINE_CHARACTER.judgements.px;
 
 /**
  * The widest thing the model has ever written that cannot be broken across a line.
@@ -521,7 +528,9 @@ describe("the Judged band", () => {
     expect(footnote, "no 12px block declares `max-w-[46ch]`, so `Footnote` has changed").toBeDefined();
     expect(Number(footnote!.edge!.px.toFixed(2))).toBe(367.08);
 
-    // The same 46 characters on the 13px semibold lede: 46 x 13 x 0.6618. It is not 397.67, which
+    // The same `46ch` on the 13px semibold lede: 46 x 13 x 0.6618 — advances of the zero and not
+    // characters, which is a third fewer than a `ch` count suggests and is argued where the
+    // number is used, in `finding-detail.tsx`. It is not 397.67, which
     // is what the 13px policy note resolves to — same count, same size, different weight, and a
     // comment that quotes one of them for the other is round seven all over again.
     const onTheLede = chMeasure(46, 13, "font-semibold").resolved;

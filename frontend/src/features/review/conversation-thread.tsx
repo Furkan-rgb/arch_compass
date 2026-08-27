@@ -48,8 +48,28 @@ export function ConversationExchange({
             phone and nothing else in the panel can help.
 
             `max-w-[62ch]` because nothing in this exchange capped its measure, and on the Ask
-            surface it is drawn inside the page's whole 76rem column — about 150 characters a
-            line, the longest prose in the product at the loosest measure. */}
+            surface it is drawn inside the page's whole 76rem column — **about 169 characters a
+            line**, the longest prose in the product at the loosest measure.
+
+            Neither number in that sentence is the column's, and the gap is two subtractions
+            rather than one. 76rem is 1216px and the panel really does draw at it; the column
+            itself spends 48px on its `sm:px-6`, leaving 1168px, and the box around the question
+            spends another 26px on its `px-3` and two hairlines. So an uncapped `<p>` in it
+            measures **1142px** — the same "a measure is a property of the text and not of the
+            box around it" the policy cap in `features/review/finding-detail.tsx` is a paragraph
+            about, and this comment said 1216 less 26 for one pass, which is 1190. All three
+            widths are read off the live Ask panel at a 1440px viewport with
+            `getBoundingClientRect`, not derived. And 169 is a character
+            count rather than the 62 of the cap: a `ch` is the advance of Onest's zero, which is
+            about a third wider than a character of its body text, so `62ch` at 14px is 577.22px
+            and holds around 83. Both counts are a `Range` per character in a headless Chromium
+            serving the built stylesheet, each line counted from its own first visible character
+            to the next line's and averaged over full lines only — the sweep `ui/prose.tsx`
+            states in full and `ui/onest.test-metrics.ts` keeps the per-character reading of.
+            Nothing in the store records a question, so there is no corpus of the right kind to
+            sweep; it is run over the two the repository already measures, and they agree to
+            within a character: 168.77 over the 514 policy notes and 169.52 over the 375
+            recorded judgements at 1142px, against 82.89 and 83.13 at 577.22px. */}
         {/* Through `Prose` even though these are the reader's own typed words, not the
             model's. It is the top half of a pair whose bottom half is rendered, and rendering
             one and not the other is the visible inconsistency — a reviewer who types a

@@ -25,6 +25,7 @@ export function NumberedCode({
   path,
   language,
   className,
+  type = "text-[12px] leading-[1.65]",
 }: {
   /** The code alone. Any gutter the source carried must already be off it. */
   code: string;
@@ -35,6 +36,35 @@ export function NumberedCode({
   /** Overrides the path, for code that arrived without one — a Markdown fence. */
   language?: string;
   className?: string;
+  /**
+   * The size and the leading both columns are set in, as one class list rather than two.
+   *
+   * One value for both, because sharing it is what makes them line up: the numbers and the code
+   * are two flex children of the row below, so a size or a leading set on one of them alone
+   * moves that column and leaves the other where it was — the quiet failure
+   * `tests/browser/test_lookups.py` exists to catch. What this parameter does about that is
+   * land on the row itself rather than on either child, so whatever it says reaches both
+   * columns or neither.
+   *
+   * **Being one string never stopped anybody writing half a pair.** That is what the sentence
+   * here used to claim, and `type="text-[11px]"` is a counterexample a caller can type: it sets
+   * a size, leaves the leading to whatever the row inherits, and type-checked perfectly while
+   * the parameter was a `string`. The two columns would still have moved together — the row is
+   * what carries it — so the claim was pointing at the right protection and naming the wrong
+   * thing as the source of it.
+   *
+   * The union is the protection made real, at the cost of one line. Both pairs the product sets
+   * are named here, and a third caller cannot arrive with a size alone: it has to state its
+   * leading beside it, which is the whole of what this parameter is for. Two members is also
+   * why this is a union and not a validator — a `string` that must match a shape is a runtime
+   * check nobody runs, and there are exactly two shapes.
+   *
+   * The default is the pinned excerpt's, which is what this drew when it was only
+   * `SourceExcerpt`'s two columns. `features/review/lookup-result.tsx` overrides it with the
+   * other member: that fold sets its whole record at 11px, and a `read_file` body arriving here
+   * at the excerpt's 12px was the one thing in it that was not.
+   */
+  type?: "text-[12px] leading-[1.65]" | "text-[11px] leading-5";
 }) {
   const lines = code.split("\n");
   const resolved = language ?? languageForPath(path);
@@ -45,7 +75,7 @@ export function NumberedCode({
 
   return (
     <div className={cn("scrollbar-slim overflow-x-auto", className)}>
-      <div className="flex min-w-full py-2.5 font-mono text-[12px] leading-[1.65]">
+      <div className={cn("flex min-w-full py-2.5 font-mono", type)}>
         {/* `--ink-3` flat, not `text-ink-3/70`. The tier was split into two values precisely
             so it would clear the AA bar on every ground in both themes; an alpha on top of
             it composited to `#8b8b8b` on this block in light — 3.0:1 — and threw that

@@ -126,6 +126,51 @@ function NoResult({ children }: { children: ReactNode }) {
 }
 
 /**
+ * The one type every result on this surface is set in.
+ *
+ * 11px on a 20px leading, which is what the label above a result, the extent beside it, the path
+ * rows, the node rows' own three fields, the tool's own trailing note and the plain fallback are
+ * already set in. Measured with `getComputedStyle` against the built bundle rather than read off
+ * a class list, on the fold `tests/browser/test_lookups.py` draws: 73 elements carry text of
+ * their own, and 70 of them resolve to 11px/20px.
+ *
+ * **The other three are two things, and one of them is an exception to the sentence above.**
+ * One is `investigation.closing`, the sentence the judging model wrote, at 13px/24px — a
+ * different register, and the fold's own paragraph rather than part of the record. The other two
+ * are the `PathRef` that ends a node row: it declares `text-[11px]` and no leading, so it takes
+ * the document's unitless 1.5 and its path and its line span draw at **11px on 16.5px**. The
+ * node rows are 11px/20px in their name and their kind and 11px/16.5px in their location, and
+ * the sentence above said 20px for all of it for as long as nothing measured the second number.
+ * `tests/browser/test_lookups.py` asserts the pair now, with a count on each of the two
+ * exceptions, so a third leading cannot arrive here in silence the way this one did.
+ *
+ * **The split it replaces was 33 elements against 37, on that same fold.** `NumberedCode` was
+ * lifted out of `SourceExcerpt` and came with the pinned excerpt's 12px on a 1.65 leading, so a
+ * `read_file` body drew a step larger than everything around it, and which size a reader got was
+ * decided by which tool the model happened to call. Put `RESULT_TYPE` back to the excerpt's pair
+ * and rebuild and the fold measures 33 elements at 11px/20px, 37 at 12px/19.8px, and the same 2
+ * and 1 exceptions — 73 either way. By frequency the larger half is the bigger one too: 501 of
+ * the 955 stored lookups are a `read_file`, 52% against 48%. Either size is defensible on its
+ * own; two undeclared sizes answering one question is the fault the fold beside this one spent a
+ * pass having removed, where a policy note was set at 14px or at 13px depending on whether a
+ * policy bore on the finding.
+ *
+ * **11px rather than 12px, because a transcript is a record and not an exhibit.** The pinned
+ * excerpt is the evidence a finding rests on and keeps its own 12px; this is the trace of what
+ * was looked at, and a `read_file` body here sits between a path list and a `Note:` line that
+ * are both 11px. The counts do not settle it and this comment claimed for one pass that they did
+ * — "29 elements to spare seven" was a reading of an older, three-line fixture, and on the fold
+ * as it now stands the 12px half is the larger one. What settles it is the register.
+ *
+ * It is one string covering both of `NumberedCode`'s columns and it has to stay one: they line
+ * up by sharing a size and a leading, and that parameter is typed as the two pairs the product
+ * sets rather than as a `string`, so a caller cannot hand it a size with no leading beside it.
+ * `tests/browser/test_lookups.py` measures both halves — every number still beside its own line,
+ * and every element in the fold at one of the three types named above.
+ */
+const RESULT_TYPE = "text-[11px] leading-5";
+
+/**
  * `read_file`: the gutter split off, then the file's own language.
  *
  * All 501 stored results carry a right-aligned gutter on every line — `"  1  \"\"\"Provider
@@ -155,7 +200,12 @@ function ReadFileResult({ result, path }: { result: string; path?: string }) {
   }
   return (
     <ResultBox bare>
-      <NumberedCode code={gutter.code} startLine={gutter.startLine} path={path} />
+      <NumberedCode
+        code={gutter.code}
+        startLine={gutter.startLine}
+        path={path}
+        type={RESULT_TYPE}
+      />
       {note ? (
         <div className="px-3 pb-2">
           <ResultNote>{note}</ResultNote>
@@ -335,15 +385,24 @@ function nodeRow(line: string) {
 /**
  * A list of paths, with the directory recessive and the basename in full ink.
  *
- * This draws 320 grep results and 38 glob results — 358 of the 955, the second largest thing
+ * This draws 323 grep results and 38 glob results — 361 of the 955, the second largest thing
  * on the surface after `read_file` — and what a reader does with all of them is the same: scan
- * for a filename. Undifferentiated, every row is 60 characters of identical grey and the name
- * is the last eight of them.
+ * for a filename. Undifferentiated, a row is 39.4 characters of identical grey at the mean and
+ * the basename the eye is hunting for is the last 16.5 of them.
  *
- * It is deliberately not 320 `PathRef`s. That component elides from the head, reserves a 44px
- * touch target and offers an editor link, all of which are right for *a* reference and wrong
- * for a list of three hundred: the eliding would hide the very segment being scanned for, and
- * the targets would stack to fourteen thousand pixels of control inside a 256px box.
+ * **323, and not the 320 `GrepResult` counts above.** That 320 is the results which are a bare
+ * path list and nothing else. Three more are a path list with a `Note:` paragraph after it, and
+ * `GrepResult` takes the note off before this is reached, so those draw a list too. How many
+ * results arrive in a given shape and how many reach this component are two questions, and
+ * answering the second with the first is exactly how the 358 that stood here came to be three
+ * short of the 361.
+ *
+ * It is deliberately not a `PathRef` a row. That component elides from the head, reserves a
+ * 44px touch target and offers an editor link, all of which are right for *a* reference and
+ * wrong for a list of hundreds: the eliding would hide the very segment being scanned for, and
+ * one stored glob answers with 273 paths, whose targets would stack to 12,012px of control
+ * inside a 256px box. 3,573 rows over the 361 results — 3 to a result at the median, 9.9 at
+ * the mean.
  */
 function PathList({ paths }: { paths: string[] }) {
   return (

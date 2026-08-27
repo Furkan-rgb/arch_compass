@@ -1067,9 +1067,22 @@ export function FindingBody({
               65.47 characters a line, measured over all 514 recorded notes with a `Range` per
               character in a headless Chromium serving the built stylesheet. Writing the text's
               measure on the box around it is off by whatever that box costs.
-              So the cap is the note's measure plus the card: 46 characters at the 13px the
-              note is now set in is 397.67px, and 397.67 + 30 is 427.67, rounded to a
-              quarter-rem the way `ui/markdown.tsx` rounds its own. The note then draws at
+              So the cap is the note's measure plus the card: `46ch` at the 13px the note is
+              now set in is 397.67px, and 397.67 + 30 is 427.67, rounded to a quarter-rem the
+              way `ui/markdown.tsx` rounds its own.
+
+              **`46ch` is 46 advances of Onest's zero, and not 46 characters.** The sentence
+              this replaces said characters, and the two are a third apart: 397.67 is
+              46 x 13 x 0.665, the zero read off the shipped `onest.woff2`, while a character
+              of this face on a full line costs 6.57px at 13px. Swept the way
+              `docs/design-system.md` says to — a `Range` per character over all 514 recorded
+              notes in a headless Chromium serving the built stylesheet, each line counted from
+              its own first visible character to the next line's, averaged over full lines only
+              — the note at 398.00px reads at **60.58 characters a line** over 1,531 full
+              lines. The same sweep at the 459.44px and 14px it read at before this change
+              gives 65.51 against the 65.47 `docs/known-defects.md` records, so the method here
+              is that document's own and it was only the word that was wrong. No pixel moves:
+              46 zeros is a good measure for this block and 60.58 characters is a good line. The note then draws at
               **398.00px** and stops within a third of a pixel of the "No policy applied here"
               paragraph below, which is this list's own empty state at
               `max-w-[46ch] text-[13px]` — the two answers to one question, ending in one
@@ -1181,11 +1194,14 @@ export function FindingBody({
                     is `--surface-2`, and the line above it names a **policy** and its id. A
                     second 16px full-ink block on this page would tell a reader there are two
                     judgements in the finding, which is the one thing the size is spent saying.
-                    What was wrong was the size, and it was wrong by being a fourth one. Every
-                    other sentence in this fold and in the two beside it is 13px on `leading-6`
-                    — `InvestigationTranscript`, the retrieval footnote, and this list's own
-                    empty state — so the fold answered the same question at 14px or at 13px
-                    depending on whether a policy happened to bear. `leading-relaxed` went with
+                    What was wrong was the size, and it was wrong by being a fourth one. The sentences
+                    around it are 13px on `leading-6` — this list's own empty state, which is
+                    the other answer to the same question, and the closing paragraph of
+                    `InvestigationTranscript` in the fold below — so the fold answered one
+                    question at 14px or at 13px depending on whether a policy happened to bear.
+                    The retrieval footnote under the list is 12px on `leading-5` and is not in
+                    that set; it is a caption for the fold rather than a sentence in it, and
+                    `Footnote` is where its size is argued. `leading-relaxed` went with
                     it for the same reason: it is 1.625, and nothing else in the fold uses it.
                     `Prose` stays. Only 13 of the 514 carry a backtick, against 64 of 375 in
                     the judgements, but a quoted name rendered as a literal backtick is the one

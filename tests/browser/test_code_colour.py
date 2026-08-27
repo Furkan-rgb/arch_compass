@@ -15,11 +15,13 @@ lets `.hljs-string` win inside a signature, or a `--code-name` that stops resolv
 leave every existing test green and every signature grey.
 
 **What this can and cannot reach.** The review this suite runs is judged by
-`DeterministicJudge`, which makes no tool calls, so no finding carries an investigation and the
-11px lookup transcript is not on screen anywhere in this suite — the same limit
-`test_lookups.py` states. What is on screen is the same highlighted markup through the evidence
-excerpt on every open finding, drawn by the same `NumberedCode` and coloured by the same rules.
-So this measures the palette on the 12px surface and makes no claim about the 11px one.
+`DeterministicJudge`, which makes no tool calls, so no finding carries an investigation of its
+own and the 11px lookup transcript reaches a browser only where one is injected, which
+`test_lookups.py` does and this does not. What is on screen here is the same highlighted markup
+through the evidence excerpt on every open finding, drawn by the same `NumberedCode` and
+coloured by the same rules. So this measures the palette on the 12px surface and makes no claim
+about the 11px one — and the two are now genuinely two, because the transcript sets that shared
+component at its own 11px rather than inheriting the excerpt's 12px.
 """
 
 from __future__ import annotations

@@ -12,8 +12,12 @@ import { INLINE_CODE } from "./prose";
  * `ch` is the advance width of the digit zero, and Onest's is 0.665em at the 400 weight body
  * text is set in — 0.6618em at the 600 the headings here are set in, which is the next
  * paragraph's subject. Two things follow that the type scale asking for `62ch` had neither of in
- * mind. A zero is not an average character — it is 0.665em against the 0.509em a character of
- * this face costs on a full line, which is `ui/prose.tsx`'s measured 617.12px over 75.7 — so a
+ * mind. A zero is not an average character — it is about a third wider than one, and how much
+ * wider is measured in `ui/onest.test-metrics.ts` and nowhere else: `FULL_LINE_CHARACTER` holds
+ * that reading for both of the prose corpora this repository sweeps, with the method and the
+ * reason the two differ. It stood here as a third copy of one of those readings, written out in
+ * em — which is the "a figure in prose is a copy of a measurement, and copies drift" this very
+ * comment argues four paragraphs down about its own widths, in the file that argues it. So a
  * measure of 62 zeros holds about 81 characters and not 62. And 62 of them is a different width
  * on every row of the scale: 577.22px on this document's 14px paragraph, 984.76px on its
  * `font-semibold` 24px title. The document and the render disagreed about the same number while

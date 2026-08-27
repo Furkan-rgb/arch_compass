@@ -47,8 +47,12 @@ from tests.browser.harness import (
 pytestmark = pytest.mark.browser
 
 #: `26.75rem` at the root's 16px. The derivation is in `finding-detail.tsx` and is not
-#: repeated here: 46 characters of the note at its 13px is 397.67px, the card spends 30px on
-#: `px-3.5` and its two hairlines, and 427.67 rounds to a quarter-rem.
+#: repeated here: the note's `46ch` at its 13px is 397.67px, the card spends 30px on `px-3.5`
+#: and its two hairlines, and 427.67 rounds to a quarter-rem.
+#:
+#: `46ch` is 46 advances of Onest's zero and not 46 characters, which is what this line said
+#: until now. The note holds 60.58 characters a line at 398.00px, swept with a `Range` per
+#: character over all 514 recorded notes; the derivation is unchanged and only the word was.
 CARD_PX = 428.0
 
 #: What is left for the note once the card has taken its padding and its two hairlines.

@@ -1,7 +1,7 @@
 import type { Investigation, InvestigationLookup } from "../../api";
 import { humanise, plural } from "../../lib/format";
 import { Prose } from "../../ui/prose";
-import { LookupResult } from "./lookup-result";
+import { LookupResult, parsePythonList, splitTrailer } from "./lookup-result";
 
 /**
  * One lookup said the way a person would say it, rather than as the call it was.
@@ -49,8 +49,29 @@ export function lookupLabel(item: InvestigationLookup): string {
   return item.tool;
 }
 
-function resultExtent(result: string): string {
-  return `${plural(result.split("\n").length, "line")} back`;
+/**
+ * How much came back, counted in what a reader can see rather than in what crossed the wire.
+ *
+ * Lines everywhere except a glob. A glob answers with a Python `repr` of a list — all 38 stored
+ * ones are a single physical line, the longest 13,111 characters of it — and `lookup-result.tsx`
+ * draws it as the list it is a repr of. "1 line back" printed beside 273 visible paths is this
+ * label describing the wire while the block under it describes the answer, and of the two the
+ * answer is what the reader is being told about. So the count comes off the same parse the
+ * render uses, and falls back to lines when that parse refuses and the raw string is what
+ * renders.
+ *
+ * The tool's trailing sentence comes off first, for the same reason and on every tool.
+ * `[Read 3 lines (lines 1-3 of 212 total)…]` is what `read_file` wrote about its own answer, not
+ * a line of it, and `ResultNote` draws it under a rule rather than in the block — so counting it
+ * made a three-line read say "5 lines back" against three numbers on screen. 382 of the 501
+ * stored `read_file` results carry one, and 4 of the 369 greps.
+ */
+function resultExtent(item: InvestigationLookup): string {
+  if (item.tool === "glob") {
+    const paths = parsePythonList(item.result);
+    if (paths) return `${plural(paths.length, "path")} back`;
+  }
+  return `${plural(splitTrailer(item.result).body.split("\n").length, "line")} back`;
 }
 
 /**
@@ -141,7 +162,7 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
                 <span className="font-mono text-[11px] leading-5 text-ink-2 [overflow-wrap:anywhere]">
                   {lookupLabel(item)}
                 </span>
-                <span className="text-[11px] leading-5 text-ink-3">{resultExtent(item.result)}</span>
+                <span className="text-[11px] leading-5 text-ink-3">{resultExtent(item)}</span>
               </p>
               {/* Drawn as the shape the tool it names produces, rather than as one grey wall
                   of preformatted text. The dispatch, the six shapes and the argument for

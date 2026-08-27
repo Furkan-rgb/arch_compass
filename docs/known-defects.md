@@ -267,9 +267,18 @@ reading at 459.44px, 65.47 characters a line measured over all 514 recorded note
 the grid track — `grid-cols-[repeat(auto-fill,minmax(0,26.75rem))]` — rather than a `max-w` on
 the `ul`, so it sits on the card it was always a property of and the fold lays two cards across
 the 1,126px it has instead of spending one column of 428px and two rows. The number and its
-derivation did not move: the note's own 46 characters at the 13px it is now set in, 397.67px,
+derivation did not move: the note's own `46ch` at the 13px it is now set in, 397.67px,
 plus the 30px the card costs, rounded to a quarter-rem. The note draws at **398.00px** and stops
 within a third of a pixel of the empty state that replaces it, which is the third row above.
+
+**`46ch` is 46 advances of the zero, not 46 characters, and this section said characters until
+now.** The two are a third apart. 397.67px is `46 x 13 x 0.665`, the zero's advance; a character
+of Onest on a full line costs 6.57px at 13px, so the note at 398.00px reads at **60.58 characters
+a line** — the same `Range`-per-character sweep as the 65.47 above, over the same 514 notes,
+1,531 full lines, averaged over full lines only. Re-run at the old 459.44px and 14px that sweep
+gives 65.51 against the 65.47 recorded, so the two figures in this section are one method rather
+than a `ch` count standing beside a character count and contradicting it. No pixel moves: 46
+zeros is the measure and 60.58 characters is what it holds.
 
 **How the figures were produced.** `46 x size x advance`, where the advance is Onest's zero at
 the weight each block declares: 0.665em at 400, read off the `hmtx` table of the shipped

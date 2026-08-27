@@ -140,8 +140,67 @@ export function zeroAdvanceFor(classes: string): number {
  * A layout unit is Chromium's, not CSS's, so this is a fact about one engine. It is asserted
  * rather than assumed for exactly that reason: if the number ever moves, the table fails with
  * both readings in the message instead of a comment quietly going stale.
+ *
+ * **`count` is zero advances, not characters, and the zero is about a third the wider.** Onest's
+ * is 0.665em at 400, and a character of its body text on a full line costs roughly a quarter
+ * less than that — `FULL_LINE_CHARACTER` below is where that second number lives, once, for
+ * each of the two corpora it has been measured over. So a `46ch` measure holds around 60
+ * characters and not 46. This is written here because this function is
+ * where every `ch` figure in the repository is now produced, and because the sentence has been
+ * put the wrong way round in four files on this branch, three of them copies of one sentence.
+ * `ui/markdown.tsx` argues the same point from the other end, over `62ch` that was read as 62
+ * characters and holds 81.
  */
 export function chMeasure(count: number, sizePx: number, classes: string) {
   const resolved = count * sizePx * zeroAdvanceFor(classes);
   return { resolved, drawn: Math.floor(resolved * 64) / 64 };
 }
+
+/**
+ * What one character costs on a line that is actually full — the other half of a `ch`, and the
+ * only copy of it.
+ *
+ * A `ch` is one zero. A reader counts characters. `chMeasure` above turns a `ch` count into a
+ * width; this turns a width back into the count a reader would make, and the two together are
+ * why "`46ch` holds 46 characters" is wrong by about a third everywhere it has been written on
+ * this branch.
+ *
+ * **One method, two corpora, and the corpus is the whole of the difference.** The method is
+ * `ui/prose.tsx`'s, stated there at length: serve the built bundle so the face is the shipped
+ * `onest.woff2`; wait on `document.fonts.check` for both weights, because `font-display: swap`
+ * otherwise answers with a fallback whose zero is 0.6299em; render the corpus at the measure
+ * and size named below; measure each `<p>` with a
+ * `Range` per character and cluster the boxes on their vertical centres, one cluster to a line;
+ * count each line from its own first visible character up to the next line's, so the space a
+ * soft wrap ate belongs to the line it ended; and average over the lines that are *not* the
+ * last of their block, because a block's last line is short by construction and describes the
+ * ragged edge rather than the sweep.
+ *
+ * The two rows come out 0.8% apart — 0.5095em against 0.5054em — and that is corpus and not
+ * method or size. A judgement is the model arguing in long sentences with qualified names in
+ * them; a policy note is one sentence of ordinary prose, and only 13 of the 514 carry a
+ * backticked name at all. Neither is "the" advance of this face and neither is wrong. Quote the
+ * row whose corpus is the text being argued about, and where the text is neither — a reviewer's
+ * own typed question, which nothing in the store records — say which row was used.
+ *
+ * Both rows are stated as the division that produced them rather than as a decimal, so the two
+ * measured figures behind each are visible and a reader can check the arithmetic without a
+ * second run. Both divisions are already asserted elsewhere in the tree at the measure named:
+ * 617.12px over 75.7 characters in `ui/prose.tsx`, and 398.00px over 60.58 in
+ * `features/review/finding-detail.tsx`. `features/review/finding-detail.test.tsx` reads the
+ * first of them from here rather than dividing it again, which is the point of the file.
+ *
+ * **What was re-run, and what was taken on the tree's word.** The policy-note row was swept
+ * again from scratch and comes back at 60.58 over 1,531 full lines, to the digit. The
+ * judgement row is `ui/prose.tsx`'s render-with-chips sweep and was not reproduced here — what
+ * was reproduced is its sibling, the same corpus drawn as the recorded string rather than as
+ * the render, which that file records at 3,237 line boxes and 76.24 characters and which comes
+ * back at exactly 3,237 and 76.24. That is evidence the harness is the same harness, and it is
+ * not a second measurement of 75.7. Anybody moving this row should re-run the render.
+ */
+export const FULL_LINE_CHARACTER: Record<string, { px: number; sizePx: number; em: number }> = {
+  /** The 375 recorded judgements, rendered through `ModelProse` at `58ch` — chips and all. */
+  judgements: { px: 617.12 / 75.7, sizePx: 16, em: 617.12 / 75.7 / 16 },
+  /** The 514 recorded policy notes, rendered at the `46ch` the policy card caps them to. */
+  policyNotes: { px: 398.0 / 60.58, sizePx: 13, em: 398.0 / 60.58 / 13 },
+};
