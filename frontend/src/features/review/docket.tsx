@@ -582,7 +582,7 @@ function DocketRow({
       <span
         aria-hidden="true"
         className={cn(
-          "pointer-events-none absolute inset-y-0 left-0 w-[3px] border-l-[3px]",
+          "pointer-events-none absolute inset-y-0 left-0 z-[1] w-[3px] border-l-[3px]",
           settled ? "border-l-transparent" : TONE_EDGE[descriptor.tone],
         )}
       />

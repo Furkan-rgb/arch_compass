@@ -593,11 +593,24 @@ def sweep_the_verdict_edges(lists: list[list[dict]]) -> int:
     #
     # `z-index` is the odd one and is included for the same reason as the other two. The
     # `<ul>` is `bg-surface`, which is opaque, so a rail given a stacking order behind it is
-    # as gone as one at zero opacity. `auto` or `0` are the two spellings of "wherever the
-    # document put it", which is where this belongs; anything negative is behind the ground.
+    # as gone as one at zero opacity.
+    #
+    # Negative is the whole of the fault, and this used to admit only `auto` or `0` — which
+    # was stricter than the sentence above it and refused a value the rail now needs. An open
+    # row's folds are inside `animate-expand`, whose keyframes end on `transform: none` under
+    # an animation declared `both`: the retained value computes to `matrix(1, 0, 0, 1, 0, 0)`,
+    # which draws nothing and still establishes a stacking context, and a transformed element
+    # paints as though it were `z-index: 0`. At `auto` the rail tied with it and lost on tree
+    # order, so a fold's opaque `hover:bg-sunken` erased the rail wherever a pointer went.
+    # `test_a_hovered_fold_cannot_paint_over_the_verdict_rail` above holds that; this holds
+    # the half that has not changed, which is that the rail is never put behind the ground.
     _every("opacity", lambda row: row["opacity"] == "1", "a rail is faded out")
     _every("visibility", lambda row: row["visibility"] == "visible", "a rail is hidden")
-    _every("depth", lambda row: row["depth"] in {"auto", "0"}, "a rail is behind the ground")
+    _every(
+        "depth",
+        lambda row: row["depth"] == "auto" or int(row["depth"]) >= 0,
+        "a rail is behind the ground",
+    )
 
     # Every edge is exactly its row's height and starts exactly at its row's left edge.
     #
@@ -690,6 +703,100 @@ def settle_a_row_with_a_neighbour_either_side(page) -> tuple[int, int]:  # type:
         "no docket group listed three rows — there is no row here with a neighbour on both "
         "sides, and a settled row at the end of a list does not exercise a mixed column"
     )
+
+
+#: The rail, and every stacking context between an open row's folds and the article.
+#:
+#: Paint order is the subject, so this reads the two things that decide it and nothing else:
+#: whether an element between a fold and the article establishes a stacking context, and what
+#: the rail's own `z-index` resolves to. It reads no class names.
+#:
+#: A transformed element is painted as though it were `position: relative; z-index: 0`, which
+#: is why `makes` treats a transform as an effective zero.
+RAIL_PAINT_ORDER = """
+() => {
+  const button = document.querySelector('[data-candidate]');
+  const article = button.closest('article');
+  const rail = article.querySelector(':scope > span[aria-hidden="true"]');
+  const railZ = getComputedStyle(rail).zIndex;
+  const establishes = (el) => {
+    const c = getComputedStyle(el);
+    if (c.position !== 'static' && c.zIndex !== 'auto') return Number(c.zIndex);
+    if (c.transform !== 'none' || c.filter !== 'none' || c.perspective !== 'none') return 0;
+    if (parseFloat(c.opacity) < 1) return 0;
+    if (c.isolation === 'isolate' || c.mixBlendMode !== 'normal') return 0;
+    if (c.willChange !== 'auto' || c.contain !== 'none') return 0;
+    return null;
+  };
+  return [...article.querySelectorAll('details > summary')].map((summary) => {
+    const contexts = [];
+    for (let el = summary; el && el !== article; el = el.parentElement) {
+      const z = establishes(el);
+      if (z !== null) contexts.push({ z, transform: getComputedStyle(el).transform });
+    }
+    return {
+      label: summary.textContent.trim().split('\\n')[0],
+      background: getComputedStyle(summary).backgroundColor,
+      contexts,
+      railZ,
+    };
+  });
+}
+"""
+
+
+def test_a_hovered_fold_cannot_paint_over_the_verdict_rail(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
+    """An open row's folds sit above the rail in paint order, so the rail needs a z-index.
+
+    Reported as the red line disappearing under the pointer. Measured before the fix, down
+    the rail's own three pixels inside the hovered summary's band: `rgb(10, 10, 10)` at rest
+    and `rgb(235, 235, 235)` on hover. The rail was not dimmed, it was covered.
+
+    The cause is a stacking context nobody wrote. The open body is `animate-expand`, whose
+    keyframes end on `transform: none`, and the animation is declared `both` — so the final
+    value is retained after it finishes and the computed transform is
+    `matrix(1, 0, 0, 1, 0, 0)` rather than the keyword. It draws nothing and moves nothing.
+    But *any* computed transform other than `none` establishes a stacking context, and a
+    transformed element paints as though it were `position: relative; z-index: 0`. The rail
+    is `absolute` at `z-index: auto`, which is also zero, and a tie is broken by tree order —
+    so the body, later in the DOM, won. A summary's `hover:bg-sunken` is opaque, and the
+    summary's box starts at x=137, exactly where the rail starts.
+
+    `z-[1]` is the whole fix, and the value is deliberately the smallest that clears zero
+    rather than a step on the scale. The sticky bands above this list are `z-20` and `z-30`,
+    and a rail scrolling under them must pass behind: measured at `z-[1]`, the pixels across
+    both bands are identical to a build with no z-index at all.
+
+    Two claims, because they fail in different directions. If the body stops establishing a
+    context the rail's z-index is no longer load-bearing and this test should be reconsidered
+    rather than quietly kept; if the rail loses it while the body still has one, the reported
+    defect is back. Neither is a class assertion — a rail given `z-[1]` inside a body that
+    gained `z-10` would pass a class check and fail here.
+    """
+
+    page.goto(review_url, wait_until="networkidle")
+    page.get_by_role("button", name="All", exact=False).click()
+    open_first_candidate(page)
+
+    folds = page.evaluate(RAIL_PAINT_ORDER)
+    assert folds, "the open row drew no folds — there is nothing here that could cover a rail"
+
+    for fold in folds:
+        assert fold["contexts"], (
+            f"nothing between the {fold['label']!r} fold and the article establishes a "
+            "stacking context any more, so the rail's z-index is no longer holding anything "
+            "up — read this test's docstring before deleting it"
+        )
+        highest = max(context["z"] for context in fold["contexts"])
+        assert fold["railZ"] != "auto", (
+            f"the verdict rail is at z-index auto under the {fold['label']!r} fold, which "
+            f"establishes a stacking context at {highest} — the rail is painted over and "
+            "vanishes wherever the fold's hover background is drawn"
+        )
+        assert int(fold["railZ"]) > highest, (
+            f"the verdict rail is at z-index {fold['railZ']} and the {fold['label']!r} fold "
+            f"establishes a stacking context at {highest}"
+        )
 
 
 def test_the_verdict_edge_is_cut_only_by_the_row_rule(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
