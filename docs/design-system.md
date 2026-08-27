@@ -172,7 +172,7 @@ is inert is not the component this surface wants.
 
 What was wrong was that the note was set at **14px on `leading-relaxed`**, which is a fourth
 size belonging to neither voice: every other sentence in that fold and the two beside it is 13px
-on `leading-6`, including the "No policy bore on this judgement" paragraph that *replaces this
+on `leading-6`, including the "No policy applied here" paragraph that *replaces this
 very list*. The fold answered one question at two sizes depending on whether a policy happened to
 bear. It is 13px now, and the list's cap is the note's own measure plus the 30px its card spends
 on padding and hairlines, so the note draws at **398.00px** and stops 0.34px from the empty state
@@ -803,7 +803,7 @@ transition should happen at all.
 ## The counts under the review head
 
 *Not a dashboard. Counts are orientation, read once, on the way to the work.* The five-cell
-status ribbon is gone. What is left is one wrapping line: **how many things still want you**,
+status ribbon is gone. What is left is one wrapping line: **how many need a decision**,
 in plain ink, then the verdict spread with its glyph, its number and its word.
 
 The leading count is deliberately plain ink even where most of what it counts is material — a
