@@ -631,13 +631,16 @@ export function Prose({ children, bare = false }: { children: string; bare?: boo
  * **1,166** blocks the corpus packs into. Count the visible run instead, first ink to last ink,
  * and 1,058 of those 1,166 stop adding up, 75.7 reads 74.7, 64.5 reads 63.9, and 90 reads 89.
  *
- * The two readings are not one character apart everywhere, and the exception is countable rather
- * than approximate: of the 2,082 lines the average is over, 2,031 differ by exactly one and 51
- * differ by nothing at all — the lines where `wrap-anywhere` split a long name mid-token and
- * consumed no space doing it. So the gap averages **0.98** here, and 0.97 is that division
- * truncated rather than rounded. The 51 is worth more than the average is: it is a count of how
- * often this corpus breaks a name at this measure, which is the floor argument above seen from
- * the other side.
+ * The two readings are not one character apart everywhere, and the difference between them is
+ * **0.97** — which is just 75.70 minus 74.73, and is stated that way deliberately. It was carried
+ * here as a histogram of which lines differ by one and which by none, and that histogram has now
+ * been wrong twice in opposite directions: a pass "corrected" 0.97 to 0.98 on it, and 0.97 was
+ * right. A figure that two readings of the same sweep already give by subtraction does not need a
+ * second derivation, and a second derivation is a second thing to get wrong.
+ *
+ * What the histogram was reaching for is worth keeping and belongs to the floor argument above
+ * rather than here: this corpus does break names at this measure, and `WIDEST_UNBREAKABLE_TOKEN_PX`
+ * is where that is counted, against a number a test can resolve.
  *
  * That is a separate question from what is *drawn*, and the two are independent. On what is
  * drawn: "measuring the string rather than the render" names two sweeps, and both were run.

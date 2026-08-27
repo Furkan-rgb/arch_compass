@@ -623,6 +623,79 @@ describe("sentences", () => {
   });
 
   /**
+   * That the objective is squared deviation, which is the one thing above does not hold.
+   *
+   * `pack` argues at length for least squares over least absolute deviation, and nothing made
+   * that argument checkable: swapping `off * off` for `Math.abs(off)` left every test in the
+   * frontend passing while one recorded judgement repacked to put a 90-character block into
+   * the middle of a 967-character argument. The three assertions above all survive it — a
+   * ceiling, a not-tallest-first and a 1.75 bound are satisfied by both objectives, because
+   * they bound the extremes and the difference between these two is in the middle.
+   *
+   * A bound on the smallest block cannot separate them either, and that is worth recording
+   * rather than rediscovering: least squares *itself* draws a block at 0.52 of its share on
+   * the recorded corpus, so any threshold loose enough to admit the real packing also admits
+   * the mutant's.
+   *
+   * So this asserts optimality instead, and locally rather than globally: move any one cut to
+   * the neighbouring sentence boundary and the squared cost must not improve. The shipped
+   * answer comes from a dynamic program that is globally optimal, so it is certainly optimal
+   * against a one-cut perturbation; an answer from a different objective is not, and the
+   * perturbation finds it. Checking it this way rather than by recomputing the optimum keeps
+   * the test from carrying a second copy of the algorithm — the failure this whole file is a
+   * defence against.
+   */
+  it("packs to the least squared deviation, not merely to a tolerable spread", () => {
+    for (const { subject, source } of OVER_CAP) {
+      const all = sentences(source, Number.MAX_SAFE_INTEGER);
+      const parts = sentences(source);
+
+      // Which sentences each block took, recovered by counting rather than by re-cutting: a
+      // block is a run of whole sentences, so its own sentence count is how many it consumed.
+      const groups = parts.map((part) => sentences(part, Number.MAX_SAFE_INTEGER).length);
+      expect(
+        groups.reduce((total, count) => total + count, 0),
+        `${subject}: the blocks do not account for every sentence`,
+      ).toBe(all.length);
+
+      // A block spanning sentences `first..through` is what the reader is given: the sentences
+      // and the single spaces the cuts became. None of the nine holds a newline, asserted
+      // above, so a cut is always exactly one space.
+      const spanOf = (first: number, through: number) =>
+        all.slice(first, through).reduce((total, one) => total + one.length, 0) + (through - first - 1);
+
+      const share = source.length / parts.length;
+      const costOf = (sizes: readonly number[]) => {
+        let at = 0;
+        return sizes.reduce((total, size) => {
+          const off = spanOf(at, (at += size)) - share;
+          return total + off * off;
+        }, 0);
+      };
+
+      const shipped = costOf(groups);
+      for (let cut = 0; cut < groups.length - 1; cut += 1) {
+        for (const moved of [-1, 1]) {
+          const perturbed = [...groups];
+          perturbed[cut] += moved;
+          perturbed[cut + 1] -= moved;
+          if (perturbed[cut] < 1 || perturbed[cut + 1] < 1) continue;
+          // The ceiling is part of the problem, not part of the objective, so a perturbation
+          // that breaks it is not an arrangement `pack` was allowed to choose and proves
+          // nothing about which objective it used.
+          const opensOver = spanOf(0, perturbed[0]) > share;
+          if (opensOver && perturbed[0] > 1) continue;
+          expect(
+            costOf(perturbed),
+            `${subject}: moving the cut after block ${cut + 1} by ${moved} sentence lowers the ` +
+              "squared deviation, so this packing is not the least-squares one",
+          ).toBeGreaterThanOrEqual(shipped);
+        }
+      }
+    }
+  });
+
+  /**
    * The one case the ceiling gives way to, and the reason it is not a hole in the rule.
    *
    * A block cannot be shorter than one sentence. When the opening sentence is already over its

@@ -31,11 +31,14 @@
  *
  * **What it costs, measured rather than estimated.** 12,170 characters over nine strings —
  * the sum of the nine `chars` below, each of which `ui/prose.test.tsx` asserts against the
- * string beside it, so the total is checked and not counted by eye. The array they sit in is
- * **15,417 bytes** of source: the difference between a recorded string and its source is the
- * quoting, the wrapping and the four fields every entry carries around it. The figure is the
- * array alone and not the file, because the file includes this paragraph — a byte count that
- * moves when somebody edits the comment stating it is a number that cannot stay true.
+ * string beside it, so the total is checked and not counted by eye.
+ *
+ * This paragraph used to add the array's size in bytes, and then argue that a byte count moving
+ * when somebody edits the comment stating it "is a number that cannot stay true". The argument
+ * was right and the number was wrong — off by 556, because it counted the type annotation the
+ * definition it names does not include. Both facts point the same way, so the figure is gone
+ * rather than corrected: what a reader needs here is the 12,170, which a test resolves, and the
+ * source is on screen for anyone who wants to know how much room it takes.
  *
  * `pack` is O(blocks x sentences squared) — six by nineteen at the longest of these — so the
  * whole set is packed inside the test's own noise. `pnpm vitest run src/ui/prose.test.tsx`

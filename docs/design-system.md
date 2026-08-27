@@ -209,14 +209,18 @@ for all 1,166 blocks the corpus packs into. Count the visible run instead — fi
 and 1,058 of the 1,166 no longer add up, 75.7 reads 74.7, 64.5 reads 63.9, 90 reads 89, 81.6
 reads 80.7, and the climb drops to 72.2 / 74.7 / 76.3 / 77.7 / 79.4 / 80.7.
 
-The two readings are not one character apart everywhere, and the exception is countable: of the
-2,082 lines the 75.7 is over, 2,031 differ by exactly one and 51 differ by nothing — the lines
-where `wrap-anywhere` split a name mid-token and consumed no space doing it. The gap averages
-**0.98**, and the 0.97 this paragraph carried is that division truncated rather than rounded. The
-51 says more than the average does: it counts how often this corpus breaks a name at this
-measure, which is the floor argument seen from the other side. Neither reading of a line is
-wrong; leaving the choice unwritten is, and it is why these figures have been re-measured five
-times.
+The two readings differ by **0.97**, which is 75.70 minus 74.73 and is stated that way on purpose.
+This paragraph used to derive it a second way, from a histogram of which lines differ by one and
+which by none, and that histogram has been wrong twice in opposite directions — a later pass
+"corrected" 0.97 to 0.98 on the strength of it, and 0.97 was right all along. A figure the two
+readings already give by subtraction does not need a second derivation, and the second derivation
+is what kept being wrong.
+
+Neither reading of a line is wrong; leaving the choice unwritten is, and it is why these figures
+have been re-measured six times. The rule that came out of it: a figure that is a value times a
+size times an advance belongs in a test that recomputes it; a figure needing a headless browser and
+a workspace database belongs in prose **with its method stated**; and a figure that is a
+counterfactual about how an earlier number was reached belongs nowhere.
 
 **A `ch` is only honest where one font size *and one weight* are set.** It is the advance of
 the used font's zero, so it follows both. Onest ships as one variable file — `styles.css`

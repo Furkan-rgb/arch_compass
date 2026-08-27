@@ -144,7 +144,7 @@ function policiesSummary(finding: Finding, retrieval?: RetrievalProvenance): str
  * number above: a soft wrap eats a space that is drawn on no line, and it is counted here as
  * belonging to **the line it ended**, so a line holds the source from its own first visible
  * character up to the next line's first. `docs/design-system.md` states the choice and the
- * reason. Counted as the visible run instead, first ink to last, this pair is 58.1 and 74.7 —
+ * reason. Counted as the visible run instead, first ink to last, this pair is 58.0 and 74.7 —
  * both perfectly defensible numbers, and not these ones. That is the whole reason this comment
  * has moved three times.
  *
