@@ -398,7 +398,18 @@ _POLICY_SECTIONS = (
         "Guidance",
         "An adapter **translates** between a vendor's shape and ours, and nothing more.\n\n"
         "- No branching in an adapter on anything the domain could decide\n"
-        "- No default that is really a policy",
+        "- No default that is really a policy\n\n"
+        # Below the ramp's fourth step, which is where `ui/markdown.tsx` had no renderer at
+        # all: a `#####` and a `######` came out as the browser's own block element, at the
+        # panel's full width over paragraphs stopping at the measure. They are here so the
+        # assertion below has one of each to measure, and the prose under them is long enough
+        # to wrap at any measure this renderer could be given.
+        "##### Where an adapter ends\n\n"
+        "The line is the record it hands back, and everything past that line is a decision "
+        "the domain owns rather than a translation of somebody else's shape.\n\n"
+        "###### And where it begins\n\n"
+        "At the vendor's own vocabulary, which is the only thing an adapter is allowed to "
+        "know that nothing else in the system knows.",
     ),
     ("Signals", "A vendor client with an `if` on a domain enum in it."),
     ("Diagnostic questions", "Would this branch survive swapping the vendor out?"),
@@ -440,6 +451,7 @@ def test_policies_render_as_markdown_and_navigation_survives_a_phone(  # type: i
     # what says so.
     assert _visible(page.get_by_role("heading", name="Guidance", exact=True))
     assert _visible(page.get_by_text("No branching in an adapter"))
+    _every_block_stops_at_one_edge(page)
     page.get_by_role("button", name="Create policy").click()
 
     # It is a real policy the next review reads, and its body renders as a document.
@@ -461,6 +473,64 @@ def test_policies_render_as_markdown_and_navigation_survives_a_phone(  # type: i
     drawer.get_by_role("link", name="Architecture cases").click()
     page.wait_for_url("**/cases")
     assert _visible(page.get_by_role("heading", name="Architecture cases", level=1))
+
+
+#: The blocks a rendered document is allowed to draw past its measure, keyed by the tag.
+#:
+#: A fence and a table scroll inside themselves, so capping them would take the panel's width
+#: away from the excerpt or the readings somebody came to read; a rule is not text at all and
+#: spans what it divides. `ui/markdown.tsx` argues all three where the wrapper is left at
+#: `max-w-none`, and `ui/markdown.test.tsx` holds the same three names.
+_REACHES_PAST_THE_MEASURE = ("PRE", "HR")
+
+
+def _every_block_stops_at_one_edge(page) -> None:  # type: ignore[no-untyped-def]
+    """The measure a document is read at, as rectangles rather than as declared class lists.
+
+    `ui/markdown.test.tsx` asserts this in jsdom, which lays nothing out: it resolves each
+    declared measure against the declared type and checks the answers agree. That is the right
+    test for the arithmetic and it cannot see the failure this one is about — an element with
+    **no renderer at all**, which declares nothing to resolve and is drawn by the browser's own
+    sheet at the full width of the panel. `#####` and `######` shipped that way, at 1168px over
+    paragraphs stopping at 428px, and every measure assertion in the suite passed because every
+    element that *had* a measure agreed about it.
+
+    So this asks the layout engine instead. Every direct child of the rendered document either
+    stops at the one edge the text blocks share or is one of the two that deliberately reach
+    past it. A table is excluded by ancestry rather than by tag, because it is drawn inside an
+    `overflow-x-auto` wrapper that is a plain `<div>` and a `<div>` is not a name worth
+    excepting on.
+
+    Delete the `h5` and `h6` entries from `RENDERERS`, rebuild, and this reports
+    ``2 different right edges: [('H3', [428, ...]), ('H5', [1092]), ('H6', [1092]),
+    ('P', [428, ...]), ('UL', [428])]`` — 1092px because that is the policy preview's own
+    panel, where the finding's is 1168px. Which is the second reason this is a rectangle and
+    not a class list: the number depends on the panel, and only one of the two blocks in that
+    comparison has a number of its own at all.
+    """
+    document = page.locator("div.max-w-none").filter(
+        has=page.get_by_role("heading", name="Guidance", exact=True)
+    )
+    blocks = document.locator("> *")
+    widths: dict[str, list[float]] = {}
+    for index in range(blocks.count()):
+        block = blocks.nth(index)
+        box = block.bounding_box()
+        if box is None or box["width"] == 0:
+            continue
+        tag = block.evaluate("element => element.tagName")
+        if tag in _REACHES_PAST_THE_MEASURE or block.locator("table").count():
+            continue
+        widths.setdefault(tag, []).append(round(box["width"], 2))
+
+    measured = {width for group in widths.values() for width in group}
+    assert len(measured) == 1, (
+        "the blocks of a rendered document stop at "
+        f"{len(measured)} different right edges: {sorted(widths.items())}"
+    )
+    # The two levels that had no renderer, named rather than left to the count: a fifth and a
+    # sixth heading have to actually be in the document for the rule above to be about them.
+    assert "H6" in widths, "the fixture no longer renders a heading below the ramp's fourth step"
 
 
 #: The narrowest phone worth designing for, and the widest that still counts as one. 320 is

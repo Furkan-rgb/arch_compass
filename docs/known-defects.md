@@ -159,11 +159,13 @@ running backwards. Only the first term moves: the other two controls are drawn b
 the rail and the argument share, so hoisting the rail inside that grid cannot lift them, and an
 ordering over the three can never notice it. Measured on the first held row of the browser
 suite's own review at 390x844, where the argument is 79.17px tall; the distance scales with the
-judgement, the sign does not. jsdom caught the move as a document-order failure (`finding-detail.test.tsx`, *"puts
-the rail after the argument"*), so the mechanism was never unguarded; the test named here as
-what holds the shape simply did not check it. It now asserts that **Answer it** is drawn below
-the bottom of the argument before it asserts anything about the order, which is the stacking
-this entry prices.
+judgement, the sign does not.
+
+jsdom caught the move as a document-order failure (`finding-detail.test.tsx`, *"puts the rail
+after the argument"*), so the mechanism was never unguarded; the test named here as what holds
+the shape simply did not check it. It now asserts that **Answer it** is drawn below the bottom
+of the argument before it asserts anything about the order, which is the stacking this entry
+prices.
 
 Three repairs were considered when the number was thought to be 1,500px, and none is taken now
 that it is 624px.
@@ -185,6 +187,103 @@ still passes a median 624px of argument to reach the way out, and the argument i
 was opened for. This is not the only way in either — while a review is held the clarification
 round is the **first item on the docket** and carries the page's one primary action, which a
 phone reader reaches without scrolling at all.
+
+## OPEN — the block cap's guarantee holds on nine strings of 375, and it says so now
+
+`sentences()` in `ui/prose.tsx` cuts the model's paragraph at its own sentence boundaries, and
+`pack` promises that an argument long enough to reach the cap never opens on its tallest block.
+That promise is real and it is **conditional**, and for three passes the condition was nowhere:
+`pack` runs only when a string holds *more* than `MOST_PARTS` sentences. Nine of the 375 recorded
+judgements do. On the other 366 every boundary is cut, the blocks are the model's own sentences,
+and no ceiling applies to any of them.
+
+**Applying the ceiling regardless is a no-op, which is why this is written down rather than
+fixed.** At `count === mostParts` the packing table has exactly one feasible partition — one
+sentence to a block — and the ceiling's own escape (`through > 1`) exempts the single-sentence
+first block that partition makes. Forcing `pack` to run on every string and diffing the parts
+changes **0 of the 375**. The only rule that could shorten the opening block of a two-sentence
+string would cut inside a sentence, and every part `sentences()` returns is a raw slice of what
+the model wrote — the one thing this surface may not do is edit a judgement.
+
+**What is left, measured rather than estimated.** All 375 strings rendered through the real
+`ModelProse` in a headless Chromium against the built stylesheet, at the 617.12px measure, with
+both Onest weights and IBM Plex Mono asserted through `document.fonts.check` before anything is
+read; a Range per character of each block's rendered text, clustered on the vertical centre of
+each rect at a 0.6px tolerance, one cluster to a line. That is 3,248 line boxes over 1,166
+blocks. Of those:
+
+- **Two strings open on a seven-line block**, both under the cap: a 673-character judgement in
+  two sentences that draws 7/2, and a 1,235-character one in six that draws 7/3/3/4/2/1. The
+  first is pinned as `UNDER_CAP_WALL` in `ui/prose.test-corpus.ts`.
+- **Four of the 1,166 blocks are a single sentence of seven lines or more.** The tallest block in
+  the corpus is a **1,132-character sentence at seventeen line boxes**, sitting second in a
+  four-sentence string that draws 3/17/3/2 — not an opening block, not over the cap, and out of
+  reach of any ceiling on an opening block.
+- Over the cap, all nine strings open on **three** lines and none opens on its tallest block,
+  which is the guarantee doing its work.
+
+**It is worse in a phone's column, which is where it should be judged.** The same sweep at
+`PHONE_COLUMN_PX` draws the 673-character judgement as **17/4** and the four-sentence one as
+**7/32/5/4**. A 32-line block is a wall by any reading. What it is not is a *packing* failure:
+that block is one sentence of 1,132 characters, and the string holds four sentences, so nothing
+`pack` could be asked to do would touch it.
+
+**Why that is still not the defect the cap was built for.** The complaint was a 2,139-character
+nineteen-sentence judgement drawn as one block — **28** line boxes at the 617.12px measure and
+**54** in the phone's column. Cut, it opens on **3** and **5**. The difference between "the model
+wrote one very long sentence" and "the product drew nineteen sentences as one paragraph" is the
+whole of what the cut bought: the first is the model's prose and the second was ours. Closing the
+remainder would mean cutting inside a sentence, which costs the guarantee that what is on screen
+is what the model wrote — and that guarantee is worth more than seventeen lines.
+
+`ui/prose.test.tsx` fails if the 366 stop being cut at every boundary, or if that worst recorded
+string stops being one sentence in its opening block — which is the fact that makes the hole
+unclosable rather than unclosed.
+
+## PARTLY FIXED — `max-w-[46ch]` is written four times on the finding surface and means four widths
+
+`features/review/finding-detail.tsx` declares `max-w-[46ch]` on four blocks. A `ch` is the
+advance of the digit zero in the element's **own** used font, so each one resolves against the
+type that block declares:
+
+| block | type | `46ch` resolves to |
+| --- | --- | --- |
+| `Footnote` | `text-[12px]` | 367.08px |
+| the "How it was detected" rationale | `text-[12.5px]` | 382.38px |
+| the policy list's empty state | `text-[13px]` | 397.67px |
+| the question's answer | `text-[14px]` | 428.26px |
+
+61.18px between the narrowest and the widest. This is the same fault `ui/markdown.tsx` was
+repaired for in the same pass — one `46ch` on seven renderers that meant five widths — and it
+went unseen here because every guard on this surface reads the model's argument and the lede,
+which are the two blocks somebody had already suspected.
+
+**The fifth is fixed.** It was `<ul className="grid max-w-[46ch] gap-2">` on the policy list,
+and it was the worst of the five rather than one more of them: a `ch` on a block that declares
+no font size resolves against whatever it inherited, which here is the root's 16px, so it drew
+**489.44px** while the note inside it was `text-[14px]` whose own 46ch is 428.26px. It also
+capped the wrong box — the card spends 30px on `px-3.5` and two hairlines, so the note was
+reading at 459.44px, 65.47 characters a line measured over all 514 recorded notes. It is now
+`max-w-[26.75rem]`: the note's own 46 characters at the 13px it is now set in, 397.67px, plus
+the 30px the card costs, rounded to a quarter-rem. The note draws at **398.00px** and stops
+within a third of a pixel of the empty state that replaces it, which is the third row above.
+
+**How the figures were produced.** `46 x size x advance`, where the advance is Onest's zero at
+the weight each block declares: 0.665em at 400, read off the `hmtx` table of the shipped
+`onest.woff2`. All four blocks inherit 400, so this set differs by size alone. Nothing above is
+typed in by hand — "resolves every `46ch` this surface declares, and none of them from an
+ancestor" in `features/review/finding-detail.test.tsx` reads the class lists out of the
+component's own source and computes them. It asserts a property rather than a count, so
+repairing one of these four passes and introducing a fifth *width* fails. The drawn widths are
+rectangles from a headless Chromium serving the built stylesheet, with both Onest weights
+asserted through `document.fonts.check` before anything was read.
+
+**Why the remaining four are recorded rather than fixed.** Closing it means deciding which edge
+these four blocks should share, and whether the answer is one shared `rem` (which is what
+`ui/markdown.tsx` chose) or four deliberate widths said in a unit that does not follow the type.
+That is a decision about the surface, not about a number. What the repaired fifth settles is
+narrower and is not that decision: a `ch` that cannot be resolved from the class list stating it
+is wrong whatever the surface decides, because no reader of that line can tell what it draws.
 
 ## PARTLY FIXED — `Label` still has twenty-two hand-rolled copies
 

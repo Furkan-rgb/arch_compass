@@ -720,3 +720,101 @@ def test_the_way_out_of_a_held_finding_is_the_first_control_a_phone_reaches(  # 
         f"**Judgement context** at {where['contextBelowArgument']:.0f}px, the decision bar at "
         f"{where['decisionsBelowArgument']:.0f}px"
     )
+
+
+#: The widest run of characters the model has ever written that a line breaker may not split.
+#:
+#: `(src.audiobook.preparation.providers.base.NarrationPreparationProvider)` — 71 characters,
+#: brackets included, because UAX #14 forbids a break after an opening bracket and before a
+#: closing one. It sets **541.7px** in Onest at the reading size, against the **324px** column a
+#: phone gives the model's paragraph. `ui/prose.test-corpus.ts` carries the measurement and the
+#: recipe; this file only needs the string.
+WIDEST_UNBREAKABLE_TOKEN = "(src.audiobook.preparation.providers.base.NarrationPreparationProvider)"
+
+#: Put the widest recorded name into the argument and report what the block is drawn at.
+#:
+#: The text is replaced on the paragraph the component rendered rather than injected into a box
+#: of the test's own, because what is under test is the *shipped* block: its measure, its
+#: wrapping and every ancestor between it and the document. React is not re-rendering while this
+#: runs, so the node keeps the class list it was given.
+_WIDEST_NAME_IN_THE_ARGUMENT = """(token) => {
+  const argument = document.querySelector('[class*="max-w-[58ch]"][class*="text-[16px]"]');
+  if (!argument) return null;
+  const block = argument.querySelector('p');
+  if (!block) return null;
+  block.textContent = `The candidate is ${token} and it has one implementation here.`;
+  const style = getComputedStyle(block);
+  return {
+    overflowWrap: style.overflowWrap,
+    wordBreak: style.wordBreak,
+    column: block.clientWidth,
+    ink: block.scrollWidth,
+  };
+}"""
+
+#: The same block with the permission withdrawn, which is what deleting the class does.
+_WITHOUT_THE_BREAK = """() => {
+  const block = document.querySelector(
+    '[class*="max-w-[58ch]"][class*="text-[16px]"] p',
+  );
+  block.style.overflowWrap = 'normal';
+  block.style.wordBreak = 'normal';
+  return { column: block.clientWidth, ink: block.scrollWidth };
+}"""
+
+
+def test_a_name_wider_than_the_column_folds_instead_of_widening_the_phone(  # type: ignore[no-untyped-def]
+    phone_page, review_url: str
+) -> None:
+    """The one class that keeps a qualified name inside a 324px column, measured where it acts.
+
+    `ModelProse` sets `wrap-anywhere` on every block it draws. Take it off and 48 of the 375
+    recorded judgements draw wider than the column a phone gives that block, the worst by 218px:
+    the widest unbreakable run the model has written is 541.7px against a 324px column. Deleting
+    the class was silent in the whole suite. It was
+    silent *here* too, and for a reason worth naming rather than fixing quietly: the fit check
+    above already measures horizontal overflow on every state of this workbench at 390px, and
+    the deterministic review it drives has never produced a name long enough to reach it. A
+    guarantee held by what one fixture happens to say is not a guarantee, so the content is
+    supplied instead of hoped for.
+
+    The control is the second half and it is what makes the first half mean anything: the same
+    block, the same measurement, with the permission withdrawn — if that does not report, the
+    assertion above is passing on a page where nothing was ever at risk.
+
+    `ui/prose.test.tsx` holds the other half, which is that the block declares the permission at
+    all. This is the half that knows nothing between the paragraph and the document takes it
+    away again.
+    """
+
+    wait_for_review(phone_page, review_url)
+    show_everything(phone_page)
+    open_first_candidate(phone_page)
+    phone_page.locator("[class*='max-w-[58ch]']").first.wait_for(
+        state="visible", timeout=REVIEW_TIMEOUT_MS
+    )
+    # The face has to be the shipped Onest before any width is read: `font-display: swap`
+    # otherwise answers with a fallback whose zero is 0.6299em, and every figure is five per
+    # cent wrong.
+    phone_page.evaluate("() => document.fonts.ready")
+
+    drawn = phone_page.evaluate(_WIDEST_NAME_IN_THE_ARGUMENT, WIDEST_UNBREAKABLE_TOKEN)
+    assert drawn is not None, "no block at the reading size in an open finding"
+    assert drawn["column"] <= 390, (
+        f"the argument is {drawn['column']}px wide inside a 390px phone, so the column this "
+        "test is about is not the one on screen"
+    )
+
+    assert drawn["ink"] <= drawn["column"], (
+        f"the model's paragraph draws {drawn['ink']}px of text inside a {drawn['column']}px "
+        f"column: a {WIDEST_UNBREAKABLE_TOKEN!r} the line breaker may not split has pushed the "
+        "column open instead of folding inside it"
+    )
+    _assert_fits(_fit_failures(phone_page, "a finding whose argument names the widest candidate"))
+
+    # And the check is not vacuous. Take the permission away and the same page reports.
+    without = phone_page.evaluate(_WITHOUT_THE_BREAK)
+    assert without["ink"] > without["column"], (
+        "with the anywhere-break withdrawn the paragraph still fits its column, so the "
+        "assertion above was never at risk on this row and proves nothing about the class"
+    )
