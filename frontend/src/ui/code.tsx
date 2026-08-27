@@ -4,6 +4,72 @@ import { CopyButton } from "./button";
 import { PathRef } from "./meta";
 
 /**
+ * Code in two columns: the line numbers, and the code.
+ *
+ * Lifted out of `SourceExcerpt` because a second surface needs the same two columns without
+ * the box around them. `features/review/lookup-result.tsx` draws the body of a `read_file`
+ * lookup, which arrives from the tool with its numbers already baked into the text as a
+ * right-aligned gutter — the one shape that cannot be handed to a Python grammar as it
+ * stands, because `  1  def foo():` colours the number as a literal and can derail the parse
+ * from there. Splitting the gutter off and rendering it as a column is exactly what this
+ * already did, so the transcript takes this rather than growing a second copy of it.
+ *
+ * It is not `SourceExcerpt` itself over there for one reason: that component's copy button is
+ * absolutely positioned against the box, and the transcript's box is the `max-h-64` scroller
+ * the fold caps every result with. A button pinned inside a vertical scrollport travels with
+ * the content, which is the failure the comment on that button describes, one axis over.
+ */
+export function NumberedCode({
+  code,
+  startLine,
+  path,
+  language,
+  className,
+}: {
+  /** The code alone. Any gutter the source carried must already be off it. */
+  code: string;
+  /** What the first line of `code` is numbered; the rest count up from it. */
+  startLine?: number | null;
+  /** The file it was read from; the extension is what decides the colouring. */
+  path?: string | null;
+  /** Overrides the path, for code that arrived without one — a Markdown fence. */
+  language?: string;
+  className?: string;
+}) {
+  const lines = code.split("\n");
+  const resolved = language ?? languageForPath(path);
+  // The whole excerpt is highlighted once and the numbers are a separate column, because
+  // highlighting line by line would end a docstring at every newline and start a new one.
+  // The two columns line up because they share a line height and neither of them wraps.
+  const coloured = highlight(code, resolved);
+
+  return (
+    <div className={cn("scrollbar-slim overflow-x-auto", className)}>
+      <div className="flex min-w-full py-2.5 font-mono text-[12px] leading-[1.65]">
+        {/* `--ink-3` flat, not `text-ink-3/70`. The tier was split into two values precisely
+            so it would clear the AA bar on every ground in both themes; an alpha on top of
+            it composited to `#8b8b8b` on this block in light — 3.0:1 — and threw that
+            guarantee away on the one line of an excerpt that says which lines of the file
+            the claim is about. */}
+        <div aria-hidden="true" className="shrink-0 select-none px-3 text-right tabular-nums text-ink-3">
+          {lines.map((_, index) => (
+            <div key={index}>{startLine ? startLine + index : index + 1}</div>
+          ))}
+        </div>
+        {/* The excerpt is the file's own text, so it stays selectable and copyable without
+            the numbers coming with it. */}
+        <pre className="min-w-0 flex-1 text-ink">
+          <code
+            className={resolved ? `language-${resolved}` : undefined}
+            dangerouslySetInnerHTML={{ __html: coloured || " " }}
+          />
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+/**
  * A pinned source excerpt.
  *
  * Line numbers are rendered beside the code rather than baked into it, so the excerpt can
@@ -25,12 +91,6 @@ export function SourceExcerpt({
   className?: string;
 }) {
   const body = excerpt.replace(/\n$/, "");
-  const lines = body.split("\n");
-  const resolved = language ?? languageForPath(path);
-  // The whole excerpt is highlighted once and the numbers are a separate column, because
-  // highlighting line by line would end a docstring at every newline and start a new one.
-  // The two columns line up because they share a line height and neither of them wraps.
-  const coloured = highlight(body, resolved);
 
   return (
     <div className={cn("relative rounded-md border border-rule bg-sunken pr-9", className)}>
@@ -61,31 +121,7 @@ export function SourceExcerpt({
         label="Copy the excerpt"
         className="absolute right-1 top-1 z-10 border-rule-control bg-control"
       />
-      <div className="scrollbar-slim overflow-x-auto">
-        <div className="flex min-w-full py-2.5 font-mono text-[12px] leading-[1.65]">
-          {/* `--ink-3` flat, not `text-ink-3/70`. The tier was split into two values precisely
-              so it would clear the AA bar on every ground in both themes; an alpha on top of
-              it composited to `#8b8b8b` on this block in light — 3.0:1 — and threw that
-              guarantee away on the one line of an excerpt that says which lines of the file
-              the claim is about. */}
-          <div
-            aria-hidden="true"
-            className="shrink-0 select-none px-3 text-right tabular-nums text-ink-3"
-          >
-            {lines.map((_, index) => (
-              <div key={index}>{startLine ? startLine + index : index + 1}</div>
-            ))}
-          </div>
-          {/* The excerpt is the file's own text, so it stays selectable and copyable without
-              the numbers coming with it. */}
-          <pre className="min-w-0 flex-1 text-ink">
-            <code
-              className={resolved ? `language-${resolved}` : undefined}
-              dangerouslySetInnerHTML={{ __html: coloured || " " }}
-            />
-          </pre>
-        </div>
-      </div>
+      <NumberedCode code={body} startLine={startLine} path={path} language={language} />
     </div>
   );
 }
