@@ -1596,8 +1596,10 @@ def test_the_revision_delta_compares_a_judgement_identity_per_candidate() -> Non
     comparison that ran once and then spoke for every candidate. That placement is what made
     a review-wide value the only thing there was to compare against, and it is what makes
     reintroducing such a field the obvious repair the next time somebody needs a second
-    opinion here. With one finding in scope the only stamps reachable are that candidate's
-    own, so the fix cannot be undone by half.
+    opinion here. With one finding in scope the only stamps a comparison can *name* are that
+    candidate's own — which is a rule about where an attribute may be written, and not the
+    same thing as a guarantee about what is compared. The last paragraph measures the
+    difference.
 
     **The reach is every function in `src/archcompass`, and it was `calculate` alone until a
     verify pass walked through the gap.** A helper lifted to module level in `delta.py`, taking
@@ -1635,10 +1637,36 @@ def test_the_revision_delta_compares_a_judgement_identity_per_candidate() -> Non
     Neither of this pair is complete alone and neither is a re-spelling of the code. This one
     asserts a placement and says nothing about what is compared;
     `test_no_record_of_many_findings_claims_one_judgement_identity` asserts what may exist to
-    be compared and says nothing about where. Four ways of putting the comparison back were
-    written out and run against this sweep — the verifier's module-level helper, the same
-    helper moved to a second module, the original hoist into `global_causes`, and the
-    `tuple[Finding, ...]` dodge — and all four fail it.
+    be compared and says nothing about where.
+
+    What this sweep catches and what it does not, measured rather than argued: twelve
+    reconstructions of the defect were written into a copy of `src/`, one at a time, and this
+    sweep was run over each with the control passing. Six fail it — the verifier's
+    module-level helper, the same helper moved to a second module, the same helper as a method
+    on the calculator, the original hoist into `global_causes`, a comprehension over
+    `previous.findings` written inline in `calculate`, and the `tuple[Finding, ...]` dodge.
+    Six pass it, and are caught only by
+    `test_a_review_that_mixed_two_models_re_judges_only_what_the_moved_model_judged`: the same
+    review-wide comparison written lexically inside the candidate loop, a local alias of
+    `previous.findings` subscripted inside that loop, the module-level helper given an unused
+    parameter annotated `Finding`, `getattr(item, "model_identity")` in place of attribute
+    access, a set difference in place of `!=`, and a pair of helpers handing the two sides
+    back as tuples.
+
+    The last three of those share one shape, and it is the shape a sweep of this kind cannot
+    reach: a stamp that is never spelled as an attribute inside a comparison never enters
+    `compared` at all, and following a joined string back to what it was joined from is a
+    taint analysis rather than a sweep. The first three are reachable, by requiring the
+    comparison to read a stamp off a parameter annotated `Finding` rather than merely to sit
+    somewhere inside a function that has one. That rule was written and run against all twelve
+    and closes all three. It is not the rule here because it also refuses a correctly scoped
+    comparison written against a local `Finding` — also run — which makes it a prescription
+    about how the delta must be spelled rather than a guard against this defect, and that is a
+    wider decision than this test gets to take alone.
+
+    So the pair narrows the routes and does not close them, and the behavioural test above is
+    load-bearing rather than a second opinion. Anybody widening this sweep should run those
+    twelve before believing the widening worked.
     """
 
     def _named(node: ast.FunctionDef | ast.AsyncFunctionDef, pattern: str) -> set[str]:

@@ -320,10 +320,11 @@ def request_body(max_output_tokens: int, thinking: ThinkingMode = None) -> dict[
     and until this mapping existed both of those sentences were false. `isinstance(thinking,
     str)` was the whole condition, so `True` produced no `reasoning` key at all — which is
     precisely the decay into absence that `ReasoningModelConfig.thinking` forbids, and it was
-    reachable. Measured on the parent commit, `--provider openrouter` with each of the three
-    settings sent `{"max_tokens": 32768}` for `on`, `{"max_tokens": 16384}` for `off` and
-    `{"max_tokens": 32768}` for naming no depth at all: `on` and absent were the same request
-    byte for byte, `off` differed from both only in the budget, because
+    reachable. Measured on the parent commit by calling this function for each of the three
+    settings: `on` and naming no depth at all both produced `{"max_tokens": 32768,
+    "temperature": 0}`, and `off` produced `{"max_tokens": 16384, "temperature": 0}` — those
+    are the whole bodies, not an excerpt. `on` and absent were the same request byte for
+    byte, `off` differed from both only in the budget, because
     `_spends_little_on_thinking` reads `False` as a mode that spends little. So three settings
     reached the provider as two instructions about budget and none about reasoning, which is
     the whole of what the switch was for. `test_provider_conformance.py` asserts the three

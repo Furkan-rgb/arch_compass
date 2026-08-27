@@ -435,18 +435,23 @@ def test_the_three_thinking_states_reach_the_wire_as_three_instructions(
     It was broken on the hosted path and passing on the local one, which is what made it
     worth writing as one test over both. `openrouter.request_body` sent `reasoning` only for
     a `str`, so nothing the switch chose reached the provider as reasoning at all. Measured on
-    the parent commit, the three settings produced `{"max_tokens": 32768}` for `on`,
-    `{"max_tokens": 16384}` for `off` and `{"max_tokens": 32768}` for absent: `on` and absent
-    were byte-identical, and `off` was told apart only by its budget, because
+    the parent commit, `on` and absent both produced the whole body `{"max_tokens": 32768,
+    "temperature": 0}` and `off` produced `{"max_tokens": 16384, "temperature": 0}`: `on` and
+    absent were byte-identical, and `off` was told apart only by its budget, because
     `_spends_little_on_thinking` reads `False` as a mode that spends little. Three settings,
     two instructions about budget, none about reasoning — and the model's own default every
     time.
 
-    Only the thinking field is compared here, and that is what makes the three assertions
-    below mean what they say. A difference in a budget is not the provider being told anything
-    about reasoning: the same three broken bodies, compared whole, satisfy two of these three
-    pairs, so a whole-body version of this test would have reported the switch working while
-    every request said nothing about reasoning at all.
+    Only the thinking field is compared here, and the reason is not that a whole-body version
+    would have missed that defect. It would have caught it, on the `on`/absent pair — checked
+    by writing that version and running it against the broken `request_body`. The reason is
+    that a whole-body version is green for reasons that have nothing to do with reasoning:
+    against those same broken bodies its other two assertions pass on a difference in budget
+    alone. Push that one step and it is green everywhere. With `reasoning` deleted from
+    `request_body` and the three states given three different budgets — both edits made, both
+    runs recorded — the whole-body version passes all three pairs while the three assertions
+    below still fail. A budget is not an instruction about reasoning, and only a comparison
+    that cannot see the budget can say so.
     """
 
     said = {
