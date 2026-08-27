@@ -82,6 +82,51 @@ function resolved(theme: "light" | "dark"): Map<string, [number, number, number]
   return values;
 }
 
+/** The alpha of `rgb(r g b / N%)` or `rgb(r g b / N)`, and 1 for a value that states none. */
+function alpha(value: string): number {
+  const percent = /\/\s*([\d.]+)%/.exec(value);
+  if (percent) return Number(percent[1]) / 100;
+  const fraction = /\/\s*([\d.]+)\s*\)/.exec(value);
+  return fraction ? Number(fraction[1]) : 1;
+}
+
+/** `top` at opacity `a`, painted over the opaque `bottom`. */
+function over(
+  top: [number, number, number],
+  a: number,
+  bottom: [number, number, number],
+): [number, number, number] {
+  return [0, 1, 2].map((i) => top[i] * a + bottom[i] * (1 - a)) as [number, number, number];
+}
+
+/** How far apart two greys are, in levels of the 0-255 ramp. */
+function levels(a: [number, number, number], b: [number, number, number]): number {
+  return Math.max(...[0, 1, 2].map((i) => Math.abs(a[i] - b[i])));
+}
+
+/**
+ * One token's value in one theme, kept with its alpha, which `resolved` throws away.
+ *
+ * Same light-is-first reading as `resolved`, and the same skip: `.band` redeclares `--rule`
+ * as `var(--band-rule)`, which is not a colour and is not this token's value anywhere a
+ * `channels` call can see.
+ */
+function declared(
+  theme: "light" | "dark",
+  name: string,
+): { rgb: [number, number, number]; a: number } {
+  let found: { rgb: [number, number, number]; a: number } | null = null;
+  for (const declaration of declarations()) {
+    if (declaration.name !== name) continue;
+    const rgb = channels(declaration.value);
+    if (!rgb) continue;
+    if (theme === "light" && found) continue;
+    found = { rgb, a: alpha(declaration.value) };
+  }
+  if (!found) throw new Error(`${name} is not declared as a colour in ${theme}`);
+  return found;
+}
+
 /**
  * The one family that carries meaning by hue. Everything outside the exemptions below is grey.
  *
@@ -206,6 +251,50 @@ describe("the token layer", () => {
   });
 
   /**
+   * A hairline is a hairline because of how close it is to the surface it separates.
+   *
+   * `--rule` is the whole structural device of this system and the one value in it that had
+   * nothing asserting anything about its colour. What rests on it: the docket draws a run of
+   * same-verdict rows as one three-pixel column of colour and lets `divide-y divide-rule` cut
+   * it into rows. That reads as a boundary and not as damage for exactly one reason — the
+   * line is about 26 levels of grey off the panel it crosses. 10% black on `#ffffff`
+   * composites to 229.5, and 11% white on `#0d0d0d` to 39.6.
+   *
+   * The failure this exists for is not the rule going missing. It is the rule going *loud*.
+   * Drop `divide-rule` and keep `divide-y` and the border falls back to `currentColor`, which
+   * is `--ink`: 245 levels off the surface in light, at exactly the same one pixel of width.
+   * `tests/browser/` asserts that the docket's row rule is the value of this token rather
+   * than merely present, and a browser cannot see a hex code to say whether the value is a
+   * sane one. That half is arithmetic, so it is here.
+   */
+  it("keeps the rule a hairline against the surface it separates", () => {
+    for (const theme of ["light", "dark"] as const) {
+      const surface = resolved(theme).get("--surface")!;
+      const ink = resolved(theme).get("--ink")!;
+      const rule = declared(theme, "--rule");
+      const painted = over(rule.rgb, rule.a, surface);
+
+      const hairline = levels(painted, surface);
+      expect(
+        hairline,
+        `${theme}: --rule paints ${hairline.toFixed(1)} levels off --surface — that is a line`,
+      ).toBeLessThan(40);
+      expect(
+        hairline,
+        `${theme}: --rule paints ${hairline.toFixed(1)} levels off --surface — nothing is there`,
+      ).toBeGreaterThan(8);
+
+      // And the distance that makes asserting this colour in a browser worth the trouble:
+      // the fallback a lost token leaves behind is an order of magnitude louder.
+      const shout = levels(ink, surface);
+      expect(
+        shout / hairline,
+        `${theme}: currentColor is only ${(shout / hairline).toFixed(1)}x the rule's contrast`,
+      ).toBeGreaterThan(5);
+    }
+  });
+
+  /**
    * The ramp has to be readable on every ground the ramp itself defines.
    *
    * `--ink-3` was `#737373` in both themes, on the argument that a value near the middle
@@ -250,5 +339,183 @@ describe("the token layer", () => {
     expect(failures, "an ink that fails AA on a ground is unreadable text, not a quiet one").toEqual(
       [],
     );
+  });
+
+  /**
+   * The one part of the ramp nothing measured, on the one ground it is ever painted on.
+   *
+   * `keeps every ink readable on every ground it is painted on` above was written because
+   * nothing had ever checked the ink ramp's arithmetic. `isCode` existed when it was written
+   * and the loop never used it, so the four `--code-*` values were the exemption that was
+   * never audited — and a syntax palette is where saturation is spent, which is exactly where
+   * a contrast failure hides. This is that audit.
+   *
+   * **4.5:1, not 3:1.** A highlighted token is body text: `ui/code.tsx` draws an excerpt at
+   * 12px and `features/review/lookup-result.tsx` draws a lookup at 11px. Neither is large
+   * text under any reading of the WCAG threshold, and 11px is the smallest text in the
+   * product.
+   *
+   * **One ground, and it is established rather than assumed.** Every element that renders
+   * `hljs-` spans sits on `--sunken`: `SourceExcerpt` and the `pre` in `ui/markdown.tsx`
+   * declare `bg-sunken` themselves, and `ResultBox` in `features/review/lookup-result.tsx`
+   * declares it for both shapes that reach it. `NumberedCode` has no fill of its own and its
+   * only two callers are the first and the third. So the second assertion below is not
+   * decoration: it proves `--sunken` is the *tightest* of the four grounds in both themes —
+   * the darkest one in light, the lightest one in dark — which is what makes a single ratio
+   * here a bound on all four, and what would fail if the elevation ramp were reordered under
+   * this test.
+   */
+  it("keeps every code colour readable on the ground code is painted on", () => {
+    const failures: string[] = [];
+
+    for (const theme of ["light", "dark"] as const) {
+      const values = resolved(theme);
+      const sunken = values.get("--sunken")!;
+      const code = [...values.keys()].filter(isCode);
+      expect(code.sort(), `${theme}: the code palette is four roles`).toEqual([
+        "--code-comment",
+        "--code-keyword",
+        "--code-lit",
+        "--code-name",
+      ]);
+
+      for (const role of code) {
+        const ratio = contrast(values.get(role)!, sunken);
+        if (ratio < 4.5) {
+          failures.push(`${theme}: ${role} on --sunken is ${ratio.toFixed(2)}:1`);
+        }
+      }
+
+      // `--sunken` is the worst case, so clearing it clears the other three grounds.
+      const ink = values.get("--ink")!;
+      for (const ground of ["--canvas", "--surface", "--surface-2"] as const) {
+        expect(
+          contrast(ink, values.get(ground)!),
+          `${theme}: ${ground} is a tighter ground than --sunken, so the bar above is measured on the wrong one`,
+        ).toBeGreaterThan(contrast(ink, sunken));
+      }
+    }
+
+    expect(
+      failures,
+      "code at 11px is body text, and a token under 4.5:1 is a colour that stopped being readable",
+    ).toEqual([]);
+  });
+
+  /**
+   * A token declared in two of the three scopes is a theme bug that only one reader sees.
+   *
+   * `index.html` stamps `data-theme` before first paint, so `:root[data-theme="dark"]` is what
+   * normally runs; the `prefers-color-scheme` block is the fallback for a reader whose browser
+   * never executed that script. A value added to one dark block and not the other is invisible
+   * to whoever writes it and wrong for everyone on the other path — and the code palette is
+   * the family most likely to be edited one hue at a time.
+   */
+  it("declares every code colour in all three scopes, with the two dark ones agreeing", () => {
+    const byName = new Map<string, string[]>();
+    for (const { name, value } of declarations()) {
+      if (!isCode(name)) continue;
+      byName.set(name, [...(byName.get(name) ?? []), value]);
+    }
+
+    expect([...byName.keys()].sort(), "the code palette is four roles").toEqual([
+      "--code-comment",
+      "--code-keyword",
+      "--code-lit",
+      "--code-name",
+    ]);
+
+    for (const [name, values] of byName) {
+      expect(values.length, `${name}: light, the media query and the attribute — three`).toBe(3);
+      expect(values[1], `${name}: the two dark declarations disagree`).toBe(values[2]);
+    }
+  });
+
+  /**
+   * Four roles a reader can tell apart, measured as distance rather than asserted as taste.
+   *
+   * The complaint this exists for is that an excerpt reads flat, and the diagnosis is in the
+   * comment above `--code-keyword` in `styles.css`: tokenising all 501 stored `read_file`
+   * lookups says 48.11% of a block's non-space characters carry no class at all and are drawn
+   * in `--ink`, so the palette's colours are always a minority of what is on screen and each
+   * one has to survive being read *against* that ink. Contrast against the ground is a
+   * different question and the test above it is where that lives; this is about telling the
+   * five things in a block apart from each other.
+   *
+   * OKLab ΔE, not hue, because hue alone is what was wrong. The dark palette used to be three
+   * pastels spanning 0.103 of lightness and 0.012 of chroma — separated on paper by 96 degrees
+   * of hue and, at the 11px `features/review/lookup-result.tsx` renders at, barely at all.
+   *
+   * The three bars are the three questions, and each sits about a quarter below the tightest
+   * pair it governs so a nudge does not fail it and a reversal does:
+   *
+   *   0.20  a coloured role against the plain ink — is this token classified at all?
+   *         Tightest: `--code-keyword` in dark, 0.273.
+   *   0.15  the name against the literal — is this a name or a written-out value?
+   *         Tightest: dark, 0.196. It was 0.111 before the literal moved off cyan.
+   *   0.09  the name against the keyword — ours or the language's? Tightest: dark, 0.117.
+   *         The lowest bar of the three on purpose: this is the one pair the palette does not
+   *         carry by colour alone, because `.hljs-keyword` is also the only role set in the
+   *         mono's 600 weight, and `styles.css` loads exactly two cuts of IBM Plex Mono, so
+   *         there is no third weight to give a second role even if one were wanted.
+   *
+   * A fourth clause holds the arc itself: the three hues span 130° in light and 136° in dark,
+   * where they spanned 81° and 96° before the literal moved off cyan, and the bar is 110°.
+   * That is the same decision the 0.15 bar above is a consequence of, said in the units it was
+   * made in — and it is what catches the light half of that move, which the ΔE bar does not:
+   * light was already 0.173 there, comfortably over 0.15, while its hue span was not.
+   *
+   * `--code-comment` against `--code-lit` is the tightest pair in the set at 0.092 in light,
+   * and it has no bar. A docstring and a `#` comment are both prose inside code; reading one
+   * as the other costs a reader nothing, and buying distance there would have to come out of
+   * a pair that matters. Naming it here is what stops it being an oversight.
+   */
+  it("keeps the four code roles apart from each other and from the ink they sit in", () => {
+    /** OKLab ΔE — the straight-line distance, which is what OKLab is for. */
+    const distance = (a: [number, number, number], b: [number, number, number]) => {
+      const oklab = ([r, g, bl]: [number, number, number]) => {
+        const { l, c, h } = oklch([r, g, bl]);
+        return [l, c * Math.cos((h * Math.PI) / 180), c * Math.sin((h * Math.PI) / 180)];
+      };
+      const [x, y] = [oklab(a), oklab(b)];
+      return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+    };
+
+    for (const theme of ["light", "dark"] as const) {
+      const values = resolved(theme);
+      const get = (name: string) => values.get(name)!;
+      const ink = get("--ink");
+
+      for (const role of ["--code-keyword", "--code-name", "--code-lit", "--code-comment"]) {
+        const apart = distance(get(role), ink);
+        expect(
+          apart,
+          `${theme}: ${role} is ${apart.toFixed(3)} from --ink, which is most of the block`,
+        ).toBeGreaterThan(0.2);
+      }
+
+      const fromLiteral = distance(get("--code-name"), get("--code-lit"));
+      expect(
+        fromLiteral,
+        `${theme}: a name and a literal are ${fromLiteral.toFixed(3)} apart`,
+      ).toBeGreaterThan(0.15);
+
+      const fromKeyword = distance(get("--code-name"), get("--code-keyword"));
+      expect(
+        fromKeyword,
+        `${theme}: a name and a keyword are ${fromKeyword.toFixed(3)} apart`,
+      ).toBeGreaterThan(0.09);
+
+      // And the arc the three are spread across, which is the decision the ΔE bars are the
+      // consequence of. A plain max-minus-min is the right reading only because every code
+      // hue is between 170 and 310 degrees — `keeps code colour off the accent` above is what
+      // holds them there, and a value that escaped that arc would fail it first.
+      const hues = ["--code-keyword", "--code-name", "--code-lit"].map((n) => oklch(get(n)).h);
+      const span = Math.max(...hues) - Math.min(...hues);
+      expect(
+        span,
+        `${theme}: the three code hues span ${Math.round(span)}°`,
+      ).toBeGreaterThan(110);
+    }
   });
 });

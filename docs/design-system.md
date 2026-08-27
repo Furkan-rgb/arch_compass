@@ -174,7 +174,8 @@ What was wrong was that the note was set at **14px on `leading-relaxed`**, which
 size belonging to neither voice: every other sentence in that fold and the two beside it is 13px
 on `leading-6`, including the "No policy applied here" paragraph that *replaces this
 very list*. The fold answered one question at two sizes depending on whether a policy happened to
-bear. It is 13px now, and the list's cap is the note's own measure plus the 30px its card spends
+bear. It is 13px now, and the cap — a grid track, so the list can put several cards
+across a wide fold — is the note's own measure plus the 30px its card spends
 on padding and hairlines, so the note draws at **398.00px** and stops 0.34px from the empty state
 that replaces it. `Prose` stays: only 13 of the 514 carry a backtick, against 64 of 375, but a
 quoted name rendered as a literal backtick is unambiguous rather than a matter of degree.
@@ -523,24 +524,65 @@ Four roles, from roughly thirty token classes the highlighter emits:
 
 | Token | Role | Light | Dark |
 | --- | --- | --- | --- |
-| `--code-keyword` | the language's own words — `def`, `class`, `return` | `#7e22ce` | `#d8b4fe` |
-| `--code-name` | what somebody named — a function, a class, a tag | `#1d4ed8` | `#93c5fd` |
-| `--code-lit` | what is written out — a string, a number | `#0e7490` | `#67e8f9` |
+| `--code-keyword` | the language's own words — `def`, `class`, `return` | `#7e22ce` | `#cf94ff` |
+| `--code-name` | where a name is bound — a def, a class, a tag, a parameter | `#1d4ed8` | `#7ea8ff` |
+| `--code-lit` | what is written out — a string, a number | `#006c56` | `#00b694` |
 | `--code-comment` | prose inside code; the only neutral, and italic | `#5f5f5f` | `#8a8a8a` |
 
 Everything the highlighter emits outside those four inherits the block's ink. Colouring all
 thirty classes produces an excerpt harder to read than the editor it came from.
 
+**Still four, and the count is a measurement rather than a preference.** Tokenising all 501
+stored `read_file` lookups as Python and attributing every non-space character to the class it
+lands in: 48.11% of a block carries no class at all, 26.76% is the literal, 8.61% the keyword,
+8.02% the comment, 4.29% `hljs-params`, 3.22% the name, and 0.99% everything else. The first
+number is the ceiling on the whole idea — forty-two of those forty-eight points are identifier
+characters the highlighter never tags, so no selector can reach them and roughly half of every
+block is `--ink` whatever the palette says. That is why a block reading flat is answered by the
+*separation* of the four and not by a fifth and sixth selector: the entire remaining supply is
+5.28 points.
+
+`hljs-params` is the one of those worth claiming, and taking it sharpened the role rather than
+stretching it. `--code-name` is not "every occurrence of a name" — a reference like
+`self._matrix` is two identifiers the tokeniser leaves bare, so that reading was never
+reachable. It is **where a name is bound**: the def, the class, the tag, the key, and the
+parameters a signature declares. A parameter list is 4.29% against the role's own 3.22%, and it
+is the part of an excerpt a reviewer reads first.
+
 The accent rule is not suspended, because it was never a rule about abstinence — it is a rule
 about *hue*. Red means look here. So the code palette lives on the cool half of the wheel,
 where the accent never goes, and the closest any of the six values comes to it is the 85
-degrees between violet and `--accent` in light, 81 in dark. A keyword cannot be misread as a
+degrees between violet and `--accent` in light, 78 in dark. A keyword cannot be misread as a
 material badge, because no badge is ever violet. `tokens.test.ts` asserts that distance rather
 than trusting six hex codes to hold it.
 
 The argument used to be made against a green `cleared` 42 degrees from cyan, which was the
 tightest pair in the set. Held and cleared gave up their hues, so the set is wider now — and
-the bar stays at 35 degrees, because it was never sized to the comfortable case.
+the bar stays at 35 degrees, because it was never sized to the comfortable case. It is also
+what lets the literal sit at 172° now: `tokens.test.ts` holds `--held` and `--cleared` at no
+chroma at all, so there is no green anywhere on this surface for a green string to be mistaken
+for.
+
+**The four have to be told apart from each other, and that is a second measurement.** The
+literal was cyan at 221°, and cyan is where a light theme runs out of colour: sweeping the sRGB
+cube for the most chromatic value clearing 5.5:1 on `--sunken`, the arc from 170° to 220° tops
+out at an OKLCH chroma of 0.079–0.093 while the blue at 250° reaches 0.195 and the violets
+0.23–0.29. A quarter of every block was drawn in the one hue that could not be seen. At 172°
+the three hues span 130° in light and 136° in dark, where they spanned 81° and 96°, and the
+literal sits 0.239 from the name in OKLab in light (it was 0.173) and 0.196 in dark (0.111).
+
+Dark moved on chroma rather than hue. `#d8b4fe`, `#93c5fd` and `#3fb8cc` were three pastels
+spanning 0.103 of lightness and 0.012 of chroma at 9.32:1, 9.14:1 and 7.02:1 — every one of them
+*dimmer* than the `--ink` drawing the uncoloured half of the block around them, and a hue
+quieter than its surroundings reads as fading rather than as colour. The same sweep says dark
+has room light does not: at 7:1 the whole cool arc carries 0.134–0.24 of chroma. The lift is
+paid for out of contrast that was never needed, and `--code-name` gains the most — 0.282 from
+`--ink` where it was 0.200.
+
+The literal is the quietest of the three in both themes on purpose: 5.37:1 and 6.37:1, under
+both of the others. 19.66 of its 26.76 points are triple-quoted strings, and a docstring drawn
+louder than the code it documents makes the largest block of prose the first thing the eye
+lands on.
 
 The highlighter is a tokeniser only. It emits `hljs-…` class names and `styles.css` gives
 them colour, so no highlight.js stylesheet is imported and a keyword follows the workspace
@@ -825,6 +867,10 @@ Every rule below is a test in `frontend/src/ui/design-system.test.ts`, `ui/token
 | No second face — no `font-read`, no `font-serif` | The model's voice is placement, attribution and the reading size. A face leaks; those do not |
 | No chroma outside the accent or the code palette | Any other token whose RGB channels differ fails `tokens.test.ts`. A bone is a temperature and a temperature is a colour |
 | Code colour stays off the accent | The exemption above is from *being grey*, not from the hue rule. `tokens.test.ts` fails a `--code-*` hue within 35° of the accent in either theme — the cool half of the wheel is where the syntax palette lives |
+| Every `--code-*` clears 4.5:1 on `--sunken` | Code at 11px is body text, not large text. `--sunken` is the only ground any highlighted span is ever painted on, and `tokens.test.ts` also asserts it is the tightest of the four grounds in both themes, which is what makes one ratio a bound on all of them |
+| The four code roles stay apart | `tokens.test.ts` fails a coloured role within 0.20 OKLab of `--ink`, a name within 0.15 of a literal, a name within 0.09 of a keyword, or three hues spanning under 110°. Contrast against the ground is a different question from telling five things in a block apart |
+| Every `--code-*` is declared three times | Light, the `prefers-color-scheme` fallback and the `data-theme` attribute. A value edited in two of the three is wrong for exactly half the readers and invisible to whoever wrote it |
+| A parameter is painted as a name | `tests/browser/test_code_colour.py` reads the *resolved* colour of an `hljs-params` span in a real excerpt, in both themes. jsdom applies no stylesheet, so nothing in vitest can tell whether a selector list reaches a token on screen |
 | No verdict hue outside a verdict | `verdict-hues.test.ts`, with a ten-file allowlist that a second test checks still names real files |
 | `-mark` only where something goes somewhere | Five files, allowlisted. The name is the decision; without the guard it becomes a synonym for ink |
 | A mark is drawn, never typed | A pasted `▲` falls back to the system font and breaks the set. Three blocks — arrows, ticks and crosses, geometric shapes — because covering only the third let the Delta surface keep `✓` and `→` underneath the guard for months. Comment lines are skipped: a doc comment naming the marks it draws is a description, not the thing. An *ASCII* character used as an icon (`~`, `+`, `=`) is the same defect and is not catchable — that half is review |

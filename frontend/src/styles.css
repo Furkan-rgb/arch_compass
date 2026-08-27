@@ -230,26 +230,49 @@
 
      The accent rule is still honoured, and it is a rule about *hue*, not about abstinence:
      red means look here, and nothing else on screen may borrow it. So the code palette lives
-     on the cool half of the wheel, where the accent never goes — violet, blue, cyan — and the
+     on the cool half of the wheel, where the accent never goes — violet, blue, teal — and the
      nearest a code hue comes to it is the 85 degrees between violet and `--accent` in light,
-     81 in dark. A keyword cannot be misread as a material badge, because no badge is ever
+     78 in dark. A keyword cannot be misread as a material badge, because no badge is ever
      violet.
 
      This argument used to be made against a green `cleared` at 42 degrees from cyan, which
      was the tightest pair in the set. Held and cleared gave up their hues, so the set is
      wider now and the bar in `ui/tokens.test.ts` is unchanged at 35 degrees — it was never
-     sized to the comfortable case.
+     sized to the comfortable case. It is also why the literal can now sit at 172° without
+     colliding with anything: `ui/tokens.test.ts` asserts that `--held` and `--cleared` carry
+     no chroma at all, so there is no green on this surface for a green string to be mistaken
+     for.
 
-     The literal is darker here and lighter in dark than the hue's obvious value, and that is
-     a correction rather than a preference. At `#0e7490` a string measured 4.7:1 on the code
-     ground in light while its dark twin `#67e8f9` measured 12.3:1 — so the reading order of
-     an excerpt inverted between themes: in dark the eye went to the docstring first, in
-     light to the keyword. Both values moved on lightness alone, and the hue is untouched: at
-     221° and 211° they are 166° and 176° from the accent, far outside the 35° that
-     `ui/tokens.test.ts` polices. */
+     **Why the literal moved off cyan.** It was `#0b5f74` at 221°, and the complaint that
+     started this was that a block reads flat. Tokenising all 501 stored `read_file` lookups
+     (`core_review_snapshots.review_json -> investigation_manifest[].lookups[]`, gutter split
+     off, Python grammar) and attributing every non-space character to the class it lands in
+     says why: 26.76% of a block is `--code-lit` and only 3.22% is `--code-name` — the role
+     that answers the question this palette exists for. So a quarter of every excerpt was
+     drawn in the one hue with the least colour available to it. That is a gamut fact, not a
+     preference: sweeping the sRGB cube for the most chromatic colour clearing 5.5:1 on
+     `--sunken`, the arc from 170° to 220° tops out at C 0.079–0.093 in OKLCH, while the blue
+     at 250° reaches 0.195 and the violets 0.23–0.29. Cyan at a light theme's lightness is
+     structurally near-grey, which is exactly how the string block read.
+
+     172° is where the chroma is: `#006c56` measures C 0.092 against `#0b5f74`'s 0.079, and —
+     the part that matters more — it puts the literal 0.239 from `--code-name` in OKLab where
+     it was 0.173, and 0.196 from it in dark where it was 0.111. The hue span across the three
+     roles goes from 81° to 130° in light and 96° to 136° in dark.
+
+     **The literal is the quietest of the three in both themes, and that is deliberate.** It
+     is 5.37:1 in light and 6.37:1 in dark, under both of the others. 19.66 of its 26.76
+     points are triple-quoted strings — this repository writes essay-length docstrings — and a
+     docstring drawn louder than the code it documents makes the largest block of prose the
+     first thing the eye lands on. The earlier repair here was aimed at the same fault and did
+     not finish it: it moved the literal on lightness alone, from `#0e7490` and `#67e8f9`,
+     because in dark the eye went to the docstring first and in light to the keyword. It
+     landed on 6.07:1 in light, which is the *loudest* of the three, and 7.02:1 in dark, which
+     is the quietest — so the inversion it was written against survived it. These two values
+     put the literal last in both. */
   --code-keyword: #7e22ce; /* the language's own words: def, class, if, return */
-  --code-name: #1d4ed8; /*    what somebody named: a function, a class, a tag  */
-  --code-lit: #0b5f74; /*     what is written out: a string, a number          */
+  --code-name: #1d4ed8; /*    where a name is introduced: a def, a class, a param */
+  --code-lit: #006c56; /*     what is written out: a string, a number          */
   /* The ink tier's light value, not the grey it used to share with it: a comment sits on
      `bg-sunken/70`, where `#737373` measured 4.20:1 and a docstring is the sentence that
      says what the abstraction is for. Dark already cleared 5:1 and is unchanged. */
@@ -362,10 +385,23 @@
 
     /* Lifted a long way from the light values: the same hue at the same lightness on a
        near-black ground is mud. The comment goes up with them — at `--ink-3` it was under
-       3.5:1 on `--sunken`, which is recessive past the point of being readable. */
-    --code-keyword: #d8b4fe;
-    --code-name: #93c5fd;
-    --code-lit: #3fb8cc;
+       3.5:1 on `--sunken`, which is recessive past the point of being readable.
+
+       Lifted, but no longer as far as they were, and with chroma spent on the way down. The
+       three were `#d8b4fe`, `#93c5fd` and `#3fb8cc`: 9.32:1, 9.14:1 and 7.02:1 on `--sunken`,
+       at C 0.108, 0.096 and 0.108 in OKLCH — three pastels spanning 0.103 of lightness and
+       0.012 of chroma, all of them dimmer than the `--ink` that draws the 48.11% of a block the
+       tokeniser gives no class to at all. A hue quieter than the grey around it does not read
+       as a hue; it reads as fading, which is what "monotone" was describing. The same sRGB
+       sweep the light block cites says dark has the room light does not: at 7:1 on `--sunken`
+       the whole cool arc carries C 0.134–0.24, so the lift is paid for out of contrast that
+       was never needed. `--code-name` gains the most — 0.282 from `--ink` in OKLab where it
+       was 0.200 — because telling a declaration from the plain identifiers around it is the
+       whole job. Every value still clears the 4.5:1 that `ui/tokens.test.ts` now measures,
+       with 6.37:1 the lowest of the three. */
+    --code-keyword: #cf94ff;
+    --code-name: #7ea8ff;
+    --code-lit: #00b694;
     --code-comment: #8a8a8a;
 
     /* One step above the void rather than the void itself. `#000000` here made the band and
@@ -455,10 +491,23 @@
 
   /* Lifted a long way from the light values: the same hue at the same lightness on a
      near-black ground is mud. The comment goes up with them — at `--ink-3` it was under
-     3.5:1 on `--sunken`, which is recessive past the point of being readable. */
-  --code-keyword: #d8b4fe;
-  --code-name: #93c5fd;
-  --code-lit: #3fb8cc;
+     3.5:1 on `--sunken`, which is recessive past the point of being readable.
+
+     Lifted, but no longer as far as they were, and with chroma spent on the way down. The
+     three were `#d8b4fe`, `#93c5fd` and `#3fb8cc`: 9.32:1, 9.14:1 and 7.02:1 on `--sunken`,
+     at C 0.108, 0.096 and 0.108 in OKLCH — three pastels spanning 0.103 of lightness and
+     0.012 of chroma, all of them dimmer than the `--ink` that draws the 48.11% of a block the
+     tokeniser gives no class to at all. A hue quieter than the grey around it does not read
+     as a hue; it reads as fading, which is what "monotone" was describing. The same sRGB
+     sweep the light block cites says dark has the room light does not: at 7:1 on `--sunken`
+     the whole cool arc carries C 0.134–0.24, so the lift is paid for out of contrast that
+     was never needed. `--code-name` gains the most — 0.282 from `--ink` in OKLab where it
+     was 0.200 — because telling a declaration from the plain identifiers around it is the
+     whole job. Every value still clears the 4.5:1 that `ui/tokens.test.ts` now measures,
+     with 6.37:1 the lowest of the three. */
+  --code-keyword: #cf94ff;
+  --code-name: #7ea8ff;
+  --code-lit: #00b694;
   --code-comment: #8a8a8a;
 
   /* One step above the void rather than the void itself. `#000000` here made the band and
@@ -929,9 +978,31 @@
    The highlighter is a tokeniser: it emits these class names and this is where they are
    given colour. Four roles, not forty — highlight.js ships around thirty token classes and
    colouring each one produces an excerpt harder to read than the editor it came from. The
-   question a reader is actually asking is which token is a name somebody chose, so the
-   classes are folded into the four groups that answer it and everything left over inherits
-   the block's ink rather than earning a colour of its own.
+   question a reader is actually asking is where a name in this repository's own vocabulary
+   was introduced, so the classes are folded into the four groups that answer it and
+   everything left over inherits the block's ink rather than earning a colour of its own.
+
+   Still four. The rule that keeps it four is that a class earns a colour by answering a
+   reader's question, not by existing, and the measurement below is what stops the count
+   drifting either way. Tokenising all 501 stored `read_file` lookups as Python and
+   attributing every non-space character to the class it lands in:
+
+     48.11%  no class at all — the tokeniser emits none
+     26.76%  --code-lit        (19.66 of it triple-quoted: this repository's docstrings)
+      8.61%  --code-keyword
+      8.02%  --code-comment
+      4.29%  hljs-params       — the one fall-through worth claiming; see below
+      3.22%  --code-name
+      0.99%  hljs-variable.language_ and hljs-subst
+
+   The first line is the ceiling on this whole file. Forty-two of those forty-eight points
+   are identifier characters — `archcompass`, `connection`, `row`, every module path segment
+   and every attribute name — and highlight.js tags none of them, so no selector can reach
+   them and roughly half of every block is `--ink` whatever is written here. That is why the
+   answer to a block reading flat is the *separation* of the four, argued where the four are
+   declared at the top of this file, and not a fifth, sixth and seventh selector: the whole
+   remaining supply is the 5.28 points on the two lines above, and only one of them answers a
+   question.
 --------------------------------------------------------------------------------------- */
 
 /* The language's own vocabulary. Bold as well as coloured, because these are the words that
@@ -946,15 +1017,36 @@
   font-weight: 600;
 }
 
-/* What somebody named. A function, a class, a tag, an attribute: the identifiers that carry
-   this repository's own vocabulary, and the reason an excerpt is on the page at all. */
+/* Where a name is introduced. A function, a class, a tag, an attribute, and the parameters a
+   signature binds: the identifiers that carry this repository's own vocabulary, and the
+   reason an excerpt is on the page at all.
+
+   `hljs-params` is here because the role was starving. It was 3.22% of a block against the
+   literal's 26.76%: the palette spent its largest area on the question a reader asks least
+   and its smallest on the one this file exists for. The parameter list is 4.29% more, and it
+   is the part of an excerpt a reviewer reads first — `def search(self, query: str, *, limit:
+   int)` says what the abstraction offers, which is the thing a judgement about an
+   abstraction turns on.
+
+   It also sharpens the rule rather than stretching it. The role is not "every occurrence of a
+   name", which is unreachable anyway — a reference like `self._matrix` is two identifiers the
+   tokeniser leaves bare. It is *where a name is bound*: the `def`, the `class`, the tag, the
+   key, and the parameters. That reading is why `self` is coloured in a signature and plain in
+   the body two lines below it, which is not an inconsistency but the same rule applied twice:
+   highlight.js wraps the parameter list in `hljs-params` and the receiver in
+   `hljs-variable.language_`, and only the first of those is a binding site.
+
+   `hljs-subst` — the expression inside an f-string — stays uncoloured on the same rule. It is
+   code inside a literal, so it is neither a binding nor a written-out value, and the
+   fall-through to the block's ink is the right answer rather than a gap. */
 .hljs-title,
 .hljs-title.class_,
 .hljs-title.function_,
 .hljs-section,
 .hljs-name,
 .hljs-attr,
-.hljs-attribute {
+.hljs-attribute,
+.hljs-params {
   color: var(--code-name);
 }
 
