@@ -191,7 +191,7 @@ describe("the review workbench", () => {
     // a sentence saying what answering does; the round used to restate both inside a second
     // card with its own border and its own heading.
     expect(
-      await screen.findByText("1 question wants an answer"),
+      await screen.findByText("1 question unanswered"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("The repository cannot answer these"),
@@ -290,7 +290,7 @@ describe("the review workbench", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      within(article).getByText(/Recommended response/),
+      within(article).getByText(/Recommendation/),
     ).toBeInTheDocument();
     expect(
       within(article).getByText(/Dependencies point inward/),
@@ -1906,7 +1906,7 @@ describe("the review workbench", () => {
     expect(review.questions).toHaveLength(1);
     // What is gone is the offer to answer it.
     await screen.findByText("Review lineage");
-    expect(screen.queryByText("1 question wants an answer")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 question unanswered")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Save and rejudge|Answer/ }),
     ).not.toBeInTheDocument();
@@ -2405,11 +2405,10 @@ describe("the review workbench", () => {
     fireEvent.click(within(article).getByRole("button", { expanded: false }));
     // The closed state names the count and what came of it, because a fold that says only
     // "Looked up" makes a reader open it to find out whether it was worth opening.
-    // The closed state says how much looking there was and how it ended — not whether the
-    // hinge was settled, which is the finding's business and not the transcript's.
-    expect(
-      within(article).getByText("2 lookups · the pass stopped looking"),
-    ).toBeInTheDocument();
+    // The closed state says how much looking there was, and adds a clause only where the
+    // pass was cut short. This one ran to its own end, which tells a reader nothing the
+    // count has not already told them, so the count is the whole of it.
+    expect(within(article).getByText("2 lookups")).toBeInTheDocument();
     // The transcript is in the DOM and folded, like the provenance beside it.
     expect(
       within(article).getByText(/asked what implementations billing.gateway.PersistenceGateway/),
@@ -2552,7 +2551,7 @@ describe("the review workbench", () => {
     expect(held()).toBeInTheDocument();
 
     // Collapsing the card that holds the round.
-    const card = screen.getByRole("button", { name: /1 question wants an answer/ });
+    const card = screen.getByRole("button", { name: /1 question unanswered/ });
     fireEvent.click(card);
     fireEvent.click(card);
     expect(held()).toBeInTheDocument();

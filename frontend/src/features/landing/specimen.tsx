@@ -231,12 +231,12 @@ function Specimen({ bearing, hidden }: { bearing: Bearing; hidden: boolean }) {
         ) : null}
       </div>
 
-      {/* Retrieval pulled these; only some of them bore. Both numbers are recorded, and the
-          difference between them is the point. */}
+      {/* Retrieval found these; only some of them applied. Both numbers are recorded, and
+          the difference between them is the point. */}
       <div className="border-t border-rule bg-surface-2 px-4 py-2.5">
         <Mono className="block text-[10.5px] text-ink-3">
-          <span className="font-semibold text-ink">{bearing.retrieved}</span> retrieved ·{" "}
-          <span className="font-semibold text-ink">{bore}</span> bore on the judgement
+          <span className="font-semibold text-ink">{bearing.retrieved}</span> found ·{" "}
+          <span className="font-semibold text-ink">{bore}</span> applied
         </Mono>
         <Mono className="mt-1 block text-[10.5px] text-ink-3 [overflow-wrap:anywhere]">
           {bearing.source}

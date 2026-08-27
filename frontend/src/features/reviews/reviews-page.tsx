@@ -195,9 +195,9 @@ function latestAt(lineage: Lineage, now: number): number {
  * the fold, and reading a claim out of context — a candidate's summary with no verdict spread
  * and no revision around it — is the work, which is what opening the review is for.
  *
- * So the fact stays and the list goes. A review's row says how much of it wants a person, in
- * the same words the review's own head uses, and the claims are read where they can be acted
- * on. Two totals of the same list that disagree on two screens are worse than one, so this
+ * So the fact stays and the list goes. A review's row says how much of it is still open,
+ * counted exactly the way the review's own head counts it, and the claims are read where they
+ * can be acted on. Two totals of the same list that disagree on two screens are worse than one, so this
  * counts exactly what `ReviewCounts` counts: candidates `needsAttention` still holds open,
  * plus one for a round that is still answerable.
  *
@@ -415,15 +415,15 @@ function RevisionRow({
           <span className="font-mono text-[14px] font-medium tabular-nums text-ink">
             Review {review.sequence}
           </span>
-          {/* The one thing on this row that means act, in the words the review's own head
-              uses for it, and read before the state pill rather than after it: what a
-              returning reader is looking for is how much work is left, not which of five
-              statuses this revision is in. A zero is not drawn — a history is mostly settled
-              revisions, and "nothing waiting on you" repeated down forty rows is forty lines
-              spent saying that nothing happened. */}
+          {/* The one thing on this row that means act, on the count the review's own head
+              reports, and read before the state pill rather than after it: what a returning
+              reader is looking for is how much work is left, not which of five statuses this
+              revision is in. A zero is not drawn — a history is mostly settled revisions, and
+              "nothing left to decide" repeated down forty rows is forty lines spent saying
+              that nothing happened. */}
           {wants ? (
             <span className="text-[13px] font-semibold text-ink">
-              {plural(wants, "thing")} want{wants === 1 ? "s" : ""} you
+              {wants} open
             </span>
           ) : null}
           <StatusBadge status={review.status} />

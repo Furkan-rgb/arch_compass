@@ -72,16 +72,14 @@ describe("the landing page", () => {
   });
 
   /**
-   * Retrieval pulls several policies and only some of them bear on the verdict. Both counts
+   * Retrieval finds several policies and only some of them apply to the verdict. Both counts
    * are recorded on a real review, and printing only the first would overstate how much of
    * the corpus was actually weighed.
    */
-  it("separates what retrieval pulled from what bore on the judgement", () => {
+  it("separates what retrieval found from what applied to the judgement", () => {
     renderLanding();
 
-    expect(within(specimen()).getByText(/retrieved/)).toHaveTextContent(
-      "6 retrieved · 2 bore on the judgement",
-    );
+    expect(within(specimen()).getByText(/found/)).toHaveTextContent("6 found · 2 applied");
   });
 
   /**
@@ -292,7 +290,7 @@ describe("the landing page", () => {
     expect(surface().getByText("Measured")).toBeInTheDocument();
     expect(surface().getByText("referenced by")).toBeInTheDocument();
     expect(surface().getByText("Provenance")).toBeInTheDocument();
-    expect(surface().getByText(/2 policies bore on this · 6 retrieved/)).toBeInTheDocument();
+    expect(surface().getByText(/2 of 6 policies applied/)).toBeInTheDocument();
     // And the decision it offers is the workbench's own wording, off `CHOICES`.
     expect(surface().getByText("Accept and act")).toBeInTheDocument();
   });

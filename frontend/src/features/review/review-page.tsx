@@ -135,8 +135,8 @@ function ReviewCounts({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-ink-3">
         <span className="font-semibold text-ink">
           {wants
-            ? `${plural(wants, "thing")} still want${wants === 1 ? "s" : ""} you`
-            : "Nothing waiting on you"}
+            ? `${wants} need${wants === 1 ? "s" : ""} a decision`
+            : "Nothing left to decide"}
         </span>
         <span aria-hidden="true" className="hidden h-3 w-px bg-rule sm:block" />
         {VERDICT_ORDER.map((verdict) => {

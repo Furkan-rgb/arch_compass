@@ -217,7 +217,7 @@ export function CaseFileDocket() {
         </Mono>
         <Mono className="text-[11px] text-ink-3">
           Review {CASE_FILE.sequence} · {plural(findings.length, "candidate")} ·{" "}
-          <span className="font-semibold text-ink">{outstanding}</span> still want a person
+          <span className="font-semibold text-ink">{outstanding}</span> not decided
         </Mono>
       </div>
       {findings.map((finding) => (

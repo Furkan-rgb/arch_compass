@@ -37,7 +37,7 @@ working through it, so they are peers of the docket rather than columns beside i
 | Name | What it is | Where |
 | --- | --- | --- |
 | **Review head** | One line: which review this is, and the repository, branch and commit it read, with the status and the Cancel / New review button. | [review-page.tsx](../frontend/src/features/review/review-page.tsx) |
-| **Review counts** | Under the head: how many things still want you, then the verdict spread. Orientation, read once, on the way to the work. | [review-page.tsx](../frontend/src/features/review/review-page.tsx) |
+| **Review counts** | Under the head: how many need a decision, then the verdict spread. Orientation, read once, on the way to the work. | [review-page.tsx](../frontend/src/features/review/review-page.tsx) |
 | **Surface tabs** | Docket · Rounds · Atlas · Delta · Report · Ask. Which document about this review is on screen. **In the URL**, not page state — `?tab=atlas` is a link somebody can send, and a refresh lands back on it. A query parameter rather than a path segment on purpose: a segment changes which route the URL matches, which remounts the page and costs the reader their open row and filter. The docket carries no parameter, because arriving at a review and arriving at its docket are the same arrival. Your place in the docket survives a trip to any of them. | [review-page.tsx](../frontend/src/features/review/review-page.tsx) |
 
 ### The docket
@@ -58,7 +58,7 @@ working through it, so they are peers of the docket rather than columns beside i
 | Name | What it is | Where |
 | --- | --- | --- |
 | **Finding body** | The assessment, as the argument beside the material it rests on. It carries neither the verdict nor the identifier: the row it expands inside just showed both. | [finding-detail.tsx](../frontend/src/features/review/finding-detail.tsx) |
-| ├ **Judged** | The model's paragraph at the reading size — the only text set that large on the page — under a line naming who produced it, then Hinges on and Recommended response. | [finding-detail.tsx](../frontend/src/features/review/finding-detail.tsx) |
+| ├ **Judged** | The model's paragraph at the reading size — the only text set that large on the page — under a line naming who produced it, then Hinges on and Recommendation. | [finding-detail.tsx](../frontend/src/features/review/finding-detail.tsx) |
 | ├ **Measured** | The machine's column: the code involved, the readings on a rule, and the excerpts inline. You cannot argue with a judgement whose evidence is one click away, which is what folding this behind a disclosure used to ask. | [finding-detail.tsx](../frontend/src/features/review/finding-detail.tsx) |
 | ├ **Disclosure** | Policies and Provenance, each with a closed state that says what is inside it. | [finding-detail.tsx](../frontend/src/features/review/finding-detail.tsx) |
 | └ **Decision bar** | Accept / Park / Waive for this candidate, the standing decision, and whether it was taken against a verdict that has since moved. | [decision-bar.tsx](../frontend/src/features/review/decision-bar.tsx) |
@@ -94,7 +94,7 @@ you; at review scope the Provenance tab becomes the audit of every candidate at 
 | **Landing page** | `/` | [landing-page.tsx](../frontend/src/features/landing/landing-page.tsx) |
 | **Start page** | `/start` — two steps: which repository, and how much of it to read. The case is stated at the point of running, not confirmed as a step. | [start-page.tsx](../frontend/src/features/start/start-page.tsx) |
 | **Run page** | `/runs/:runId` — a review being made, with its progress timeline | [run-page.tsx](../frontend/src/features/start/run-page.tsx) |
-| **Reviews page** | `/reviews` — one block per lineage (repository, branch, case), revisions inside it in sequence, a run in flight at the top of its own. The newest revision's row says how much of it still wants a person; the claims are read inside the review | [reviews-page.tsx](../frontend/src/features/reviews/reviews-page.tsx) |
+| **Reviews page** | `/reviews` — one block per lineage (repository, branch, case), revisions inside it in sequence, a run in flight at the top of its own. The newest revision's row says how many of its candidates are still open; the claims are read inside the review | [reviews-page.tsx](../frontend/src/features/reviews/reviews-page.tsx) |
 | **Repositories page** | `/repositories` | [repositories-page.tsx](../frontend/src/features/repositories/repositories-page.tsx) |
 | **Cases page** | `/cases` | [cases-page.tsx](../frontend/src/features/cases/cases-page.tsx) |
 | **Policies page** | `/policies` | [policies-page.tsx](../frontend/src/features/policies/policies-page.tsx) |

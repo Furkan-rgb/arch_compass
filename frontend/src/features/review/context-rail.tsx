@@ -139,12 +139,12 @@ export function ContextRail({
                   </li>
                 ))}
               </ul>
-              {/* Retrieved against bore-on: the count the status ribbon used to print at
+              {/* Found against applied: the count the status ribbon used to print at
                   review scale, said where it can be compared with what it counts. */}
               {provenance ? (
                 <p className="mt-2.5 font-mono text-[10.5px] leading-relaxed text-ink-3">
-                  {provenance.selected_policy_ids.length} policies retrieved for this candidate;{" "}
-                  {finding.policies.length} bore on the judgement.
+                  {provenance.selected_policy_ids.length} policies found for this candidate;{" "}
+                  {finding.policies.length} applied.
                 </p>
               ) : null}
             </>

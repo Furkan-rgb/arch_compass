@@ -178,15 +178,15 @@ describe("a run that finishes while nobody is looking", () => {
   });
 });
 
-describe("what still wants a person", () => {
+describe("what is left to decide", () => {
   /**
    * The page used to answer this in a section of its own — every open candidate across every
    * lineage, listed above the history. The claims read out of context, the rows repeated the
    * reviews below them, and the history it belonged to started below the fold. The fact stays
-   * and the list goes: a review's row says how much of it wants a person, in the words the
-   * review's own head uses, and the claims are read where they can be acted on.
+   * and the list goes: a review's row says how much of it is still open, counted the way the
+   * review's own head counts it, and the claims are read where they can be acted on.
    */
-  it("says on the newest revision how much of it still wants a person", async () => {
+  it("says on the newest revision how much of it is still open", async () => {
     vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture()]);
     vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
     vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
@@ -195,7 +195,7 @@ describe("what still wants a person", () => {
 
     // Two candidates nobody has decided about, plus the open round's one question — which is
     // exactly what the review's own head counts, so the two totals cannot disagree.
-    expect(await screen.findByText("3 things want you")).toBeInTheDocument();
+    expect(await screen.findByText("3 open")).toBeInTheDocument();
     expect(screen.queryByText("Waiting on you")).not.toBeInTheDocument();
   });
 
@@ -212,7 +212,7 @@ describe("what still wants a person", () => {
     render(wrap(<ReviewsPage />, client()));
 
     expect(await screen.findByText("Review 1")).toBeInTheDocument();
-    expect(screen.queryByText(/wants? you/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d+ open/)).not.toBeInTheDocument();
   });
 
   /**
@@ -228,7 +228,7 @@ describe("what still wants a person", () => {
 
     expect(await screen.findByText("Review 1")).toBeInTheDocument();
     await waitFor(() => expect(api.decisions).toHaveBeenCalled());
-    expect(screen.queryByText(/wants? you/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d+ open/)).not.toBeInTheDocument();
   });
 
   /**
@@ -243,13 +243,13 @@ describe("what still wants a person", () => {
 
     render(wrap(<ReviewsPage />, client()));
 
-    // Review 2 is completed, so its two undecided candidates are the whole of what it wants.
-    expect(await screen.findByText("2 things want you")).toBeInTheDocument();
+    // Review 2 is completed, so its two undecided candidates are the whole of what is open.
+    expect(await screen.findByText("2 open")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Show 1 older revision/ }));
 
     const older = screen.getByText("Review 1").closest("li")!;
-    expect(within(older).queryByText(/wants? you/)).not.toBeInTheDocument();
+    expect(within(older).queryByText(/\d+ open/)).not.toBeInTheDocument();
   });
 
   /**
@@ -264,7 +264,7 @@ describe("what still wants a person", () => {
     vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
 
     render(wrap(<ReviewsPage />, client()));
-    expect(await screen.findByText("2 things want you")).toBeInTheDocument();
+    expect(await screen.findByText("2 open")).toBeInTheDocument();
 
     // Named with its count: every status chip now says how many revisions it would return,
     // so a chip that would return none cannot be pressed.
@@ -273,7 +273,7 @@ describe("what still wants a person", () => {
     // Review 1 is on screen now and it is still a superseded snapshot: what it raised was
     // carried into review 2, which is filtered out, not transferred to the row left standing.
     expect(screen.getByText("Review 1")).toBeInTheDocument();
-    expect(screen.queryByText(/wants? you/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d+ open/)).not.toBeInTheDocument();
   });
 });
 
