@@ -552,8 +552,6 @@ export interface components {
     "investigation_manifest": Array<components["schemas"]["RecordedInvestigationResponse"]>;
     "synopsis": string | null;
     "synopsis_identity": string;
-    "model_identity": string;
-    "prompt_identity": string;
     "started_at": string;
     "finished_at": string | null;
     "failure": string | null;

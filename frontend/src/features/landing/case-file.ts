@@ -450,8 +450,6 @@ export const CASE_FILE: Review = {
   investigation_manifest: INVESTIGATION,
   synopsis: null,
   synopsis_identity: "",
-  model_identity: "openrouter:google/gemini-3.6:thinking=None",
-  prompt_identity: "judge:deep-v2",
   started_at: "2026-08-21T08:30:00Z",
   finished_at: "2026-08-21T08:34:00Z",
   failure: null,

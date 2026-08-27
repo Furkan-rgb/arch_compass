@@ -165,7 +165,11 @@ def test_a_chosen_model_reviews_and_the_review_records_which_one(tmp_path: Path)
         review = client.post("/api/reviews", json=request)
 
         assert review.status_code == 201, review.text
-        assert review.json()["model_identity"] == "fake:deterministic-architecture-v4"
+        # Asked of the findings, because that is where a judgement's identity is now recorded
+        # and the only place it ever was truthfully: the review-level field was the joined
+        # set of exactly these, and it was deleted with the comparison that read it.
+        judged_by = {item["model_identity"] for item in review.json()["findings"]}
+        assert judged_by == {"fake:deterministic-architecture-v4"}
 
 
 def test_a_pinned_run_reports_its_model_and_refuses_to_change_it(tmp_path: Path) -> None:

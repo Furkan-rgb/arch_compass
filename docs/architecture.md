@@ -313,14 +313,44 @@ selected at the moment the node runs.
 **The finding cache keys on identities that must agree.** Model identity, prompt identity,
 retrieval identity, the investigation's identity, the candidate and the case. Each of the
 first three is also compared against what the previous review recorded, and a disagreement
-there is permanent rather than transient: model identity makes every candidate report
-`ChangeCause.MODEL` for ever, prompt identity `ChangeCause.PROMPT`, retrieval
-`ChangeCause.POLICIES` per candidate. They are each computed in exactly one place for that
+there costs the verdict: the candidate reports `ChangeCause.MODEL`, `ChangeCause.PROMPT` or
+`ChangeCause.POLICIES`, and is judged again. That is the right bill when the judge or the
+corpus really moved, and it is paid once, because the re-judgement records the identity now
+in force. What is never right is two derivations of the same fact disagreeing with each
+other, which re-judges everything on every run for as long as the two are apart and spoils
+every verdict recorded meanwhile. They are each computed in exactly one place for that
 reason.
 
-That place is `SelectedLangChainJudge.in_force()`, and it answers with one record: the
-selection, the model identity a finding produced under it carries, which judge runs, what
-that judge stamps as its prompt, and whether it reaches a provider at all. The revision
+**All three of those comparisons are per candidate, and the other side of each is the record
+that candidate's own verdict left** — the finding's two stamps, the manifest's fingerprint.
+None of them is a fact about a review. `Review` carried `model_identity` and
+`prompt_identity`, composed as the comma-joined set of its findings' stamps, and the delta
+compared that joined string against the single identity `selection` reports. A set and a value
+are not the same kind of thing: they matched only while every stored review held exactly one
+stamp, and the first review to mix two made every candidate read changed on the next
+revision — a whole review re-judged for nothing. Not for ever, though: re-judging stamps
+every finding with the one identity in force, so the revision after that compares a set of
+one against a single value and matches again. Measured on the wiring that carried the fields,
+over the stored 7-finding review with three of its findings restamped to a second prompt
+identity: `unchanged=0 changed=7`, then `unchanged=7 changed=0`. The bill is one review per
+straddle, and the straddle is a reviewer switching model mid-review, which is a thing this
+product invites them to do.
+The fields are gone rather than better composed — there is nowhere left to write a
+review-level identity, so there is nothing for a comparison to reach for. What that buys is
+that the fan-out window becomes honest: judgement dispatches per candidate and `selection()` is
+read per call, so a reviewer switching model mid-review re-judges the candidates the departed
+model judged and carries the rest forward. `report.py` derives "judged by" from the findings
+at the point of display, which is the only place that answer exists.
+
+It is held from the source, in `test_boundaries.py`, by a pair of sweeps that is complete only
+together — one over what may exist to be compared, one over where a comparison may stand.
+Neither is described further here, for the reason the paragraph below gives about every other
+sweep in that file: each states its own reach and its own limits in its docstring, beside the
+code that decides them.
+
+That place is `SelectedLangChainJudge.selection()`, and it answers with one record —
+`JudgeSelection`: the selection, the model identity a finding produced under it carries, which
+judge runs, what that judge stamps as its prompt, and whether it reaches a provider at all. The revision
 calculator, the finding cache, the retriever's mode, the question generator, the synopsist
 and the answerer are all handed that one method. There is no way to obtain one of those
 answers without the rest, which is the whole design — the composition root used to hold three
@@ -328,7 +358,7 @@ callbacks that each re-read the selection at a different moment and each re-deri
 from it, and two of them derived it differently.
 
 The last three of those six only need `deterministic`, and they got it from a helper in
-`selected.py` whose body was the same expression `in_force` tests — under a comment saying the
+`selected.py` whose body was the same expression `selection` tests — under a comment saying the
 rule lived in one place. That is the defect written above, one branch away from the branch it
 was written about, so the rule is now asked of the source, by the stand-in sweeps in
 `test_boundaries.py` — the block of them sharing the `_STAND_IN_*` constants, starting at

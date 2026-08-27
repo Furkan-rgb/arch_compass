@@ -591,10 +591,10 @@ def test_every_key_a_candidate_branch_writes_leaves_it() -> None:
 
 #: Where the stand-in provider is allowed to be named, and where it is allowed to be
 #: recognised. Two files, because those are two different acts: `providers.py` registers the
-#: descriptor that gives the provider its name, and `SelectedLangChainJudge.in_force` is the
+#: descriptor that gives the provider its name, and `SelectedLangChainJudge.selection` is the
 #: single reading of the model selection that everything else in the product is handed.
 _STAND_IN_DEFINITION = "reasoning/adapters/providers.py"
-_STAND_IN_DECISION = ("reasoning/adapters/selected.py", "in_force")
+_STAND_IN_DECISION = ("reasoning/adapters/selected.py", "selection")
 
 #: How the stand-in's name is read where reading it is legitimate. `providers.py` is allowed
 #: the literal by the sibling test, so both spellings have to be swept; a comparison written
@@ -610,7 +610,7 @@ _STAND_IN_DESCRIPTOR = _STAND_IN_READ.split(".")[0]
 #: Every place in `src/` that may name the descriptor, as (file, enclosing function). Four,
 #: because four different acts need it and no fifth does: `providers.py` builds it,
 #: `bootstrap` lists it among the providers this build can reach, `deterministic.py` derives
-#: from its name the stamp that every finding, synopsis and answer carries, and `in_force`
+#: from its name the stamp that every finding, synopsis and answer carries, and `selection`
 #: recognises the selection. An import is not on this list because an import is not a use: it
 #: binds a name, and `ast` records that on an `alias` node rather than on a `Name`.
 _STAND_IN_DESCRIPTOR_SITES = (
@@ -629,7 +629,7 @@ _STAND_IN_DESCRIPTOR_SITES = (
 #:
 #: Three sites, one fewer than the descriptor's, because nothing recognises a selection by its
 #: model: `providers.py` defines it and offers it as the one model this provider has, and
-#: `deterministic.py` builds the stamp out of it. `in_force` is deliberately absent — the
+#: `deterministic.py` builds the stamp out of it. `selection` is deliberately absent — the
 #: decision is the provider's, and a fifth place that wanted to make it by model would have to
 #: add itself here in the same commit, which is the review this exists to force.
 _STAND_IN_MODEL_SITES = (
@@ -703,7 +703,7 @@ def _stand_in_spellings(tree: ast.AST, literal: str) -> set[str]:
     sitting in `src/`. So does a helper that takes the provider as a plain string rather than
     the selection — near enough to the `_is_deterministic` this rule was written about to be
     the same mistake, though that one took the selection and was caught. Two natural
-    spellings, and the comment beside `in_force` claimed both would fail.
+    spellings, and the comment beside `selection` claimed both would fail.
 
     It is caught now because the sweep no longer asks anything about the left-hand
     side; the mirror image of it, where the descriptor is the half lifted into a local, is
@@ -813,12 +813,12 @@ def test_the_stand_in_provider_is_written_out_in_exactly_one_place() -> None:
     )
 
 
-def test_only_the_judgement_in_force_decides_that_the_stand_in_is_selected() -> None:
+def test_only_the_judge_selection_decides_that_the_stand_in_is_selected() -> None:
     """One place asks whether the selection is the stand-in. Everything else asks that place.
 
     The failure this guards is not hypothetical and it is not the first of its kind. Three
     capabilities in `selected.py` shared a `_is_deterministic` helper whose body was, word for
-    word, the expression inside `in_force` — sitting under a comment claiming the rule lived
+    word, the expression inside `selection` — sitting under a comment claiming the rule lived
     in one place. Before that, `bootstrap` mapped the same provider to the stand-in's model
     identity while the stand-in stamped it from `deterministic.py`, and a third callback read
     the selection again for the retriever. Two of those derived the same fact differently and
@@ -873,7 +873,7 @@ def test_only_the_judgement_in_force_decides_that_the_stand_in_is_selected() -> 
     assert deciders == [_STAND_IN_DECISION], (
         f"the stand-in is recognised in {sorted(deciders)}; exactly one place may compare "
         f"anything against its name — {_STAND_IN_DECISION[0]}:{_STAND_IN_DECISION[1]} — and "
-        "every other caller reads `in_force().deterministic` off the record it returns"
+        "every other caller reads `selection().deterministic` off the record it returns"
     )
 
 
@@ -906,7 +906,7 @@ def test_four_places_hold_the_stand_in_descriptor_and_nothing_else_may() -> None
     through a call, `_STAND_IN = str(DETERMINISTIC_DESCRIPTOR.name)`. The name handed in as a
     parameter default, `def probe(configuration, stand_in=DETERMINISTIC_DESCRIPTOR.name)`.
     The third is not the exotic one: passing a collaborator in as a parameter is how
-    `bootstrap` hands `in_force` to its readers, so it is the likeliest next spelling rather
+    `bootstrap` hands `selection` to its readers, so it is the likeliest next spelling rather
     than the least.
 
     Following each of them costs dataflow analysis in a test file, and what it would buy is a
@@ -930,7 +930,7 @@ def test_four_places_hold_the_stand_in_descriptor_and_nothing_else_may() -> None
     it, and a reader testing a stored `model_identity` against that constant would be asking
     what produced a finding rather than what is selected now — a neighbouring decision with
     its own owner, declined here for the reason `_stand_in_spellings` declines it. Nor does either
-    sweep see a second recognition written inside `in_force`, the one function both of them
+    sweep see a second recognition written inside `selection`, the one function both of them
     allow, or a name reached by `getattr` rather than written.
     """
 
@@ -959,7 +959,7 @@ def test_four_places_hold_the_stand_in_descriptor_and_nothing_else_may() -> None
         assert sorted(set(holders)) == sorted(allowed), (
             f"`{rationed}` is held in {sorted(set(holders))}; only {sorted(allowed)} may "
             "name it, and anything else that needs to know whether the stand-in is selected "
-            "reads `in_force().deterministic`"
+            "reads `selection().deterministic`"
         )
 
 
@@ -1325,12 +1325,12 @@ def test_a_scope_selection_key_is_always_asked_for_and_never_spelled_out() -> No
 #: both derived from the annotations in `src/` below — a list of reader names maintained here
 #: would be the second place to forget, which is the thing four fixes of this defect have now
 #: been lost to.
-_SELECTION_RECORD = "JudgementInForce"
+_SELECTION_RECORD = "JudgeSelection"
 
 #: Where a reading is taken today, as a lower bound rather than an equality: wiring an eighth
 #: reader should not have to be recorded here, but a sweep that has stopped finding these has
 #: stopped sweeping and would report success over no code at all. Six of them are the readers
-#: `bootstrap` hands `SelectedLangChainJudge.in_force` to; the seventh is that judge reading
+#: `bootstrap` hands `SelectedLangChainJudge.selection` to; the seventh is that judge reading
 #: its own answer to decide which judge it is.
 _SELECTION_READERS = frozenset(
     {
@@ -1349,11 +1349,13 @@ def _selection_reader_names(trees: list[ast.AST]) -> tuple[frozenset[str], froze
     """Every name in `src/` that yields a reading of the model selection, found by annotation.
 
     Two families, and neither is spelled out. A *producer* is a function whose return
-    annotation names the record — `SelectedLangChainJudge.in_force` is the only one, and
+    annotation names the record — `SelectedLangChainJudge.selection` is the only one, and
     `bootstrap` and `selected.py` call it by that name. A *holder* is an attribute a
-    constructor assigns from a parameter annotated as a callable returning the record;
-    `cache.py` and `selected.py` call theirs `_in_force` and `delta.py` calls its
-    `_judgement`, which is exactly why this reads annotations rather than names.
+    constructor assigns from a parameter annotated as a callable returning the record. Every
+    holder spells it `_selection` today, and that agreement is a convention rather than a
+    rule: `delta.py` called its `_judgement` until the rename that gave the record its
+    present name, and nothing refuses the next one that picks a spelling of its own. That is
+    why this reads annotations and not names.
 
     Deriving both is what lets the guard survive a rename and an eighth reader. Nothing here
     is edited when one is wired, because pyright already makes that reader declare the type
@@ -1394,14 +1396,14 @@ def _selection_reader_names(trees: list[ast.AST]) -> tuple[frozenset[str], froze
 def test_no_function_reads_the_model_selection_more_than_once() -> None:
     """One reading per operation. A second call is the torn read, and it has been written.
 
-    `in_force()` is asked per call and not once at build, because a workspace changes its
+    `selection()` is asked per call and not once at build, because a workspace changes its
     model through `PUT /api/models/selection` while the process runs and the change has to
     take effect. That is the feature, and it is also the hazard: two calls inside one
     operation can straddle the change, and a reader that takes a field from each ends up with
     a pair no selection ever had — the old model's name beside the new model's prompt.
 
     `cache.py` argues this out in full three lines above the read, and the comment was the
-    only thing holding it: reverting that single `in_force()` to a call each leaves every unit
+    only thing holding it: reverting that single `selection()` to a call each leaves every unit
     test in this suite passing, which was measured before this guard was written. Every stub
     the suite hands these readers answers the same thing twice, so no behavioural test in the
     tree can distinguish one reading from two. `test_reasoning_adapters.py` now has two that
@@ -1436,10 +1438,10 @@ def test_no_function_reads_the_model_selection_more_than_once() -> None:
     for path, tree in trees.items():
         module = path.relative_to(SOURCE_ROOT).as_posix()
         enclosing = _enclosing_function_names(tree)
-        # A local alias counts as the reader it aliases. `judging = self._judgement` followed
+        # A local alias counts as the reader it aliases. `judging = self._selection` followed
         # by two `judging()` calls is the same torn read written around a guard that only knew
-        # how to see `self._judgement()`, and it is the first thing anybody tries. Binding the
-        # *record* — `in_force = self._in_force()` — is the correct spelling and is not an
+        # how to see `self._selection()`, and it is the first thing anybody tries. Binding the
+        # *record* — `selection = self._selection()` — is the correct spelling and is not an
         # alias, which is why only a bare attribute counts here and never a call's result.
         aliases = {
             target.id
@@ -1477,6 +1479,248 @@ def test_no_function_reads_the_model_selection_more_than_once() -> None:
         "the model selection is read twice inside one operation: "
         + "; ".join(repeated)
         + " — a workspace can change its model between the two calls, so the two readings "
-        "are not one selection. Bind `in_force()` to a local once and read every field off "
+        "are not one selection. Bind `selection()` to a local once and read every field off "
         "that record."
+    )
+
+
+#: The two stamps a judgement leaves on what it judged. Named together because they are one
+#: fact with two halves — which model, asked which question — and both have to be read off
+#: the same record for the same reason.
+_JUDGEMENT_STAMPS = ("model_identity", "prompt_identity")
+
+#: What a "collection of findings" looks like in an annotation, in the two families that
+#: exist here: the domain's own `Finding` and the wire's `FindingResponse`. Matched as a
+#: word so that a field annotated `RecordedInvestigation` is not swept in by accident.
+_FINDING_COLLECTION = re.compile(r"\b(tuple|list|Sequence|dict|Iterable)\[[^\]]*\bFinding\w*\b")
+
+
+def _annotated_parameters(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> dict[str, str]:
+    """Every parameter that carries an annotation, as name to unparsed annotation.
+
+    The mirror of `_annotated_fields`, and it exists for the same reason: the sweeps below
+    derive what they are about from annotations rather than from names, so renaming a
+    parameter cannot quiet a guard.
+    """
+
+    return {
+        argument.arg: ast.unparse(argument.annotation)
+        for argument in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        )
+        if argument.annotation is not None
+    }
+
+
+def _annotated_fields(node: ast.ClassDef) -> dict[str, str]:
+    return {
+        statement.target.id: ast.unparse(statement.annotation)
+        for statement in node.body
+        if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
+    }
+
+
+def test_no_record_of_many_findings_claims_one_judgement_identity() -> None:
+    """A set of stamps is not a stamp, and a record that holds both invites the comparison.
+
+    `Review` carried `model_identity` and `prompt_identity`, composed by `report.py` as
+    `",".join(sorted({every stamp its findings carry}))`, and `DeterministicRevisionCalculator`
+    compared that joined string against the single identity `SelectedLangChainJudge.selection`
+    reports. Those are not the same kind of value. They were equal only because every review
+    stored here holds exactly one — measured read-only over `.archcompass/workspace.sqlite3`:
+    7 reviews, 148 findings, one pair, none unstamped — so the defect was latent rather than
+    absent. Judgement fans out per candidate through `Send` and `selection()` is read per call
+    so that `PUT /api/models/selection` takes effect mid-run, which is how a review comes to
+    hold two stamps; against such a review the joined string equalled no single identity, so
+    every candidate read changed and the whole review was judged again. That re-judgement
+    stamped every finding with the identity in force, which is why the next revision matched
+    again — re-measured on the wiring that carried the fields, over the stored 7-finding
+    review with three findings restamped: `unchanged=0 changed=7`, then `unchanged=7
+    changed=0`. A whole review re-judged for nothing, once per straddle, rather than for ever.
+
+    This is the "delete the second place" mechanism rather than a better join, because a
+    better join is what has already failed four times here. The rule is stated over the shape
+    instead of over the name `Review`: any record that holds a collection of findings and
+    also declares one of the two stamps is claiming that many judgements had one identity,
+    and that claim is what the comparison was built on. `synopsis_identity` is deliberately
+    not swept — one paragraph really does have one author.
+
+    The reach is what the regexes above admit and no more: an annotation naming a container
+    of `Finding` or `FindingResponse`, and a field named exactly as the judge stamps it. A
+    record that reached the same claim through an alias would pass, which is why the sibling
+    test holds the comparison itself rather than only the field it read.
+    """
+
+    holders: list[str] = []
+    offenders: list[str] = []
+    for path in _python_files(SOURCE_ROOT):
+        module = path.relative_to(SOURCE_ROOT).as_posix()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            fields = _annotated_fields(node)
+            if not any(_FINDING_COLLECTION.search(item) for item in fields.values()):
+                continue
+            holders.append(f"{module}:{node.name}")
+            offenders.extend(
+                f"{module}:{node.name}.{stamp}" for stamp in _JUDGEMENT_STAMPS if stamp in fields
+            )
+
+    assert holders, (
+        "no record in src/ was found holding a collection of findings; this sweep has lost "
+        "its subject and would report success over no code at all"
+    )
+    assert not offenders, (
+        "a record of many findings claims one judgement identity: "
+        + ", ".join(sorted(offenders))
+        + " — the identity of many judgements is a set, the delta compares a single value, "
+        "and the two agree only until a review mixes two models. Read the stamp off the "
+        "finding that carries it."
+    )
+
+
+#: What a parameter holding exactly one candidate's sequence looks like. The loop over it is
+#: one of the two shapes that count as having a finding in hand.
+_OVER_CANDIDATES = re.compile(r"\b(tuple|list|Sequence)\[\s*Candidate\b")
+
+
+def test_the_revision_delta_compares_a_judgement_identity_per_candidate() -> None:
+    """Nowhere in `src/` may a judgement stamp be compared without one finding in hand.
+
+    The sibling test deletes the review-level field; this one deletes the place that read
+    it. `MODEL` and `PROMPT` were appended to `global_causes` before the loop, from a
+    comparison that ran once and then spoke for every candidate. That placement is what made
+    a review-wide value the only thing there was to compare against, and it is what makes
+    reintroducing such a field the obvious repair the next time somebody needs a second
+    opinion here. With one finding in scope the only stamps reachable are that candidate's
+    own, so the fix cannot be undone by half.
+
+    **The reach is every function in `src/archcompass`, and it was `calculate` alone until a
+    verify pass walked through the gap.** A helper lifted to module level in `delta.py`, taking
+    `previous` and joining every finding's stamp, passed both source sweeps; only
+    `test_a_review_that_mixed_two_models_re_judges_only_what_the_moved_model_judged` failed.
+    That is the fifth time this defect has come back through a code path a guard did not read,
+    so the guard now reads all of them. Going wider than `delta.py` is deliberate: a review-wide
+    join needs no review-level field to spell — `",".join(sorted({f.prompt_identity for f in
+    previous.findings})) != selection.prompt_identity` is the whole defect and it compiles in
+    any module — so a file-scoped rule makes "put it in a second file" the route, which is this
+    defect's entire history.
+
+    Going wider costs nothing measurable and needs no exemption list. Walking
+    `src/archcompass` on this branch, exactly two comparisons mention a stamp read off a
+    record, and both are `judgement_moved`'s in `analysis/delta.py`. The one other comparison
+    naming a stamp anywhere in `src/` — `model_identity is None` in `langchain.py`, choosing
+    how to word a parsing failure — is not swept, because the sweep matches a stamp read as an
+    attribute of something rather than the bare word: that one reads a `str | None` parameter
+    and touches no record at all. Nothing is listed as excused, so there is no list for the
+    next repair to add a name to.
+
+    What "in hand" means is derived from annotations rather than from names, and either shape
+    satisfies it: lexically inside a `for` over a parameter annotated as a sequence of
+    `Candidate`, or inside a function taking a parameter annotated `Finding` and *not* a
+    container of them. That second exclusion is load-bearing rather than tidy: `tuple[Finding,
+    ...]` names `Finding` too, so without it a helper taking `findings` and comparing a join of
+    their stamps satisfies the rule while being the defect — checked by writing that helper and
+    watching the sweep pass without the exclusion and fail with it.
+
+    Three assertions, and the third is what closes the helper shape: a function taking a
+    `Finding` could still read a stamp off a closed-over review, so no stamp may be read off any
+    parameter annotated `Review` at all. Deleted together with the field it named, and held here
+    so that the read cannot come back before the field does.
+
+    Neither of this pair is complete alone and neither is a re-spelling of the code. This one
+    asserts a placement and says nothing about what is compared;
+    `test_no_record_of_many_findings_claims_one_judgement_identity` asserts what may exist to
+    be compared and says nothing about where. Four ways of putting the comparison back were
+    written out and run against this sweep — the verifier's module-level helper, the same
+    helper moved to a second module, the original hoist into `global_causes`, and the
+    `tuple[Finding, ...]` dodge — and all four fail it.
+    """
+
+    def _named(node: ast.FunctionDef | ast.AsyncFunctionDef, pattern: str) -> set[str]:
+        return {
+            name
+            for name, annotation in _annotated_parameters(node).items()
+            if re.search(pattern, annotation)
+        }
+
+    def _one_finding(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+        return {
+            name
+            for name, annotation in _annotated_parameters(node).items()
+            if re.search(r"\bFinding\b", annotation)
+            and not _FINDING_COLLECTION.search(annotation)
+        }
+
+    scopes: set[str] = set()
+    in_hand: set[int] = set()
+    compared: list[tuple[str, ast.Compare]] = []
+    off_the_review: set[str] = set()
+    for path in _python_files(SOURCE_ROOT):
+        module = path.relative_to(SOURCE_ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            where = f"{module}:{node.name}"
+            if _one_finding(node):
+                scopes.add(f"{where} takes one Finding")
+                in_hand.update(id(inner) for inner in ast.walk(node))
+            iterated = _named(node, _OVER_CANDIDATES.pattern)
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.For)
+                    and isinstance(inner.iter, ast.Name)
+                    and inner.iter.id in iterated
+                ):
+                    scopes.add(f"{where} iterates {inner.iter.id}")
+                    in_hand.update(id(within) for within in ast.walk(inner))
+            reviews = _named(node, r"\bReview\b")
+            off_the_review.update(
+                f"{module}:{inner.lineno} {ast.unparse(inner)}"
+                for inner in ast.walk(node)
+                if isinstance(inner, ast.Attribute)
+                and inner.attr in _JUDGEMENT_STAMPS
+                and isinstance(inner.value, ast.Name)
+                and inner.value.id in reviews
+            )
+        compared.extend(
+            (module, node)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Compare)
+            and any(
+                isinstance(inner, ast.Attribute) and inner.attr in _JUDGEMENT_STAMPS
+                for inner in ast.walk(node)
+            )
+        )
+
+    assert scopes, (
+        "nothing in src/ iterates a sequence of Candidate and nothing there takes a single "
+        "Finding; this sweep derives its scope from those two annotations, so it has lost "
+        "its subject and would report success over no code"
+    )
+    assert compared, (
+        "no comparison in src/ reads a judgement stamp off a record; the delta has stopped "
+        "reporting ChangeCause.MODEL and ChangeCause.PROMPT altogether"
+    )
+    loose = [
+        f"{module}:{node.lineno} {ast.unparse(node)}"
+        for module, node in compared
+        if id(node) not in in_hand
+    ]
+    assert not loose, (
+        "a judgement stamp is compared without one finding in hand: "
+        + "; ".join(sorted(loose))
+        + " — a comparison there runs once and speaks for every candidate, so its other side "
+        "can only be a review-wide value, which is the defect this pair of guards exists for."
+    )
+    assert not off_the_review, (
+        "a judgement stamp is read off a review: "
+        + ", ".join(sorted(off_the_review))
+        + " — a review holds many judgements and no single identity for them, which is why "
+        "the field it was read from was deleted rather than recomposed."
     )

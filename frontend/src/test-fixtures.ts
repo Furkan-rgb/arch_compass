@@ -173,8 +173,6 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
     investigation_manifest: [],
     synopsis: null,
     synopsis_identity: "",
-    model_identity: "fake:deterministic",
-    prompt_identity: "judge:v1",
     started_at: "2026-01-01T00:00:00Z",
     finished_at: null,
     failure: null,

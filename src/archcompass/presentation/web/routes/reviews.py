@@ -459,8 +459,14 @@ class ReviewResponse(APIModel):
     # belongs, and which is still here.
     synopsis: str | None
     synopsis_identity: str
-    model_identity: str
-    prompt_identity: str
+    # No `model_identity` and no `prompt_identity` beside it, and the asymmetry is the point.
+    # `synopsis_identity` names the one model that wrote the one paragraph above it, so it is
+    # a fact about the review. What judged the review is a fact about each finding — every
+    # `FindingResponse` in `findings` carries its own pair — and the review-level fields
+    # were the comma-joined set of those, which the revision delta then compared against a
+    # single identity. `domain/review.py` argues that out where the fields used to be. Nothing in
+    # `frontend/src` read them; a client that wants "what judged this review" reduces the
+    # findings it already has, the way `workflow/report.py:_provenance` does.
     started_at: str
     finished_at: str | None
     failure: str | None
@@ -646,8 +652,6 @@ class ReviewResponse(APIModel):
             ],
             synopsis=review.synopsis,
             synopsis_identity=review.synopsis_identity,
-            model_identity=review.model_identity,
-            prompt_identity=review.prompt_identity,
             started_at=review.started_at.isoformat(),
             finished_at=(
                 None if review.finished_at is None else review.finished_at.isoformat()

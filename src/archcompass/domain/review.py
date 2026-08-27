@@ -254,9 +254,11 @@ class Review:
     #: composed and stored with it. Not derived on read: a review is a record, and prose
     #: that changed every time somebody opened it would not be part of one.
     synopsis: str | None = None
-    #: Which model wrote that account. Kept apart from `model_identity`, which names the
-    #: models that judged: a finding carried forward from an earlier review was judged by
-    #: whatever was selected then, and the summary by whatever is selected now.
+    #: Which model wrote that account, and the only judgement-adjacent identity a review
+    #: still holds. It is one because the paragraph is one: written once, by whatever was
+    #: selected at the moment the review was composed. What *judged* is not one — a finding
+    #: carried forward was judged by whatever was selected then — so it is stamped per
+    #: finding and there is no field for it here. See the note below the manifests.
     synopsis_identity: str = ""
     retrieval_manifest: tuple[RetrievalProvenance, ...] = ()
     #: What each hinged finding checked against the repository before the review
@@ -265,8 +267,25 @@ class Review:
     #: reviews and compared by the delta, and one whose bytes changed when a lookup
     #: was recorded would compare as a different verdict.
     investigation_manifest: tuple[RecordedInvestigation, ...] = ()
-    model_identity: str = ""
-    prompt_identity: str = ""
+    #: No `model_identity` and no `prompt_identity`. A review held one of each, composed as
+    #: the comma-joined set of its findings' stamps, and the revision delta compared that
+    #: joined string against the *single* identity `SelectedLangChainJudge.selection` reports.
+    #: A set and a value are not the same kind of thing: they were equal only for as long as
+    #: every review held exactly one stamp, and the first review that mixed two — a reviewer
+    #: switching model through `PUT /api/models/selection` while a per-candidate fan-out ran
+    #: — made every candidate read changed on the next revision. Not for ever: re-judging
+    #: them all stamps them all with the one identity in force, so the revision after that
+    #: compares a set of one against a single value and matches again. Measured on the wiring
+    #: that carried these fields, over the stored 7-finding review with three findings
+    #: restamped: `unchanged=0 changed=7`, then `unchanged=7 changed=0`. The bill is a whole
+    #: review re-judged for nothing, per straddle — see `analysis/delta.py` for the
+    #: arithmetic. The delta reads each finding's own stamps now, so there is no review-level
+    #: value left for anything to compare, which is why there is no field here rather than a
+    #: better-composed one.
+    #:
+    #: A surface that wants "what judged this review" derives it from the findings where it
+    #: is displayed — `workflow/report.py:_provenance` is the one that does — because a
+    #: stored derived value is the second copy this whole record exists without.
     failure: str | None = None
 
     def __post_init__(self) -> None:

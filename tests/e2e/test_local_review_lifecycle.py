@@ -94,13 +94,20 @@ def test_nothing_in_a_local_review_was_produced_by_a_hosted_model(
 
     final = local_lifecycle.final
 
-    assert final["model_identity"].startswith("ollama:")
-    assert LOCAL_REASONING_MODEL in final["model_identity"]
-    assert f"thinking={LOCAL_THINKING}" in final["model_identity"]
+    # Read off the findings, one judgement at a time. The review carried a comma-joined set
+    # of these two fields until the revision delta stopped comparing it against a single
+    # identity; a set was never a thing `startswith` could be asked about honestly.
+    judged_by = {item["model_identity"] for item in final["findings"]}
+    asked_by = {item["prompt_identity"] for item in final["findings"]}
+    assert judged_by, "the completed review carried no findings to be attributed"
+    for identity in judged_by:
+        assert identity.startswith("ollama:")
+        assert LOCAL_REASONING_MODEL in identity
+        assert f"thinking={LOCAL_THINKING}" in identity
     # The deterministic substitute has its own prompt identity, so this also proves the run
     # did not quietly fall back to it.
-    assert final["prompt_identity"]
-    assert "deterministic" not in final["prompt_identity"]
+    assert all(asked_by)
+    assert not any("deterministic" in identity for identity in asked_by)
 
     for provenance in final["retrieval_manifest"]:
         assert (provenance["model_identity"] or "").startswith("ollama:")
@@ -133,7 +140,9 @@ def test_two_local_models_are_still_two_selections(
             )
         )
     }
-    assert EMBEDDING_MODEL not in final["model_identity"]
+    assert not any(
+        EMBEDDING_MODEL in item["model_identity"] for item in final["findings"]
+    )
     assert LOCAL_REASONING_MODEL not in embedding_identities.pop()
 
     for provenance in final["retrieval_manifest"]:

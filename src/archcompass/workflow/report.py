@@ -409,6 +409,11 @@ def _provenance(
     retrievers: Sequence[str],
     synopsis: ReviewSynopsis | None,
 ) -> str:
+    # Derived here, at the point of display, and stored nowhere. `Review` used to carry these
+    # two sets comma-joined as well, and the revision delta compared that joined string
+    # against a single identity — see the field's absence in `domain/review.py`. What is left
+    # is one expression, in the one place a reader is shown the answer, so there is nothing
+    # for a second expression to disagree with.
     models = sorted({item.model_identity for item in findings if item.model_identity})
     prompts = sorted({item.prompt_identity for item in findings if item.prompt_identity})
     # Every endpoint that answered anywhere in this review, split back out of the per-finding
@@ -705,12 +710,6 @@ class DeterministicReviewComposer:
                 and str(item.candidate_id) in judged_candidates
             )
         )
-        model_identities = sorted(
-            {item.model_identity for item in draft.findings if item.model_identity}
-        )
-        prompt_identities = sorted(
-            {item.prompt_identity for item in draft.findings if item.prompt_identity}
-        )
         now = utc_now()
         # The document the review becomes when it leaves the product — attached to a pull
         # request, printed by the CLI, downloaded. `report.py` owns it, because a readable
@@ -754,6 +753,4 @@ class DeterministicReviewComposer:
             synopsis_identity="" if draft.synopsis is None else draft.synopsis.model_identity,
             retrieval_manifest=retrieval_manifest,
             investigation_manifest=(*carried_investigations, *draft.investigations),
-            model_identity=",".join(model_identities),
-            prompt_identity=",".join(prompt_identities),
         )
