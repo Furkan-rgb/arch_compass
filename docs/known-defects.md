@@ -263,9 +263,12 @@ and it was the worst of the five rather than one more of them: a `ch` on a block
 no font size resolves against whatever it inherited, which here is the root's 16px, so it drew
 **489.44px** while the note inside it was `text-[14px]` whose own 46ch is 428.26px. It also
 capped the wrong box — the card spends 30px on `px-3.5` and two hairlines, so the note was
-reading at 459.44px, 65.47 characters a line measured over all 514 recorded notes. It is now
-`max-w-[26.75rem]`: the note's own 46 characters at the 13px it is now set in, 397.67px, plus
-the 30px the card costs, rounded to a quarter-rem. The note draws at **398.00px** and stops
+reading at 459.44px, 65.47 characters a line measured over all 514 recorded notes. The cap is now
+the grid track — `grid-cols-[repeat(auto-fill,minmax(0,26.75rem))]` — rather than a `max-w` on
+the `ul`, so it sits on the card it was always a property of and the fold lays two cards across
+the 1,126px it has instead of spending one column of 428px and two rows. The number and its
+derivation did not move: the note's own 46 characters at the 13px it is now set in, 397.67px,
+plus the 30px the card costs, rounded to a quarter-rem. The note draws at **398.00px** and stops
 within a third of a pixel of the empty state that replaces it, which is the third row above.
 
 **How the figures were produced.** `46 x size x advance`, where the advance is Onest's zero at
@@ -308,3 +311,32 @@ The duplicated helpers, the duplicated ignored-directory list and the two protoc
 the name `RepositoryAnalyzer` have all been reduced to one definition each, and
 `safe_workspace_output_path` has gone — see the symlink entry below for the one check that
 left with it.
+
+## OPEN — a thinking *level* pinned on Ollama fails before the request is built
+
+The mirror of the fault `openrouter._effort` fixed. `ThinkingMode` is one type over two
+provider shapes — a switch and a four-word dial — and each adapter now owes the shape it does
+not have. OpenRouter's branch owes the switch, and maps it onto the ends of the dial. Ollama's
+branch owes the dial, and does not: `build_chat_model` passes `config.thinking` straight into
+`ChatOllama(reasoning=…)`, which reaches `ollama.ChatRequest.think`, typed
+`Optional[Union[bool, Literal['low', 'medium', 'high']]]`.
+
+Measured on 2026-08-27 through a mock transport, four levels against `qwen3.8:27b`: `low`,
+`medium` and `high` go across as `think='low'`, `think='medium'`, `think='high'`. `minimal`
+raises `pydantic.ValidationError: 2 validation errors for ChatRequest` inside the ollama
+client, before any request is built. So `--thinking minimal --provider ollama` cannot run at
+all, and the other three run only by the coincidence that both vocabularies spell three of
+their words the same way.
+
+Not fixed here because the mapping is a product decision with nothing written down to
+implement. `minimal` on a switch is either `False` — which reads the floor as off, the
+opposite of the approximation OpenRouter makes — or `low`, which asks a model to think when
+the setting asked it not to. The OpenRouter mapping had a specification already:
+`ReasoningModelConfig.thinking` and `_thinking_mode` both stated it. This one has none.
+
+Bounded rather than dangerous: it is unreachable from the chooser, which offers each provider
+only the shape it has (`probe_ollama` reports `(True, False)` or `(None,)`; OpenRouter's
+`_judgeable` reports `(None, *THINKING_LEVELS)`), so only a `--thinking` pin reaches it — and
+it fails at model construction, loudly, before a token is spent. `test_provider_conformance.py`
+covers the three states `ReasoningModelConfig` specifies and deliberately does not pin this
+one, because a test of the current behaviour here would be a test that the defect is present.

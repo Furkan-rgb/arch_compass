@@ -153,9 +153,12 @@ class ServedRoute:
     def served_by(self) -> str:
         """Every endpoint that answered, first seen first, as one storable string.
 
-        Comma-joined for the reason `Review.model_identity` is comma-joined: a provenance
-        field is read and shown far more often than it is parsed, so the shape it is stored
-        in should be the shape it is read in.
+        Comma-joined because a provenance field is read and shown far more often than it is
+        parsed, so the shape it is stored in should be the shape it is read in. This cites
+        no other field as precedent any more: the one it used to cite was
+        `Review.model_identity`, a comma-joined set that the revision delta then compared
+        against a single identity, and it was deleted for exactly that. The join is right
+        here and was wrong there, and the difference is that nothing compares this.
 
         Empty is a real answer and not a missing one. It is what a local Ollama and the
         deterministic stand-in produce, because neither has an endpoint to name.
@@ -305,9 +308,27 @@ def request_body(max_output_tokens: int, thinking: ThinkingMode = None) -> dict[
     have. Measured: `max_tokens=16` came back with 12 completion tokens and
     `finish_reason="length"`.
 
-    `reasoning` is sent only when a depth was asked for. OpenRouter spells it as an effort
-    on both of the two shapes its endpoints declare, and this is the portable one; absent, a
-    model reasons however it reasons, which is what `None` has always meant here.
+    `reasoning` is sent whenever a depth was asked for, in any of the shapes one can be asked
+    for in. OpenRouter spells it as an effort on both of the two shapes its endpoints declare,
+    and this is the portable one; absent, a model reasons however it reasons, which is what
+    `None` has always meant here.
+
+    A switch is read as the ends of that scale — `True` is `high`, `False` is `minimal`. This
+    is a levels API and it has no boolean, so `minimal` is the floor rather than off, and that
+    approximation is stated rather than hidden. It is also not invented here: it is what
+    `ReasoningModelConfig.thinking` and `_thinking_mode` in the CLI both already say happens,
+    and until this mapping existed both of those sentences were false. `isinstance(thinking,
+    str)` was the whole condition, so `True` produced no `reasoning` key at all — which is
+    precisely the decay into absence that `ReasoningModelConfig.thinking` forbids, and it was
+    reachable. Measured on the parent commit, `--provider openrouter` with each of the three
+    settings sent `{"max_tokens": 32768}` for `on`, `{"max_tokens": 16384}` for `off` and
+    `{"max_tokens": 32768}` for naming no depth at all: `on` and absent were the same request
+    byte for byte, `off` differed from both only in the budget, because
+    `_spends_little_on_thinking` reads `False` as a mode that spends little. So three settings
+    reached the provider as two instructions about budget and none about reasoning, which is
+    the whole of what the switch was for. `test_provider_conformance.py` asserts the three
+    states are three requests, on every provider, and compares only the thinking field so that
+    a difference in budget cannot be mistaken for one.
 
     `temperature` is 0, because a judge should decode greedily and nothing on this path was
     asking it to. It was here once and was removed, and that removal has to be read with its
@@ -370,9 +391,26 @@ def request_body(max_output_tokens: int, thinking: ThinkingMode = None) -> dict[
     """
 
     body: dict[str, Any] = {"max_tokens": max_output_tokens, "temperature": 0}
-    if isinstance(thinking, str):
-        body["reasoning"] = {"effort": thinking}
+    effort = _effort(thinking)
+    if effort is not None:
+        body["reasoning"] = {"effort": effort}
     return body
+
+
+def _effort(thinking: ThinkingMode) -> str | None:
+    """One thinking mode as the single word this API has for it, or nothing to send.
+
+    `isinstance` rather than `is True` because `ThinkingMode` is `bool | ThinkingLevel |
+    None`, and testing the bool first is what leaves a level narrowed to a level for the
+    return — the two shapes are told apart by their type, which is the only thing that
+    distinguishes them.
+    """
+
+    if thinking is None:
+        return None
+    if isinstance(thinking, bool):
+        return "high" if thinking else "minimal"
+    return thinking
 
 
 def _catalogue(path: str, api_key: str) -> list[Mapping[str, object]]:

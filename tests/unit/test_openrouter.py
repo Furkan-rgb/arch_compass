@@ -231,10 +231,17 @@ def test_a_depth_is_sent_only_when_one_was_asked_for() -> None:
 
     Every parameter in the body narrows the endpoints that can serve the request, so one
     sent to mean "no preference" would be availability spent to say nothing.
+
+    Only `None` earns that silence. This test used to assert it for `False` as well, which
+    read as the same decision and was not one: it left "do not reason" and "reason however
+    you like" as the same request. A switch is now sent as the ends of the effort scale —
+    `request_body` argues the approximation, and `test_provider_conformance.py` asserts on
+    the wire that the three states stay three requests.
     """
 
     assert "reasoning" not in openrouter.request_body(1)
-    assert "reasoning" not in openrouter.request_body(1, False)
+    assert openrouter.request_body(1, True)["reasoning"] == {"effort": "high"}
+    assert openrouter.request_body(1, False)["reasoning"] == {"effort": "minimal"}
     assert openrouter.request_body(1, "medium")["reasoning"] == {"effort": "medium"}
 
 
