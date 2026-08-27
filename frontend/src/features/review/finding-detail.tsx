@@ -119,23 +119,45 @@ function policiesSummary(finding: Finding, retrieval?: RetrievalProvenance): str
  * line under a block and wants the shorter measure; an argument is read and wants the longer.
  *
  * "The same way" is now a method rather than a promise, because this pair has been re-measured
- * four times and moved three: serve the built bundle, render all 375 recorded strings through
- * the real `ModelProse` with its quoted names drawn as chips, cluster a Range per character on
- * the vertical centre of its box, and average the lines that are not the last of their block.
- * The 59 has held every time. The 73 beside it was the same sweep taken over the *string* rather
- * than over the render, which loses the width a mono chip adds; it is 75.7.
+ * five times and moved three. Serve the built bundle, so the face is the shipped `onest.woff2`
+ * and the CSS is the real one. Load both Onest weights with `document.fonts.load` and assert
+ * them with `document.fonts.check` before reading anything — `font-display: swap` otherwise
+ * answers with a fallback zero and every width is five per cent wrong. Render all 375 recorded
+ * strings through the real `ModelProse` with its quoted names drawn as chips. Cluster a Range
+ * per character on the vertical **centre** of its box, not its top, since a mono chip is taller
+ * than the Onest beside it and shares its baseline. Then average the lines that are not the last
+ * of their block. The 59 has held every one of the five runs: 59.01 over 2,846 such lines.
  *
- * The half of that method nobody wrote down, and the half that decides the last digit of both
- * numbers: a soft wrap eats a space that is drawn on no line, and it is counted here as
+ * **The 73 that used to stand beside it was wrong twice over, and the second way is the one
+ * worth recording.** It was said to be this sweep taken over the *string* rather than over the
+ * render, on the grounds that a string loses the width a mono chip adds. Onest is *narrower*
+ * than the chip that replaces it, so measuring the string can only push the count up. Re-run:
+ * flatten every chip back to Onest body text and the same sweep gives **76.07**; draw the
+ * recorded string literally, backticks and all, and it gives **76.24**. Both sit above the
+ * render's 75.7, so the diagnosis had the direction backwards as well as the digit. 73.1 is this
+ * sweep at 56ch, which is the likeliest place a 73 came from at all. It is deleted rather than
+ * corrected — a counterfactual nobody wrote a method for is a number nobody can check, and this
+ * surface has now shipped seven rounds of those.
+ * `features/review/finding-detail.test.tsx` states all three sweeps beside `AVERAGE_CHARACTER_PX`.
+ *
+ * The half of that method nobody wrote down, and the half that decides the last digit of every
+ * number above: a soft wrap eats a space that is drawn on no line, and it is counted here as
  * belonging to **the line it ended**, so a line holds the source from its own first visible
  * character up to the next line's first. `docs/design-system.md` states the choice and the
  * reason. Counted as the visible run instead, first ink to last, this pair is 58.1 and 74.7 —
  * both perfectly defensible numbers, and not these ones. That is the whole reason this comment
  * has moved three times.
  *
- * 46ch here is 367.08px because a footnote inherits weight 400. It is not 395.76px, which is
- * what the same 46ch resolves to twenty lines up on the 13px `font-semibold` lede, since Onest's
- * zero is 665 units on a 1000-unit em at 400 and 661.8 at 600.
+ * 46ch here is 367.08px because a footnote declares no weight and so inherits 400. It is not
+ * the 395.76px the same 46ch resolves to twenty lines up on the 13px `font-semibold` lede, and
+ * it is not the 397.67px it resolves to on the 13px policy note below — same count, same size,
+ * two different widths, because Onest's zero is 665 units on a 1000-unit em at 400 and 661.8 at
+ * 600. Neither figure is worked out by hand: "resolves every `46ch` this surface declares, and
+ * none of them from an ancestor" in `features/review/finding-detail.test.tsx` computes them off
+ * these class lists, and it also says the thing this comment cannot — that `max-w-[46ch]` is
+ * written on four blocks in this file at four sizes, and therefore stops at four different
+ * edges, 61.18px apart end to end. That is defect 9 alive here, and `docs/known-defects.md`
+ * carries the table.
  *
  * The number is spelled out because this comment's own subject is a number in a comment that
  * drifted. The one it replaces said "sixty", which is what `ch` is worth if you take it as
@@ -1013,7 +1035,29 @@ export function FindingBody({
       {/* ── The audit, folded away, each with a closed state that says what is inside ── */}
       <Disclosure label="Policies" summary={policiesSummary(finding, retrieval)}>
         {finding.policies.length ? (
-          <ul className="grid max-w-[46ch] gap-2">
+          /* `26.75rem`, and neither half of that number is `46ch`.
+              A `ch` is the advance of the zero of the element's **own** used font, and this
+              `ul` declares no font size, so `max-w-[46ch]` resolved against the 16px it
+              inherited from the root and drew **489.44px** — while the note inside it is
+              `text-[14px]`, whose own 46ch is 428.26px. The name said one measure and the
+              layout drew another, which is the defect `ui/markdown.tsx` carries a paragraph
+              about, in a second file.
+              The second half is subtler and survives fixing the first. The cap is on the
+              *card*, and a measure is a property of the text: the card spends 30px on its own
+              `px-3.5` and its two hairlines, so at 489.44px the note was reading at 459.44px —
+              65.47 characters a line, measured over all 514 recorded notes with a `Range` per
+              character in a headless Chromium serving the built stylesheet. Writing the text's
+              measure on the box around it is off by whatever that box costs.
+              So the cap is the note's measure plus the card: 46 characters at the 13px the
+              note is now set in is 397.67px, and 397.67 + 30 is 427.67, rounded to a
+              quarter-rem the way `ui/markdown.tsx` rounds its own. The note then draws at
+              **398.00px** and stops within a third of a pixel of the "No policy bore on this
+              judgement" paragraph below, which is this list's own empty state at
+              `max-w-[46ch] text-[13px]` — the two answers to one question, ending in one
+              place. That `ui/markdown.tsx` arrives at the same 26.75rem from 46ch at 14px on
+              the block itself is a coincidence of two derivations, not a shared constant, and
+              the two must not be made into one. */
+          <ul className="grid max-w-[26.75rem] gap-2">
             {/* A hairline card with no fill, for the reason `EvidenceBlock` has none: the
                 fold body it sits in is `--surface-2`, and `--surface` is above it in light
                 and below it in dark, so the same card read as raised in one theme and as a
@@ -1026,7 +1070,40 @@ export function FindingBody({
                   <span className="text-[13px] font-semibold text-ink">{bearing.policy_title}</span>
                   <PolicyRef id={bearing.policy_id} />
                 </div>
-                <p className="mt-1.5 text-[14px] leading-relaxed text-ink-2 wrap-anywhere">
+                {/* MODEL PROSE THAT IS NOT THE JUDGED VOICE, which is a claim worth the space
+                    because the obvious move is the wrong one.
+                    The store holds **514 distinct** notes over 519 occurrences — a fifth
+                    surface of model-written prose, and until this pass every figure the
+                    repository argued from was over the 375 `finding.reasoning` strings and
+                    none of them. They are short: 187 characters at the median against the
+                    judgement's own longer strings, 25 of the 514 over 400, one at 1,080.
+                    `ModelProse` exists exactly so a surface can opt into "this is model prose"
+                    rather than restate what that means, and three surfaces already do. This
+                    one does not, for two reasons that are measurements rather than taste.
+                    The first is that the component would do nothing here. Run `sentences` over
+                    all 514 and **432 of them — 84% — come back as a single part**, because a
+                    policy note is one sentence with a full stop at the end and nothing after
+                    it. The judgement corpus is 5.9% single-part and 38.7% three-part. So the
+                    one-block-per-sentence device fires on 16% of this surface, the packing
+                    ceiling on 0.8%, and `whitespace-pre-line` on none at all: not one of the
+                    514 contains a newline, against a judgement corpus where two do.
+                    The second is placement, which is what the design system says the voices
+                    are carried by. Judged is three things at once — the reading size, a block
+                    alone in a band, and a `JUDGED · <model>` line naming who wrote it. A note
+                    here is none of them: it is one card among several, the fold body under it
+                    is `--surface-2`, and the line above it names a **policy** and its id. A
+                    second 16px full-ink block on this page would tell a reader there are two
+                    judgements in the finding, which is the one thing the size is spent saying.
+                    What was wrong was the size, and it was wrong by being a fourth one. Every
+                    other sentence in this fold and in the two beside it is 13px on `leading-6`
+                    — `InvestigationTranscript`, the retrieval footnote, and this list's own
+                    empty state — so the fold answered the same question at 14px or at 13px
+                    depending on whether a policy happened to bear. `leading-relaxed` went with
+                    it for the same reason: it is 1.625, and nothing else in the fold uses it.
+                    `Prose` stays. Only 13 of the 514 carry a backtick, against 64 of 375 in
+                    the judgements, but a quoted name rendered as a literal backtick is the one
+                    failure that is unambiguous rather than a matter of degree. */}
+                <p className="mt-1.5 text-[13px] leading-6 text-ink-2 wrap-anywhere">
                   <Prose>{bearing.reasoning}</Prose>
                 </p>
               </li>

@@ -1,11 +1,16 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Finding, Review } from "../../api";
 import { verdictOf } from "../../lib/format";
-import { zeroAdvanceEm } from "../../ui/onest.test-metrics";
+import { chMeasure, zeroAdvanceFor } from "../../ui/onest.test-metrics";
 import { plainProse } from "../../ui/prose";
+import { WIDEST_UNBREAKABLE_TOKEN_PX } from "../../ui/prose.test-corpus";
+import { spacingPx } from "../../ui/tailwind.test-spacing";
 import { reviewFixture } from "../../test-fixtures";
 import { FindingBody } from "./finding-detail";
 
@@ -27,52 +32,28 @@ import { FindingBody } from "./finding-detail";
  */
 
 /**
- * Onest's zero advance, which is what a `ch` is — and which is one number per weight.
+ * Onest's font model — the zero advance, which is what a `ch` is, and the weight it follows.
  *
- * It lives in `ui/onest.test-metrics.ts`, with the `fontTools` recipe that reads it off the
- * shipped `onest.woff2` and the Chromium reading that confirms it, because `ui/markdown.test.tsx`
- * argues from the same two numbers over a document's seven renderers. Two files keeping their
- * own copy of one measurement is the drift these files exist to catch, so there is one copy.
+ * None of it is here. `ui/onest.test-metrics.ts` owns the advance per weight, the nine weight
+ * utilities, and `zeroAdvanceFor`, which turns a class list into one advance or throws rather
+ * than answer for a weight nobody has measured. It carries the `fontTools` recipe that reads
+ * them off the shipped `onest.woff2` and the Chromium reading that confirms them.
  *
- * It matters *here* because the block this file compares the argument against is the lede, and
- * the lede is 13px **semibold**. A `58ch` written on both is 617.12px on the argument and
- * 499.00px on the lede — not the 501px a 400-weight reading gives, and not the 498.99px an
- * earlier pass here printed, which is neither the resolved 498.997 nor the 498.98 Chromium
- * draws. Every number below is derived from these, so a face change moves the arithmetic and
- * the bounds keep meaning what they say.
+ * It is not here because it was here *and* in `ui/markdown.test.tsx`, character for character,
+ * while `ui/markdown.tsx` explained the same numbers again in prose. That is the defect these
+ * files exist to catch, one layer up: two copies of a measurement drift in two directions, and
+ * the second copy is what tells you, afterwards. Seven rounds of wrong figures have shipped on
+ * this surface and the seventh was written by the sixth round's own repair.
+ *
+ * The weight matters *here* because the block this file compares the argument against is the
+ * lede, and the lede is 13px **semibold**. One `58ch` written on both is a different width on
+ * each, and the difference is a weight and not a size — a 400-weight reading of the lede
+ * overstates it by two and a half pixels, which is small enough to survive six passes.
+ * "resolves one `58ch` on the lede and the argument to two different widths" computes both, and
+ * `ui/onest.test-metrics.test.ts` holds them beside every other `ch` figure in the repository.
+ * Every bound below derives from the same call, so a face change moves the arithmetic and the
+ * bounds keep meaning what they say.
  */
-
-/**
- * The weight a class list declares, in `font-weight` numbers, defaulting to the inherited 400.
- *
- * All nine of Tailwind's weight utilities are listed, not only the one this band uses, so an
- * unrecognised one cannot be read as 400 — it resolves to a weight with no measured advance and
- * `zeroAdvance` throws. The family utilities `font-display`, `font-sans` and `font-mono` share
- * the prefix and say nothing about weight, so they are not here.
- */
-const NAMED_WEIGHTS: Record<string, number> = {
-  "font-thin": 100,
-  "font-extralight": 200,
-  "font-light": 300,
-  "font-normal": 400,
-  "font-medium": 500,
-  "font-semibold": 600,
-  "font-bold": 700,
-  "font-extrabold": 800,
-  "font-black": 900,
-};
-
-function declaredWeight(classes: string): number {
-  for (const [name, weight] of Object.entries(NAMED_WEIGHTS)) {
-    if (new RegExp(`(?:^|\\s)${name}(?:\\s|$)`).test(classes)) return weight;
-  }
-  return 400;
-}
-
-/** The zero advance a class list's own type resolves to, or a loud failure. */
-function zeroAdvance(classes: string): number {
-  return zeroAdvanceEm(declaredWeight(classes), `"${classes}"`);
-}
 
 /**
  * What one character of *this corpus* costs on a line that is actually full, which is neither
@@ -102,14 +83,22 @@ function zeroAdvance(classes: string): number {
  *
  * The **73** that stood here, in `ui/prose.tsx` and in `docs/design-system.md`, was attributed to
  * measuring the string rather than the render, and that diagnosis is wrong in the direction as
- * well as the digit. Flattening every chip back to Onest body text and re-running the same sweep
- * gives 3,237 line boxes and **76.07** characters: narrower text fits *more* of it on a line, so
- * the string reads about half a character **generous**, never eleven characters short. It loses
- * eleven line boxes, which is the part of that sentence that was true. 73.1 is this sweep at
- * **56ch**, which is where a 73 most plausibly came from, and no method stated in any of the
- * three files reproduces 3,326 lines at all. It is deleted rather than corrected: a counterfactual
- * whose method nobody wrote down is a number that cannot be checked, and this surface has shipped
- * six rounds of those.
+ * well as the digit — under *either* reading of "the string", which is the part worth writing
+ * down, because "measured the string instead" turns out to name two different sweeps.
+ *
+ * Flatten every chip back to Onest body text — `plainProse` first, so a backticked name is drawn
+ * as the name — pack it with the real `sentences` and set it in the real paragraph class list,
+ * and the same sweep gives 3,237 line boxes and **76.07** characters. Draw the recorded string
+ * literally instead, backticks and all, and it gives the same 3,237 boxes and **76.24**. Both are
+ * *above* the render's 75.7, and they have to be: Onest is narrower than the mono chip it
+ * replaces, so narrower text fits more of it on a line. Measuring the string reads between a
+ * third and half a character **generous**, never eleven characters short. The eleven line boxes
+ * it loses is the one part of that sentence that was true.
+ *
+ * 73.1 is this sweep at **56ch**, which is where a 73 most plausibly came from, and no method
+ * stated in any of the three files reproduces the 3,326 lines that travelled with it. Both are
+ * deleted rather than corrected: a counterfactual whose method nobody wrote down is a number
+ * nobody can check, and this surface has shipped seven rounds of those.
  */
 const AVERAGE_CHARACTER_PX = 617.12 / 75.7;
 
@@ -127,16 +116,31 @@ const AVERAGE_CHARACTER_PX = 617.12 / 75.7;
  * split across two lines by `wrap-anywhere`, which is the least legible thing this band can do
  * to the one word a reader is checking.
  *
+ * **That 48 is one rounding away from being 47, and nothing said so until now.** Sorted by
+ * width, the last token over the floor is `src.audiobook.synthesis.providers.registry),` at
+ * **324.89px** against a 324px column — 0.89px, a tenth of one glyph. The same name without its
+ * trailing comma is 320.72px and sits under the floor, so the count turns on a punctuation mark
+ * that `wrap-anywhere` has to keep on the line. The figure is stable — a Range inside the
+ * component, a bare probe span and `canvas.measureText` agree on it to two decimals — but the
+ * *count* is not a robust property of the corpus, and a comment that prints 48 without saying
+ * how close the edge is invites the next reader to treat it as one. What the floor rests on is
+ * 541.7px, which clears the column by 217px; 48 is a description of the tail, not a threshold.
+ *
  * Set in Onest, which is the half of the number that gets lost, and the half a re-measurement
  * of this file kept trying to put back. The corpus holds two names of 74 characters that
- * measure 601.3px and 583.1px as Onest body text, and neither is a candidate for this floor:
+ * measure **601.95px** and **583.42px** as Onest body text — a Range over the paragraph's own
+ * text node, agreeing to three decimals with a bare `<span>` and with `canvas.measureText`, and
+ * not the 601.3 / 583.1 an earlier pass wrote — and neither is a candidate for this floor:
  * both are backticked in every string they appear in, so `INLINE_CODE` draws them as mono
  * chips — 620.9px each, wider than the measure — carrying `max-w-full` and `wrap-anywhere`,
  * where a name too wide for its column folds inside a box that says the fragments are one
  * name. `ui/prose.tsx` makes that argument at length beside the measure. Raising this constant
  * to cover them would be widening the measure to clear a token this block never sets.
  */
-const WIDEST_TOKEN_PX = 541.7;
+// The value itself is in `ui/prose.test-corpus.ts`, with the browser sweep that shows what
+// a block unable to break inside this token does to a phone's column. The argument for it is
+// above, where it is used; a measurement written down twice is the drift these files catch.
+const WIDEST_TOKEN_PX = WIDEST_UNBREAKABLE_TOKEN_PX;
 
 /**
  * The typesetting a block declares, read off it and converted into the units the arguments
@@ -153,7 +157,7 @@ function typeset(element: Element) {
   const leading = /leading-\[([\d.]+)\]/.exec(classes);
   if (!size || !measure || !leading) return null;
   const fontPx = Number(size[1]);
-  const measurePx = Number(measure[1]) * zeroAdvance(classes) * fontPx;
+  const measurePx = Number(measure[1]) * zeroAdvanceFor(classes) * fontPx;
   return {
     fontPx,
     measurePx,
@@ -182,7 +186,7 @@ function rightEdge(element: Element): { px: number; fontRelative: boolean } | nu
   const size = /(?:^|\s)text-\[([\d.]+)px\]/.exec(classes);
   if (!size) return null;
   return {
-    px: value * Number(size[1]) * (unit === "ch" ? zeroAdvance(classes) : 1),
+    px: value * Number(size[1]) * (unit === "ch" ? zeroAdvanceFor(classes) : 1),
     fontRelative: true,
   };
 }
@@ -436,6 +440,96 @@ describe("the Judged band", () => {
   });
 
   /**
+   * Every `46ch` this surface declares, resolved — which is more than one width.
+   *
+   * This test was written to check a single figure in `Footnote`'s comment and found a defect
+   * instead, which is the argument for writing it. `max-w-[46ch]` is declared on several blocks
+   * in `finding-detail.tsx` at several sizes: the footnote at `text-[12px]`, the "How it was
+   * detected" rationale at `text-[12.5px]`, the policy list's empty state at `text-[13px]`, the
+   * question's answer at `text-[14px]`. A `ch` is the advance of the digit zero in the element's **own**
+   * used font, so one string is one width per size — 367.08px, 382.38px, 397.67px and 428.26px,
+   * sixty-one pixels between the ends of that range.
+   *
+   * That is defect 9 — the one `ui/markdown.tsx` was repaired for, where `46ch` across its
+   * renderers meant five widths — alive on the surface this session has spent seven rounds
+   * measuring. Nothing saw it because every guard here reads the model's argument and the lede,
+   * which are the two blocks somebody had already suspected. `docs/known-defects.md` carries it
+   * with the table and the method.
+   *
+   * **Read off the source rather than off a render**, because most of these are behind a
+   * disclosure or a branch, and a fixture that happens to draw two of them would report the
+   * fault as half its size.
+   *
+   * **What is asserted is a property, not a snapshot.** A count would be a characterisation of
+   * today's file that fails the moment somebody repairs one of these, which is backwards. So:
+   * every declared `ch` measure must be resolvable from the class list that declares it — the
+   * `<ul>` that carried `max-w-[46ch]` with no font size at all could not be, and that was the
+   * worst of them, a measure whose width an ancestor decided. Every width these resolve to must
+   * be one of the four already understood, so removing a declaration passes and introducing a
+   * fifth size fails. And the footnote — the block `Footnote`'s own comment argues from — must
+   * still be the 367.08px one.
+   */
+  it("resolves every `46ch` this surface declares, and none of them from an ancestor", () => {
+    // The component is this file without the `.test`, resolved off this file's own path rather
+    // than off the working directory, so it is found whichever directory vitest is run from.
+    // `fileURLToPath` and not the `URL` object: under jsdom the global `URL` is jsdom's own
+    // class, which `readFileSync` refuses.
+    const source = readFileSync(
+      fileURLToPath(import.meta.url).replace(/\.test\.tsx$/, ".tsx"),
+      "utf8",
+    );
+    const declared = [...source.matchAll(/"([^"\n]*max-w-\[46ch\][^"\n]*)"/g)].map((m) => m[1]);
+    expect(
+      declared.length,
+      "no block in `finding-detail.tsx` declares `max-w-[46ch]` any more, so `Footnote`'s " +
+        "comment and the entry in `docs/known-defects.md` are both describing a file that has " +
+        "moved on",
+    ).toBeGreaterThan(0);
+
+    const resolved = declared.map((classes) => ({
+      classes,
+      edge: rightEdge({ className: classes } as Element),
+    }));
+
+    // A `ch` on a block that declares no font size takes its width from an ancestor, so the
+    // class list stating the measure cannot say what the measure is. That is worse than two
+    // blocks disagreeing, and it is the one thing here asserted as forbidden rather than merely
+    // recorded.
+    expect(
+      resolved.filter((row) => row.edge === null).map((row) => row.classes),
+      "a `ch` measure is declared on a block that sets no font size, so its width is decided " +
+        "by whatever ancestor happens to set one",
+    ).toEqual([]);
+
+    // 46 x 12 x 0.665, 46 x 12.5 x 0.665, 46 x 13 x 0.665, 46 x 14 x 0.665 — all four the 400
+    // entry, because every one of these blocks inherits the document's weight. This set differs
+    // by size alone, where the `58ch` pair above differs by weight alone; between them they are
+    // the whole of what a `ch` follows.
+    const understood = [367.08, 382.38, 397.67, 428.26];
+    const widths = resolved.map((row) => Number(row.edge!.px.toFixed(2)));
+    for (const [index, width] of widths.entries()) {
+      expect(
+        understood,
+        `"${declared[index]}" resolves its 46ch to ${width}px, which is a size nobody has ` +
+          "written down — see `docs/known-defects.md` on the `46ch` spread here",
+      ).toContain(width);
+    }
+
+    // The footnote is the row `Footnote`'s comment argues from, so it is named rather than
+    // taken by position.
+    const footnote = resolved.find((row) => /text-\[12px\]/.test(row.classes));
+    expect(footnote, "no 12px block declares `max-w-[46ch]`, so `Footnote` has changed").toBeDefined();
+    expect(Number(footnote!.edge!.px.toFixed(2))).toBe(367.08);
+
+    // The same 46 characters on the 13px semibold lede: 46 x 13 x 0.6618. It is not 397.67, which
+    // is what the 13px policy note resolves to — same count, same size, different weight, and a
+    // comment that quotes one of them for the other is round seven all over again.
+    const onTheLede = chMeasure(46, 13, "font-semibold").resolved;
+    expect(Number(onTheLede.toFixed(2))).toBe(395.76);
+    expect(Number((onTheLede - 367.08).toFixed(2))).toBe(28.68);
+  });
+
+  /**
    * The half of defect 9 that comparing two declared measures cannot see, and the reason the
    * comparison above is no longer the guard.
    *
@@ -604,6 +698,67 @@ describe("the Judged band", () => {
     const first = rail.firstElementChild!;
     expect(first.className).toContain("mt-0");
     expect(within(band).getByText(/Judged against case revision/)).toBe(first);
+  });
+
+  /**
+   * The band's two distances, which are one declaration between three children and were held by
+   * nothing.
+   *
+   * The grid comment in `finding-detail.tsx` argues that `gap-y-3.5` is the same 14px the
+   * verdict's sentence used to carry as its own `mt-3.5`, and that the rail's `mt-1.5` beside it
+   * is "the same arithmetic: stacked below `lg` the rail wants the 20px it always had, which is
+   * the 14px row gap plus six". Both halves of that were silent. Set the row gap to zero and the
+   * lede sits directly on the argument it introduces and the rail moves 14px up under it, and
+   * nothing in the suite reads either rectangle — the two elements are still in the right cells,
+   * still in the right order, still capped at the right edges.
+   *
+   * So the assertion is the arithmetic the comment states, plus the fact that makes the row gap
+   * load-bearing rather than decorative: neither the lede nor the argument declares a margin of
+   * its own, so the row gap is the *only* distance between them. That is checkable without a
+   * layout engine, because it is a fact about what the document declares.
+   *
+   * 20px is written out rather than derived, because it is the distance the rail had before the
+   * verdict's sentence left it and the whole claim is that the move did not change it.
+   */
+  it("makes the band's two distances out of one row gap and the rail's own margin", () => {
+    const review = reviewFixture();
+    const finding = held(review);
+    const { body } = draw(finding);
+
+    const lede = screen.getByText(verdictOf(finding.verdict).description!);
+    const [prose] = argument(body);
+    const grid = prose.parentElement!;
+    const rail = grid.lastElementChild as HTMLElement;
+
+    const rowGap = spacingPx(grid.className, "gap-y");
+    expect(rowGap, `no row gap declared on "${grid.className}"`).not.toBeNull();
+    expect(
+      rowGap,
+      "the grid draws no distance between the verdict's sentence and the argument under it, so " +
+        "the two are set solid",
+    ).toBeGreaterThan(0);
+
+    // The row gap is the only thing between them: nothing here carries its own margin, which is
+    // what moving the sentence into the grid bought and what makes the gap the single knob.
+    expect(
+      spacingPx(lede.className, "mt"),
+      `"${lede.className}" adds a margin of its own`,
+    ).toBeNull();
+    expect(
+      spacingPx(prose.className, "mt"),
+      `"${prose.className}" adds a margin of its own`,
+    ).toBeNull();
+
+    // Stacked below `lg` the rail sits 20px under the argument, and that 20px is the row gap
+    // plus the rail's own margin — the distance it had before the sentence left it.
+    const railMargin = spacingPx(rail.className, "mt");
+    expect(railMargin, `no stacked margin on "${rail.className}"`).not.toBeNull();
+    expect(
+      rowGap! + railMargin!,
+      `the rail stacks ${rowGap! + railMargin!}px under the argument on a phone, and it had 20`,
+    ).toBe(20);
+    // And nothing of that margin survives beside the argument, where the two share a first line.
+    expect(spacingPx(rail.className, "lg:mt")).toBe(0);
   });
 
   /**

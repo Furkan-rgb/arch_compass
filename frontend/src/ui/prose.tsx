@@ -287,6 +287,27 @@ type Boundary = { ends: number; opens: number };
  * over the share. The guarantee is narrower there and still holds: the block is the shortest
  * opening the string admits, and on none of the nine is the first block the tallest.
  *
+ * WHAT THIS DOES NOT PROMISE, written down because a guarantee stated without its condition is
+ * the false comment the rest of this file exists to stop. The ceiling is inside `pack`, and
+ * `pack` runs only where the model wrote more sentences than the cap allows — nine of the 375
+ * recorded strings. On the other 366 every boundary the model wrote is cut, so the blocks *are*
+ * those sentences and the opening block is the first of them: the escape above, reached by every
+ * string rather than by three. Applying the ceiling regardless would change nothing, and that is
+ * measured rather than reasoned — force this function to run on all 375 and 0 of them come back
+ * cut differently, because at `count === mostParts` the table has exactly one feasible partition
+ * and `through > 1` exempts the single-sentence first block that partition makes. What is left
+ * over is not a packing decision at all: it is a sentence the model wrote that is taller than
+ * the rest of its string, and the only rule that could shorten one would cut inside it — which
+ * every part being a raw slice is the refusal of. Counted at the 617.12px measure, in a browser,
+ * the same way every other line figure in this file was: two strings open on seven line boxes,
+ * four of the corpus's 1,166 blocks are a single sentence of seven lines or more, and the
+ * tallest block anywhere is a 1,132-character sentence at **seventeen** — 32 in a phone's 324px
+ * column — sitting second in a four-sentence string this function is never handed. Against
+ * which: the nineteen-sentence judgement the cap was built for drew 28 line boxes as one block
+ * and 54 on the phone, and now opens on three and five. `docs/known-defects.md` carries the
+ * decision to leave that where it is and the reason; `ui/prose.test.tsx` fails if the 366 stop
+ * being cut this way, on the recorded string that is worst under it.
+ *
  * What that costs is real and worth naming, and it is worth naming in line boxes rather than in
  * characters because a line box is what a reader arrives at. On the 2,139-character judgement
  * the ceiling moves the opening block from 406 characters to 157 and the tallest from 406 to
@@ -458,6 +479,9 @@ export function sentences(source: string, mostParts = MOST_PARTS): string[] {
   // recorded strings: the sentence is the only seam the model reliably wrote, and one block per
   // claim adds nothing the text does not already say. Past the cap some sentences have to share
   // a block, and `pack` is the argument about which of them share one.
+  // This branch is also where the opening ceiling stops applying, which is the condition on the
+  // guarantee `pack` states — argued in the last paragraph of its comment, where it is also
+  // measured.
   const cuts =
     boundaries.length + 1 > mostParts
       ? pack(source, boundaries, mostParts)
@@ -534,16 +558,22 @@ export function Prose({ children, bare = false }: { children: string; bare?: boo
  *
  * `58ch` is the measure, and it is chosen from a floor rather than from a character count.
  * Onest's zero advances 0.665em at the 400 this block is set in — 665 units on a 1000 unit em,
- * read off the `hmtx` table of the shipped `onest.woff2`, and confirmed at 10.6406px by
- * measuring a `0` in the built page — so 1ch is 10.64px at 16px and `58ch` is 617.12px. The
+ * read off the `hmtx` table of the shipped `onest.woff2`, and confirmed at 10.640625px by a
+ * Range over a `0` in the built page — so 1ch is 10.64px at 16px and `58ch` is 617.12px. The
  * weight is part of the reading and not a footnote to it: the same file's zero is 661.8 units
  * at wght 600, so a `ch` written on a `font-semibold` block is a different width from a `ch`
- * written here. `docs/design-system.md` carries both values and where each was read from. The widest
+ * written here. Both advances live once, in `ui/onest.test-metrics.ts`, with the `fontTools`
+ * recipe that reads them off the font; `docs/design-system.md` argues from them. The widest
  * unbreakable token the corpus sets *in this face* is a 71-character qualified name at 541.7px,
  * and 48 distinct tokens across 51 of the 375 strings are wider than the 324px column a phone
  * gives this block. Both figures come from measuring every whitespace-separated run in the
  * corpus inside a real `ModelProse`, with a Range over the paragraph's own text node; the 543px
- * this used to say was 1.3px out and measured in a probe span rather than in the component. A
+ * this used to say was 1.3px out and measured in a probe span rather than in the component.
+ * The 48 is one rounding from being 47, and it is worth saying so where it is printed: sorted by
+ * width, the last token over the floor is `src.audiobook.synthesis.providers.registry),` at
+ * 324.89px against a 324px column, and the same name without its trailing comma is 320.72px and
+ * sits under. The floor itself rests on the 541.7px, which clears that column by 217px; the 48
+ * describes the tail and is not a threshold anything is chosen from. A
  * measure under that floor breaks a name the model is arguing about across two lines, which is
  * the one thing `wrap-anywhere` cannot do gracefully.
  *
@@ -610,12 +640,15 @@ export function Prose({ children, bare = false }: { children: string; bare?: boo
  * the other side.
  *
  * That is a separate question from what is *drawn*, and the two are independent. On what is
- * drawn: flatten every chip back to Onest body text and re-run the same sweep and it gives 3,237
- * line boxes and **76.07** characters. Narrower text fits more of it on a line, so measuring the
- * string rather than the render loses eleven line boxes and reads about half a character
- * **generous**. The render is what a reader sweeps. The **73** three passes of this comment
- * carried was attributed to that flattening, and could not have come from it — flattening cannot
- * push the count down. 73.1 is this sweep at **56ch**, which is the likeliest place a 73 came
+ * drawn: "measuring the string rather than the render" names two sweeps, and both were run.
+ * Flatten every chip back to Onest body text — `plainProse` first, so a backticked name is drawn
+ * as the name — and it gives 3,237 line boxes and **76.07** characters. Draw the recorded string
+ * literally instead, backticks and all, and it gives the same 3,237 boxes and **76.24**. Onest is
+ * narrower than the chip it replaces, so narrower text fits more of it on a line: measuring the
+ * string loses eleven line boxes and reads between a third and half a character **generous**,
+ * under either reading. The render is what a reader sweeps. The **73** three passes of this
+ * comment carried was attributed to that flattening, and could not have come from it — flattening
+ * cannot push the count down. 73.1 is this sweep at **56ch**, which is the likeliest place a 73 came
  * from, and the 3,326 line boxes that travelled with it is reproduced by no method stated in any
  * file here. Both are deleted rather than corrected, because a counterfactual whose method
  * nobody wrote down is a number nobody can check.
@@ -653,6 +686,13 @@ export function Prose({ children, bare = false }: { children: string; bare?: boo
  * block the tallest, and the reason that is a guarantee rather than a tally is argued beside
  * `pack` — where it is also a test, because the ceiling that makes it true can be deleted
  * without anything else in this file noticing.
+ *
+ * It is a guarantee about the nine and not about the other 366. Under the cap every boundary is
+ * cut, so the blocks are the model's own sentences and one of them can be a wall on its own: the
+ * worst recorded is 673 characters in two sentences, seven line boxes then two — 17 then 4 in a
+ * phone's column. No ceiling
+ * reaches that, because the block is already one sentence — `pack` says why, with the figures,
+ * and `docs/known-defects.md` records that it stays.
  *
  * `whitespace-pre-line` is a device and not a guard. Two recorded judgements break a
  * paragraph of their own and one of them numbers its points under that break, and this is what

@@ -1,8 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { INLINE_CODE_BARE, Prose, plainProse, sentences } from "./prose";
-import { OVER_CAP } from "./prose.test-corpus";
+import { INLINE_CODE, INLINE_CODE_BARE, ModelProse, Prose, plainProse, sentences } from "./prose";
+import {
+  OVER_CAP,
+  PHONE_COLUMN_PX,
+  UNDER_CAP_WALL,
+  WIDEST_UNBREAKABLE_TOKEN_PX,
+} from "./prose.test-corpus";
+import { spacingPx } from "./tailwind.test-spacing";
 
 /**
  * The scanner in `ui/prose.tsx`, which is a parser and will therefore be wrong in an edge
@@ -13,6 +19,24 @@ import { OVER_CAP } from "./prose.test-corpus";
  * than the backtick this whole file exists to remove. The strings there are taken from real
  * recorded model output.
  */
+
+/**
+ * A class list that lets the line breaker split a run of characters that has no break in it.
+ *
+ * Stated as the set of utilities that grant the permission rather than as the one this file
+ * happens to use, because what the block needs is the *permission*: `wrap-anywhere` and
+ * `wrap-break-word` are `overflow-wrap: anywhere` and `break-word`, `break-words` is the older
+ * spelling of the second, and `break-all` is `word-break`. All four let a name too wide for its
+ * column fold instead of pushing the column open, which is the property under test.
+ *
+ * `wrap-anywhere` is the one chosen, and the difference is real even though this set does not
+ * insist on it: `anywhere` is counted in the element's min-content width and `break-word` is
+ * not, so only `anywhere` also stops a grid or flex track being sized to fit the whole name.
+ * The Judged band puts this block in a `minmax(0,1fr)` track, which makes that difference moot
+ * there and would not make it moot everywhere `ModelProse` is drawn.
+ */
+const BREAKS_INSIDE_A_TOKEN =
+  /(?:^|\s)(?:wrap-anywhere|wrap-break-word|break-words|break-all)(?:\s|$)/;
 
 /** The rendered prose as one string, with the chips marked so a test can see where they were. */
 function rendered(node: React.ReactNode): string {
@@ -72,8 +96,10 @@ describe("Prose", () => {
    * The two distinct counts need one more word each, because a distinct count is a count of
    * *things held equal* and the definition above does not say what that is. Under it — the run
    * with its punctuation attached, which is what the line breaker sees — the 152 are **81**
-   * distinct and the 49 are **13**. Strip the leading and trailing punctuation off each run
-   * first and the same 152 fall to **54** distinct, because six of the 81 — `run_benchmark`,
+   * distinct and the 49 are **13**. Strip each run down to its own first and last character that
+   * is a letter, a digit or an underscore — the whole of the rule, so `run_benchmark).` loses
+   * both ends while `run_benchmark.py` and `run_benchmark.CATEGORIES` keep their interior dots
+   * and stay distinct — and the same 152 fall to **54**, because six of the 81 — `run_benchmark`,
    * `run_benchmark,`, `run_benchmark).`, `(run_benchmark,`, `(run_benchmark` and
    * `run_benchmark)` — become one. 54 is the figure this comment carried while stating the
    * attached definition in the same sentence, which is the drift in miniature: not a wrong
@@ -86,9 +112,16 @@ describe("Prose", () => {
    * None of this is recomputed by a test, and it cannot be: the counts are over the 375 recorded
    * strings, and `ui/prose.test-corpus.ts` explains at length why only the nine the block cap
    * touches are checked in. Re-derive them by copying `.archcompass/workspace.sqlite3`, opening
-   * the copy read-only, taking `reasoning` off `core_finding_cache.finding_json` and
-   * `core_review_snapshots.review_json`, and splitting each one with a port of `scan` from
-   * `ui/prose.tsx`.
+   * the copy read-only, and splitting each string with a port of `scan` from `ui/prose.tsx`.
+   *
+   * **Which `reasoning`**, because there are two and a recursive walk finds both. It is the
+   * finding's own top-level field — `core_finding_cache.finding_json -> reasoning`, 231 distinct,
+   * and `core_review_snapshots.review_json -> findings[].reasoning`, 148, sharing four, so 375.
+   * The other is `policies[].reasoning`, one per policy a finding bears on, which is 292 more in
+   * the cache and 227 in the snapshots and takes the union to 889. Those are drawn on a different
+   * surface and are not what `ModelProse` sets. Every count in this comment and every sweep
+   * figure in `ui/prose.tsx` is over the 375, and a pass that walks the JSON for the key rather
+   * than for the field will disagree with all of them by a factor of two.
    *
    * A full Markdown pipeline turns the first of those into a bold "init" — CommonMark's
    * intraword rule does not save it, because the leading `__` is preceded by a space and so is
@@ -191,6 +224,166 @@ describe("Prose", () => {
     const code = screen.getByText("<img onerror=x>");
     expect(code.querySelector("img")).toBeNull();
     expect(code.textContent).toBe("<img onerror=x>");
+  });
+
+  /**
+   * A quoted name is one box, and a line break may not cut it in half.
+   *
+   * `INLINE_CODE` says `inline-block` is load-bearing and nothing could see it. An *inline* box
+   * fragments at a line break and the browser draws the border, the fill and the padding round
+   * each fragment, so an identifier one character too wide for the line left a second chip on
+   * the next line holding one letter — a small grey box that reads as a rendering fault rather
+   * than as a name. Change the one word to `inline` and every test in the product stayed green,
+   * because `Prose` puts whatever string it is given on the element and no test read it.
+   *
+   * Three assertions, and the second two are why the first is survivable. An unsplittable box
+   * that is wider than its column pushes the column open, so the chip is capped at the column's
+   * width and told it may break inside itself — where the box around the fragments is what says
+   * they are one name. The two widest names in the corpus are backticked in every string they
+   * appear in and draw wider than the argument's own measure, so this is the case that is
+   * actually reached rather than the one that could be.
+   *
+   * Asserted on the constant *and* on what reached the DOM, because they are two failures: a
+   * class list that stopped being the one this file exports would pass a test that only read the
+   * export.
+   */
+  it("draws a quoted name as one box a line break cannot split", () => {
+    render(<Prose>{"Held on `archcompass.ports.capabilities.RevisionCalculator` alone."}</Prose>);
+    const chip = screen.getByText("archcompass.ports.capabilities.RevisionCalculator");
+    expect(chip.className, "the chip is drawn from something other than INLINE_CODE").toBe(
+      INLINE_CODE,
+    );
+
+    expect(
+      INLINE_CODE,
+      "an inline chip fragments at a line break and draws its border round each half",
+    ).toMatch(/(?:^|\s)inline-(?:block|flex|grid)(?:\s|$)/);
+    expect(
+      INLINE_CODE,
+      "`inline` is the fragmenting display this class exists to refuse",
+    ).not.toMatch(/(?:^|\s)inline(?:\s|$)/);
+    // What makes an unsplittable box safe in a 324px column: it may not be wider than the
+    // column, and it folds inside itself instead.
+    expect(INLINE_CODE, "a chip wider than its column would push the column open").toMatch(
+      /(?:^|\s)max-w-full(?:\s|$)/,
+    );
+    expect(INLINE_CODE, "a capped chip that cannot fold clips the name instead").toMatch(
+      BREAKS_INSIDE_A_TOKEN,
+    );
+  });
+});
+
+/**
+ * The block `ModelProse` draws, which is the surface the original complaint was about — "like a
+ * title but full wall of text" — and which had two class names holding the whole of the fix.
+ *
+ * `features/review/finding-detail.test.tsx` asserts the measure and the leading, because those
+ * are what that band is for. What is asserted here is the two things that are true of this
+ * component wherever it is drawn: a block may break inside a name too wide for its column, and
+ * two blocks are separated by a gap. Both were unguarded, and both are one word to delete.
+ */
+describe("ModelProse", () => {
+  /** The blocks the component drew, which is what a reader arrives at. */
+  function blocks(source: string) {
+    const { container } = render(<ModelProse>{source}</ModelProse>);
+    const root = container.firstElementChild as HTMLElement;
+    return { root, paragraphs: Array.from(root.querySelectorAll("p")) };
+  }
+
+  /**
+   * A name wider than the column folds inside itself rather than pushing the column open.
+   *
+   * `wrap-anywhere` on the block was unguarded in this suite *and* invisible to
+   * `tests/browser/test_mobile.py`, which does measure horizontal overflow at 390px on every
+   * state of the workbench — invisible because the deterministic review it drives has never
+   * produced a name long enough to reach it. A guarantee held by what one fixture happens to say
+   * is the failure this whole file exists to stop, so the premise is asserted here rather than
+   * hoped for: the corpus really does contain a run of characters wider than the column, so the
+   * permission really is reached. That file now supplies the name instead of waiting for one —
+   * "a name wider than the column folds instead of widening the phone" — which is the half that
+   * knows nothing between this paragraph and the document takes the permission away again.
+   *
+   * Measured in a browser rather than argued: at a 324px column the shipped component overflows
+   * on 0 of the 375 recorded strings and its widest line box is exactly 324.00px; with the
+   * anywhere-break deleted, 48 of the 375 overflow, the worst by 218px, and the widest line box
+   * drawn is 541.70px — `WIDEST_UNBREAKABLE_TOKEN_PX` reached from the other end. On a phone
+   * that is not a paragraph that looks wrong, it is a page that scrolls sideways.
+   *
+   * `prose.test-corpus.ts` carries both figures and how to take them again.
+   */
+  it("lets a name too wide for the column break inside itself", () => {
+    // The premise, asserted before it is used: without it this test is about nothing.
+    expect(
+      WIDEST_UNBREAKABLE_TOKEN_PX,
+      "no recorded token is wider than the narrowest column, so nothing needs to fold",
+    ).toBeGreaterThan(PHONE_COLUMN_PX);
+
+    const { paragraphs } = blocks(
+      "The candidate is (src.audiobook.preparation.providers.base.NarrationPreparationProvider) " +
+        "and it has one implementation. The evidence pins two references.",
+    );
+    expect(paragraphs.length).toBeGreaterThan(1);
+    for (const paragraph of paragraphs) {
+      expect(
+        paragraph.className,
+        `"${paragraph.className}" cannot break inside a name, so a ` +
+          `${WIDEST_UNBREAKABLE_TOKEN_PX}px token pushes a ${PHONE_COLUMN_PX}px column open and the ` +
+          "page scrolls sideways",
+      ).toMatch(BREAKS_INSIDE_A_TOKEN);
+    }
+  });
+
+  /**
+   * The gap between two blocks, which is the fix itself and was the one thing nothing held.
+   *
+   * Deleting `mt-2` leaves the DOM split into a paragraph per sentence and draws it as one
+   * unbroken wall — so every test that counts paragraphs, joins their text or checks that no
+   * character was lost goes on passing, and the surface silently returns to the complaint it was
+   * built for. That makes it the most important assertion in this file.
+   *
+   * Stated against the line box rather than as `mt-2`, because the argument for the value is a
+   * ratio: 8px is under a third of the 26.4px line this block sets, which is enough for the eye
+   * to find the next start on a second reading and too little to claim paragraph structure the
+   * model did not write. A gap at a whole line box is what a `<p>` gets by default and is the
+   * claim the cut is careful not to make; a gap at a sixth of one is not visible at all. The
+   * bounds are read off the block's own declared type, so changing the size or the leading moves
+   * them with it.
+   */
+  it("puts a real gap between the blocks it cuts, and one no wider than a breath", () => {
+    const { root, paragraphs } = blocks(
+      "One claim about the abstraction. A second claim about it. And a third to close on.",
+    );
+    expect(paragraphs, "nothing was cut, so there is no gap to be wrong").toHaveLength(3);
+
+    const size = /(?:^|\s)text-\[([\d.]+)px\](?:\s|$)/.exec(root.className);
+    const leading = /(?:^|\s)leading-\[([\d.]+)\](?:\s|$)/.exec(root.className);
+    expect(size && leading, `cannot read the type off "${root.className}"`).toBeTruthy();
+    const lineBox = Number(size![1]) * Number(leading![1]);
+
+    expect(
+      spacingPx(paragraphs[0].className, "mt") ?? 0,
+      "the first block is pushed down by a gap above nothing",
+    ).toBe(0);
+
+    for (const paragraph of paragraphs.slice(1)) {
+      const gap = spacingPx(paragraph.className, "mt");
+      expect(
+        gap,
+        `"${paragraph.className}" puts no gap above a block the cut created, so the blocks are ` +
+          "drawn as the wall the cut exists to break",
+      ).not.toBeNull();
+      const share = gap! / lineBox;
+      expect(
+        share,
+        `${gap}px against a ${lineBox}px line is ${share.toFixed(2)} of a line box — too little ` +
+          "for an eye to find the next start",
+      ).toBeGreaterThanOrEqual(0.25);
+      expect(
+        share,
+        `${gap}px against a ${lineBox}px line is ${share.toFixed(2)} of a line box, which reads ` +
+          "as paragraph structure the model did not write",
+      ).toBeLessThanOrEqual(0.6);
+    }
   });
 });
 
@@ -492,5 +685,68 @@ describe("sentences", () => {
   it("keeps the whitespace at a boundary it did not cut", () => {
     const source = "First.\nSecond.\nThird.\nFourth.";
     expect(sentences(source, 2)).toEqual(["First.\nSecond.", "Third.\nFourth."]);
+  });
+
+  /**
+   * The condition on the guarantee above, written down as a test because a guarantee stated
+   * without its condition is the false comment this surface has already shipped six of.
+   *
+   * "The argument never opens on its tallest block" is a property of `pack`, and `pack` runs
+   * only where the model wrote **more** than `MOST_PARTS` sentences — nine of the 375 recorded
+   * strings. On the other 366 every boundary is cut, so the blocks *are* the model's sentences
+   * and the opening block is the first of them. There is no packing decision left to make: the
+   * only way to make that block shorter would be to cut inside a sentence, and every part this
+   * function returns is a raw slice of what the model wrote.
+   *
+   * **Applying the ceiling regardless would change nothing, and that is measured rather than
+   * argued.** At `count === mostParts` the table has exactly one feasible partition — one
+   * sentence per block — and the ceiling's own escape (`through > 1`) exempts a first block that
+   * is a single sentence, which is what that partition makes it. Forcing `pack` to run on every
+   * string and comparing the parts changes **0 of the 375**.
+   *
+   * So the guarantee is conditional, the condition is "where the model wrote more sentences than
+   * the cap allows", and this is the corpus's worst case under it: 673 characters in two
+   * sentences, the first of them 524 characters — seven line boxes against two. `docs/known-defects.md`
+   * carries the decision not to close it and `ui/prose.test-corpus.ts` carries the rest of the
+   * measurement, including the 17-line single sentence that is the tallest block in the corpus
+   * and that no ceiling on an opening block would reach either.
+   */
+  it("leaves a string under the cap cut exactly where the model punctuated it, wall and all", () => {
+    const { source, chars, sentences: found, blockChars } = UNDER_CAP_WALL;
+    // The transcript is checked against its own record before anything is concluded from it.
+    expect(source.length, UNDER_CAP_WALL.subject).toBe(chars);
+    expect(sentences(source, Number.MAX_SAFE_INTEGER), UNDER_CAP_WALL.subject).toHaveLength(found);
+    expect(
+      found,
+      `${UNDER_CAP_WALL.subject}: past the cap, so it is not this case`,
+    ).toBeLessThanOrEqual(6);
+
+    // The record is internally consistent before it is quoted: one line count per block, and
+    // the block this entry is about is the tall one. jsdom lays nothing out, so the line counts
+    // themselves are checkable only in a browser — `docs/known-defects.md` says where.
+    expect(UNDER_CAP_WALL.blockLines).toHaveLength(UNDER_CAP_WALL.blockChars.length);
+    expect(UNDER_CAP_WALL.blockLines[0]).toBeGreaterThan(
+      Math.max(...UNDER_CAP_WALL.blockLines.slice(1)),
+    );
+
+    const parts = sentences(source);
+    // The cap changed nothing: every boundary the model wrote is a cut.
+    expect(parts).toEqual(sentences(source, Number.MAX_SAFE_INTEGER));
+    expect(parts.map((part) => part.length)).toEqual([...blockChars]);
+    expect(parts.join(" ")).toBe(source);
+
+    // And it opens on its tallest block, which the nine strings over the cap never do. This is
+    // the assertion that makes the condition visible: it is the opposite of what
+    // "packs by length, and never opens on its tallest block" asserts, on a string that test
+    // cannot reach.
+    expect(parts[0].length).toBeGreaterThan(Math.max(...parts.slice(1).map((part) => part.length)));
+
+    // No ceiling could have helped, which is why this is documented rather than fixed: the
+    // opening block is already one sentence, and one sentence is the smallest block there is.
+    expect(
+      sentences(parts[0], Number.MAX_SAFE_INTEGER),
+      "the opening block holds more than one sentence, so something could have been taken out " +
+        "of it and the hole is a real one after all",
+    ).toHaveLength(1);
   });
 });
