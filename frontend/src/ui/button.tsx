@@ -5,7 +5,7 @@ import { useCopy } from "../lib/clipboard";
 import { cn } from "../lib/cn";
 import { CheckIcon, CopyIcon } from "./icons";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "quiet" | "danger";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "quiet" | "danger" | "link";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const VARIANTS: Record<ButtonVariant, string> = {
@@ -37,6 +37,37 @@ const VARIANTS: Record<ButtonVariant, string> = {
   // back. It now moves the fill as well as the border, and pushes down like the other four.
   danger:
     "border-material/30 bg-material-soft text-material hover:border-material/55 hover:bg-material/15 active:translate-y-px",
+  // A control that goes somewhere instead of recording something.
+  //
+  // The three voices give a bordered control at control size to **Decided** — "the record of
+  // what a person chose" — and an open finding had five of them, two of which choose nothing.
+  // "Answer it" is `onOpen("clarification")` in `docket.tsx` and "Judgement context" opens a
+  // drawer; both leave the row and write no `StandingDecision`. A reader could not tell a way
+  // out from a disposition by looking, and `docs/design-system.md` says the honest response to
+  // an element that does not sit in one of the three voices is to stop on it, not to hand it
+  // the nearest recipe.
+  //
+  // So the difference is drawn as shape. This is `PolicyRef`'s gesture in sans at control
+  // size: no fill, no rim, no border to pick the box up by, full ink, and an underline resting
+  // at `--rule-strong` that goes to the ink on hover. The same device `ui/markdown.tsx` gives
+  // an anchor, which is the second place it was typed; this is the registry, so it is not
+  // typed a third.
+  //
+  // It takes no chroma and specifically no `--mark`. The mark is the accent under another name
+  // and it is spent on reaching *the source a claim came from* — a file, a policy, a cited
+  // finding. The clarification round and the context drawer are places in the product, not
+  // sources, and `design-system.test.ts` is explicit that the moment the mark paints a button
+  // it is an accent again.
+  //
+  // `px-0` is why this record is applied after `SIZES` in `buttonClass`: the words are the
+  // target, and a link carrying a size's side padding reads as a box whose edges were rubbed
+  // out. The `border` and the `min-h-*` from the base and the size stay, so the 44px touch box
+  // and the focus ring are the same geometry every other control has.
+  //
+  // The `disabled:` recipe above still draws a control film and an edge, which would turn an
+  // off link into a small grey box. Neither call site disables one; if a third ever does, that
+  // recipe is what wants the variant-aware branch, not this line.
+  link: "border-transparent px-0 text-ink underline decoration-rule-strong underline-offset-4 hover:decoration-current active:translate-y-px",
 };
 
 // 44px is the charter's fifth principle, and `md` is what a button is unless somebody says
@@ -87,8 +118,16 @@ export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize
     // keeps is the tab stop — see `Button` below for when that is the right trade.
     "disabled:pointer-events-none disabled:border-rule-control disabled:bg-control disabled:text-ink-3 disabled:shadow-none",
     "aria-disabled:pointer-events-none aria-disabled:border-rule-control aria-disabled:bg-control aria-disabled:text-ink-3 aria-disabled:shadow-none",
-    VARIANTS[variant],
+    // The size before the variant, so a variant can refuse a size's padding. `cn` is
+    // tailwind-merge and resolves last-wins per group, and `link` is the only variant that
+    // names a spacing class at all — the other five say colour, shadow and a press. None of
+    // those shares a group with `px-*`, `gap-*`, `min-h-*` or a font size, so this order moves
+    // nothing that was already on screen: `text-accent-on-fill` is the text-colour group and
+    // `text-sm` is the font-size group, and both survive in either order. `button.test.ts`
+    // holds that rather than leaving it to a reading: it takes the fifteen pairs of an older
+    // variant and a size and checks each one still carries every class its size declares.
     SIZES[size],
+    VARIANTS[variant],
   );
 }
 

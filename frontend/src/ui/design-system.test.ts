@@ -127,6 +127,44 @@ describe("the design system", () => {
   });
 
   /**
+   * The reading size is the model's, and there is one block in the product set at it.
+   *
+   * This guard is written because two files already claimed it existed. `ui/prose.tsx` and
+   * `features/review/finding-detail.tsx` both told the next reader that "`design-system.test.ts`
+   * fails the build on a second block set at the reading size anywhere in the tree", and
+   * nothing in this file had ever read a type size. A convergence defended by a comment naming
+   * an absent test is worse than one defended by nothing, because the comment stops the next
+   * person from checking. That failure is the same shape as the drift the rule is about, one
+   * level up, so the honest repair is the test rather than a smaller claim.
+   *
+   * What it protects: with the serif gone, the whole of what tells a reader the model is
+   * speaking is placement, the attribution line, and 16px used for nothing else. The model's
+   * argument on a finding, the review's synopsis and a conversation answer had reached `58ch`,
+   * `46ch` and `62ch` — three treatments of one voice — and they now go through `ModelProse`,
+   * which is the only place in the tree that may set the size.
+   *
+   * `text-base` is 16px as well, and it is not the same thing: every one of the seven in the
+   * tree is a *title*, and what makes it one is the display face or the bold weight written
+   * beside it. So a reading-size class on a line that also names a weight is a heading and is
+   * let through — which is the one distinction this pattern cannot make on its own, and the
+   * one place a body paragraph could still slip past. It would have to be a bold one.
+   */
+  it("sets the reading size in one place, so the model has one voice", () => {
+    const allowed = new Set([
+      "ui/prose.tsx", // `ModelProse`: the model's paragraph, wherever it is drawn
+      // The wordmark's tile, which is a drawn glyph sized in `em` rather than a sentence —
+      // there is no text in it for a measure or a leading to apply to.
+      "ui/brand.tsx",
+    ]);
+    expect(
+      offenders(/\btext-\[(?:16px|1rem)\]|\btext-base\b/, allowed).filter(
+        (line) => !/\bfont-(?:display|semibold|bold)\b/.test(line),
+      ),
+      "the reading size is ModelProse's — a second block at 16px is a second model voice",
+    ).toEqual([]);
+  });
+
+  /**
    * `--mark` is the budget of one: the single chroma that is not a verdict.
    *
    * It exists so a reader can see the way back to the source a claim came from, which the
