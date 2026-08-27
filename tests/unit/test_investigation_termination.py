@@ -65,7 +65,7 @@ _NOTHING = _Nothing()
 
 @dataclass(frozen=True)
 class _Judging:
-    """What `SelectedLangChainJudge.in_force` reports, with only what the key reads in it."""
+    """What `SelectedLangChainJudge.selection` reports, with only what the key reads in it."""
 
     model_identity: str
     prompt_identity: str
@@ -446,7 +446,7 @@ def test_the_second_judgement_is_not_a_cache_hit_on_the_first() -> None:
     judge = CachingArchitectureJudge(
         _NOTHING,  # type: ignore[arg-type]
         _NOTHING,  # type: ignore[arg-type]
-        in_force=lambda: _Judging("m", "p"),
+        selection=lambda: _Judging("m", "p"),
     )
 
     def record(result: str) -> RecordedInvestigation:

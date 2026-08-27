@@ -51,13 +51,13 @@ class CachingReviewRecorder:
         return recorded
 
 
-class JudgementInForce(Protocol):
+class JudgeSelection(Protocol):
     """What is about to judge, as the key needs to read it.
 
     Structural rather than imported: this module is strategy-neutral — it wraps whatever
     `ArchitectureJudge` it was handed — and importing the concrete record out of
     `reasoning/adapters/selected.py` to name two strings would tie the cache to one
-    selection mechanism. `SelectedLangChainJudge.in_force` satisfies it, and pyright checks
+    selection mechanism. `SelectedLangChainJudge.selection` satisfies it, and pyright checks
     that at the one call site in `bootstrap`.
 
     Both identities come off one record for a reason. They used to be two callables, read
@@ -78,11 +78,11 @@ class CachingArchitectureJudge:
         judge: ArchitectureJudge,
         cache: FindingCache,
         *,
-        in_force: Callable[[], JudgementInForce],
+        selection: Callable[[], JudgeSelection],
     ) -> None:
         self._judge = judge
         self._cache = cache
-        self._in_force = in_force
+        self._selection = selection
 
     def judge(
         self,
@@ -152,10 +152,10 @@ class CachingArchitectureJudge:
         # hash of every lookup, its arguments and its answer.
         #
         # The last two terms are the judge's own answers to what it is and what it sends —
-        # `bootstrap` hands `SelectedLangChainJudge.in_force` here and to the revision
+        # `bootstrap` hands `SelectedLangChainJudge.selection` here and to the revision
         # calculator, the same method to both, and neither derives either value itself. The
         # prompt used to be a constant chosen beside this one that read `judge:v3` while the
-        # judge in force stamped `judge:deep-v2`, and the danger in that is not the one it
+        # selected judge stamped `judge:deep-v2`, and the danger in that is not the one it
         # looks like: the key was consistent with itself, so nothing was ever missed. What it
         # was is a stale hit waiting for the next prompt revision. Bumping the deep judge from
         # `deep-v2` to `deep-v3` would have moved the stamp on every finding and left this key
@@ -167,7 +167,7 @@ class CachingArchitectureJudge:
         # under a prompt that was not the prompt that produced it. Nothing is deleted and
         # nothing serves a wrong answer — the cache is simply cold once, and refills.
         #
-        # One `in_force()` for both, rather than a call each: the two are read together or a
+        # One `selection()` for both, rather than a call each: the two are read together or a
         # selection that moved between the two reads keys a row under one model's name and
         # another model's prompt — a pair no selection ever had, so the row it writes is
         # reachable by nothing, and every candidate judged while somebody was switching models
@@ -180,20 +180,20 @@ class CachingArchitectureJudge:
         # for a key against a selection that moves between calls and refuses the two mixtures,
         # and `test_no_function_reads_the_model_selection_more_than_once` in
         # `test_boundaries.py` asks it of every function in `src/` — which is the form that
-        # also covers the six other readers `bootstrap` hands `in_force` to, and the seventh
+        # also covers the six other readers `bootstrap` hands `selection` to, and the seventh
         # nobody has written yet.
         #
         # The terms stay in this order and this shape because every key already written hashes
         # them that way.
-        in_force = self._in_force()
+        selection = self._selection()
         material = repr(
             (
                 candidate,
                 case,
                 policies.provenance.identity,
                 investigation.identity if investigation else "",
-                in_force.model_identity,
-                in_force.prompt_identity,
+                selection.model_identity,
+                selection.prompt_identity,
             )
         )
         return sha256(material.encode()).hexdigest()

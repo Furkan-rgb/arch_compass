@@ -104,7 +104,7 @@ from archcompass.repositories.sources import SourceArchiveService
 from archcompass.repositories.storage import SourceStorage
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
 from archcompass.workflow.cases import ArchitectureCaseService, PersistentCaseReviser
-from archcompass.workflow.ci import CleanBreakCiRunService
+from archcompass.workflow.ci import CiRunService
 from archcompass.workflow.decisions import StandingDecisionService
 from archcompass.workflow.nodes import ChangedAndNewCandidateSelector
 from archcompass.workflow.report import DeterministicReviewComposer
@@ -267,7 +267,7 @@ class Runtime:
     embedding_model_service: EmbeddingModelService
     core_review_repository: SQLiteCoreReviewRepository
     review_workflow_service: ReviewWorkflowService
-    core_ci_service: CleanBreakCiRunService
+    core_ci_service: CiRunService
     standing_decision_service: StandingDecisionService
 
 
@@ -483,7 +483,7 @@ def build_runtime(
     review_toolbox = ReviewToolbox(AtlasInvestigatorSource(queries, freshness), bundled_corpus())
 
     # The judge, built once, and the only thing in this module that knows anything about the
-    # model selection beyond having passed it in. `in_force()` answers with one record — the
+    # model selection beyond having passed it in. `selection()` answers with one record — the
     # selection, the model identity a finding it produces carries, which judge runs, what
     # that judge stamps as its prompt, and whether it reaches a provider — and that method is
     # handed whole to the revision calculator, to the finding cache, to the retriever's mode
@@ -508,7 +508,7 @@ def build_runtime(
         reviews=core_reviews,
         conversations=core_conversations,
         answerer=SelectedLangChainReviewAnswerer(
-            selected_chat, selected_judge.in_force, review_toolbox
+            selected_chat, selected_judge.selection, review_toolbox
         ),
     )
     checkpoint_connection = sqlite3.connect(
@@ -528,20 +528,20 @@ def build_runtime(
     policy_corpus = DataclassPolicyCorpus(policy_service)
 
     # The one of the three that survives, and it derives nothing any more: it reads
-    # `in_force().deterministic` rather than testing the provider itself, so the retriever
+    # `selection().deterministic` rather than testing the provider itself, so the retriever
     # cannot decide that a selection is the stand-in while the judge decides it is not. What
     # is left here is the part that is genuinely the retriever's own — an unselected workspace
     # is a refusal for embeddings, where for the delta it is an empty identity that matches no
     # stored stamp. The judge cannot answer that for it: only this caller knows that having no
     # model at all is fatal to what it is about to do.
     def deterministic_retrieval_mode() -> bool:
-        in_force = selected_judge.in_force()
-        if in_force.model is None:
+        selection = selected_judge.selection()
+        if selection.model is None:
             raise NoReasoningModelSelectedError(
                 "No reasoning model is selected. Choose one with the model chip before "
                 "starting a review."
             )
-        return in_force.deterministic
+        return selection.deterministic
 
     graph = build_review_graph(
         ReviewWorkflowCapabilities(
@@ -554,7 +554,7 @@ def build_runtime(
                 corpus_fingerprint=lambda repository_ref: corpus_fingerprint(
                     policy_corpus.policies_for(repository_ref)
                 ),
-                judgement=selected_judge.in_force,
+                selection=selected_judge.selection,
             ),
             initial_candidates=ChangedAndNewCandidateSelector(),
             corpus=policy_corpus,
@@ -566,14 +566,14 @@ def build_runtime(
             judge=CachingArchitectureJudge(
                 selected_judge,
                 core_finding_cache,
-                in_force=selected_judge.in_force,
+                selection=selected_judge.selection,
             ),
             questions=SelectedLangChainQuestionGenerator(
-                selected_chat, selected_judge.in_force
+                selected_chat, selected_judge.selection
             ),
             cases=PersistentCaseReviser(core_cases),
             synopsist=SelectedLangChainReviewSynopsist(
-                selected_chat, selected_judge.in_force
+                selected_chat, selected_judge.selection
             ),
             composer=DeterministicReviewComposer(),
             recorder=CachingReviewRecorder(core_reviews, core_finding_cache),
@@ -597,7 +597,7 @@ def build_runtime(
     standing_decision_service = StandingDecisionService(
         decisions=core_decisions, reviews=core_reviews
     )
-    core_ci_service = CleanBreakCiRunService(
+    core_ci_service = CiRunService(
         repositories=repository_service,
         workflow=review_workflow_service,
         decisions=standing_decision_service,

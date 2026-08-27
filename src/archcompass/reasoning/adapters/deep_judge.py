@@ -381,7 +381,7 @@ class DeepArchitectureJudge:
 
     #: What this judge stamps every finding it produces with, and the only place that says
     #: so. A class attribute rather than a constructor argument because
-    #: `SelectedLangChainJudge.in_force` has to report it while it is still choosing which
+    #: `SelectedLangChainJudge.selection` has to report it while it is still choosing which
     #: judge to build — it names this class and reads the identity off it, so the value the
     #: delta compares against cannot be written anywhere but here.
     identity: ClassVar[str] = DEEP_JUDGE_PROMPT_IDENTITY

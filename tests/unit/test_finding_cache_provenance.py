@@ -423,7 +423,7 @@ def _cached_judge(
     cache: SQLiteCoreFindingCache, *verdicts: Verdict
 ) -> CachingArchitectureJudge:
     return CachingArchitectureJudge(
-        _FixedJudge(iter(verdicts)), cache, in_force=_InForce
+        _FixedJudge(iter(verdicts)), cache, selection=_InForce
     )
 
 

@@ -74,7 +74,7 @@ class DeterministicJudge:
     hand-authored constraints and decisions, and what remains is the channel a review fills.
 
     The two identities below are class attributes because the thing that has to read them —
-    `SelectedLangChainJudge.in_force` — is choosing between judges and has no instance yet.
+    `SelectedLangChainJudge.selection` — is choosing between judges and has no instance yet.
     Reading them off the judge is the point: `bootstrap` used to carry its own
     `provider == "fake" -> DETERMINISTIC_MODEL_IDENTITY` rule, so the composition root and
     this class each held half of one decision and either could be edited alone.

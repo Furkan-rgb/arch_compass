@@ -125,10 +125,10 @@ def test_the_landing_specimen_is_attributed_to_a_build_that_exists() -> None:
     # Asked of the judges rather than written out, because the point of the assertion is that
     # it tracks what the build produces without anybody remembering to widen it. There is a
     # prompt identity per judge — `reasoning/records.py` argues why they are not one constant
-    # — and `SelectedLangChainJudge.in_force` is what chooses between them.
+    # — and `SelectedLangChainJudge.selection` is what chooses between them.
     #
     # `LangChainArchitectureJudge` is deliberately not here. `bootstrap` builds
-    # `review_toolbox` unconditionally, so `in_force` can only ever name the deep judge or the
+    # `review_toolbox` unconditionally, so `selection` can only ever name the deep judge or the
     # stand-in, and `judge:v3` is reachable from a test and from nothing a deployment runs.
     # Admitting it widened this set to three and *weakened* it: a specimen attributed to a
     # prompt no build sends would have passed, which is the exact drift the test exists for.

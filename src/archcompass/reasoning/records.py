@@ -37,7 +37,7 @@ from archcompass.records import BoundaryDTO, ThinkingMode, utc_now
 # question, and a prompt that moved under one of them would move nothing here.
 #
 # "One place" is therefore not a constant but the code that chooses between them:
-# `SelectedLangChainJudge.in_force` names the judge class it would build for the model in
+# `SelectedLangChainJudge.selection` names the judge class it would build for the model in
 # force right now, and the identity is read off that class rather than carried beside it, so
 # the choosing and the stamping are one act. `bootstrap` hands *that method* to the cache and
 # to the revision calculator rather than deriving the answer a second time.
@@ -60,7 +60,7 @@ from archcompass.records import BoundaryDTO, ThinkingMode, utc_now
 # nobody may rewrite, and every stamp on a finding in a stored review says `judge:deep-v2`.
 # Teaching the deep judge to stamp `judge:v3` instead would have agreed with itself and
 # disagreed with all 148 of them, buying one more full re-judgement of every candidate for
-# nothing. Reporting the identity of the judge actually in force costs none: the stored stamps
+# nothing. Reporting the identity of the judge actually selected costs none: the stored stamps
 # read as unmoved on the next review, and the verdicts carry forward.
 
 #: Each identity is followed immediately by the digest of everything that judge sends a

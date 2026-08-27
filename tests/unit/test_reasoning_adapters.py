@@ -859,7 +859,7 @@ def test_the_selected_judge_stamps_the_identity_it_reports(
     """The test `records.py` asked for, over every judge the dispatch can build.
 
     One side of a comparison is asserted against the other: what the adapter writes onto a
-    finding, against what `SelectedLangChainJudge.in_force` tells the revision calculator and
+    finding, against what `SelectedLangChainJudge.selection` tells the revision calculator and
     the finding cache to expect. The existing stamp test covers the plain
     judge alone, and the plain judge is the path production never takes — which is how the
     two came to disagree in the one configuration that ships.
@@ -884,7 +884,7 @@ def test_the_selected_judge_stamps_the_identity_it_reports(
         ),
     )
 
-    assert finding.prompt_identity == judge.in_force().prompt_identity
+    assert finding.prompt_identity == judge.selection().prompt_identity
     assert finding.prompt_identity == expected
 
 
@@ -901,10 +901,11 @@ def test_an_untouched_candidate_is_not_re_judged_for_a_prompt_that_never_moved(
     consecutive revisions of one unchanged commit, `changed=7, unchanged=0` each time, and a
     verdict that swung cleared → material → cleared → material across them.
 
-    So the finding here is produced by the judge and then read back by the calculator, with
-    the review composed the way `report.py` composes one — the joined set of its findings'
-    stamps. Asserting the constants against each other would not have caught it: both were
-    correct, and it was the wiring between them that named the wrong one.
+    So the finding here is produced by the judge and then read back by the calculator, off
+    the finding itself — which is where the calculator reads it, and the review is composed
+    with no identity of its own to offer instead. Asserting the constants against each other
+    would not have caught it: both were correct, and it was the wiring between them that
+    named the wrong one.
     """
 
     candidate, case, policies = _input()
@@ -929,10 +930,8 @@ def test_an_untouched_candidate_is_not_re_judged_for_a_prompt_that_never_moved(
         ReviewDelta(new=(candidate,)),
         now,
         now,
-        model_identity=",".join(sorted({finding.model_identity})),
-        prompt_identity=",".join(sorted({finding.prompt_identity})),
     )
-    calculator = DeterministicRevisionCalculator(judgement=judge.in_force)
+    calculator = DeterministicRevisionCalculator(selection=judge.selection)
 
     delta = calculator.calculate((candidate,), case, previous, repository)
 
@@ -959,7 +958,7 @@ def test_moving_the_deep_judges_prompt_moves_the_cache_key(
     candidate, case, policies = _input()
     judge = _selected_judge(_CONFIG, toolbox=True, monkeypatch=monkeypatch)
     caching = CachingArchitectureJudge(
-        judge, UnusedCache(), in_force=judge.in_force  # type: ignore[arg-type]
+        judge, UnusedCache(), selection=judge.selection  # type: ignore[arg-type]
     )
 
     before = caching.key(candidate, case, policies)
@@ -975,7 +974,7 @@ def test_moving_the_deep_judges_prompt_moves_the_cache_key(
 class _Reading:
     """One reading of the model selection, with only what a key and a delta read on it.
 
-    Structural, like the two `JudgementInForce` protocols it stands in for: what a reader
+    Structural, like the two `JudgeSelection` protocols it stands in for: what a reader
     needs off this record is two strings, and a stub that carried a judge class and a
     transport would be asserting things about the selection machinery rather than about the
     reader under test.
@@ -989,7 +988,7 @@ class _MovingSelection:
     """A selection that changes between one call and the next, which is the real hazard.
 
     Not artificial. A workspace switches its model through `PUT /api/models/selection` while
-    the process runs, and `SelectedLangChainJudge.in_force` is asked per call precisely so
+    the process runs, and `SelectedLangChainJudge.selection` is asked per call precisely so
     that the switch takes effect — which is what makes two calls inside one operation able to
     straddle it. This alternates on every call so that any reader taking two readings gets
     two different ones, and a reader taking one gets `first`.
@@ -1021,8 +1020,8 @@ def test_the_cache_key_is_one_reading_of_the_selection_and_never_a_mix() -> None
     """The torn read the comment in `cache.py` argues against, as a failure a test can see.
 
     The key names the model and the prompt a verdict was reached under. Those two facts are
-    read off `in_force`, and until this test the only thing holding them to *one* reading was
-    a comment: a verifier reverted the single `in_force()` to a call each and all 448 unit
+    read off `selection`, and until this test the only thing holding them to *one* reading was
+    a comment: a verifier reverted the single `selection()` to a call each and all 448 unit
     tests still passed, because every stub in the suite answers the same thing twice.
 
     So the stub here answers differently. Against a selection that moves between the two
@@ -1038,9 +1037,9 @@ def test_the_cache_key_is_one_reading_of_the_selection_and_never_a_mix() -> None
     first = _Reading("openrouter:model-a", "judge:a")
     second = _Reading("ollama:model-b", "judge:b")
 
-    def key_under(in_force: Callable[[], _Reading]) -> str:
+    def key_under(selection: Callable[[], _Reading]) -> str:
         caching = CachingArchitectureJudge(
-            UnusedJudge(), UnusedCache(), in_force=in_force  # type: ignore[arg-type]
+            UnusedJudge(), UnusedCache(), selection=selection  # type: ignore[arg-type]
         )
         return caching.key(candidate, case, policies)
 
@@ -1062,7 +1061,7 @@ def test_the_cache_key_is_one_reading_of_the_selection_and_never_a_mix() -> None
 def test_the_revision_delta_compares_against_one_reading_of_the_selection() -> None:
     """The same torn read at the second reader, where its cost is the original defect.
 
-    `DeterministicRevisionCalculator` reads the model and the prompt off `in_force` to decide
+    `DeterministicRevisionCalculator` reads the model and the prompt off `selection` to decide
     whether either has moved since the previous review. Split across two readings of a
     selection that changed between them, it compares the stored model against the new
     model — equal, so no `MODEL` — and the stored prompt against the *new* model's judge —
@@ -1098,14 +1097,12 @@ def test_the_revision_delta_compares_against_one_reading_of_the_selection() -> N
         ReviewDelta(new=(candidate,)),
         now,
         now,
-        model_identity=finding.model_identity,
-        prompt_identity=finding.prompt_identity,
     )
     unchanged_reading = _Reading(finding.model_identity, finding.prompt_identity)
     moved_reading = _Reading("ollama:model-b", "judge:b")
 
-    def delta_under(in_force: Callable[[], _Reading]) -> ReviewDelta:
-        calculator = DeterministicRevisionCalculator(judgement=in_force)  # type: ignore[arg-type]
+    def delta_under(selection: Callable[[], _Reading]) -> ReviewDelta:
+        calculator = DeterministicRevisionCalculator(selection=selection)  # type: ignore[arg-type]
         return calculator.calculate((candidate,), case, previous, repository)
 
     steady = delta_under(_MovingSelection(unchanged_reading, moved_reading))
@@ -1353,7 +1350,7 @@ def test_switching_model_switches_the_slots_it_is_asked_for() -> None:
     """A workspace that moves off the local runner must not keep its single slot.
 
     The selection changes while the process runs — it is a `PUT` away — so the gate is a
-    property of the transport in force rather than of the object that hands transports out.
+    property of the selected transport rather than of the object that hands transports out.
     """
 
     selection = _Selection(_ollama_config(parallel=1))

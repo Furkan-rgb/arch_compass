@@ -779,7 +779,7 @@ class LangChainArchitectureJudge:
 
     #: What this judge stamps every finding it produces with, and the only place that says
     #: so. A class attribute rather than a constructor argument because
-    #: `SelectedLangChainJudge.in_force` has to report it while it is still choosing which
+    #: `SelectedLangChainJudge.selection` has to report it while it is still choosing which
     #: judge to build, and an overridable default would let a caller stamp a finding with a
     #: prompt this judge does not send.
     identity: ClassVar[str] = JUDGE_PROMPT_IDENTITY

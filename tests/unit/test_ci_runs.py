@@ -16,7 +16,7 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.domain._support import utc_now
-from archcompass.workflow.ci import CleanBreakCiRunService, FailOn
+from archcompass.workflow.ci import CiRunService, FailOn
 
 
 class Repositories:
@@ -78,7 +78,7 @@ def _review(tmp_path: Path) -> Review:
 def test_ci_blocks_only_new_material_unsettled_findings(tmp_path: Path) -> None:
     review = _review(tmp_path)
     decisions = Decisions()
-    service = CleanBreakCiRunService(
+    service = CiRunService(
         repositories=Repositories(), workflow=Workflow(review), decisions=decisions  # type: ignore[arg-type]
     )
 
@@ -94,12 +94,12 @@ def test_ci_blocks_only_new_material_unsettled_findings(tmp_path: Path) -> None:
 def test_ci_base_decision_and_adoption_mode_are_quiet(tmp_path: Path) -> None:
     review = _review(tmp_path)
     candidate_id = str(review.findings[0].candidate.id)
-    decided = CleanBreakCiRunService(
+    decided = CiRunService(
         repositories=Repositories(),
         workflow=Workflow(review),
         decisions=Decisions({candidate_id}),  # type: ignore[arg-type]
     ).run("case", repository_root=tmp_path)
-    adoption = CleanBreakCiRunService(
+    adoption = CiRunService(
         repositories=Repositories(), workflow=Workflow(review), decisions=Decisions()  # type: ignore[arg-type]
     ).run("case", repository_root=tmp_path, fail_on=FailOn.NOTHING)
 

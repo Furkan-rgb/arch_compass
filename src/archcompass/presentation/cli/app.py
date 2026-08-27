@@ -36,7 +36,7 @@ from archcompass.records import THINKING_LEVELS, ThinkingMode
 from archcompass.repositories.safety import (
     validate_repository_directory,
 )
-from archcompass.workflow.ci import CleanBreakCiRun, FailOn
+from archcompass.workflow.ci import CiRun, FailOn
 from archcompass.workflow.service import SubmittedAnswer
 
 app = typer.Typer(
@@ -585,7 +585,7 @@ def ci(
         comment_file.parent.mkdir(parents=True, exist_ok=True)
         comment_file.write_text(document.review.markdown_report or "", encoding="utf-8")
     typer.echo(
-        TypeAdapter(CleanBreakCiRun).dump_json(document, indent=2).decode()
+        TypeAdapter(CiRun).dump_json(document, indent=2).decode()
         if as_json
         else (document.review.markdown_report or "No report was produced.")
     )

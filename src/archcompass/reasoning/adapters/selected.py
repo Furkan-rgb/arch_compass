@@ -52,7 +52,7 @@ from archcompass.reasoning.records import model_identity
 
 
 class SelectedLangChainChatModel:
-    """The transport for the model in force, and one of its slots while a caller uses it.
+    """The transport for the selected model, and one of its slots while a caller uses it.
 
     Two things rather than one because a review asks for judgements faster than any provider
     answers them. Every selected candidate is dispatched at once — the graph fans out one
@@ -104,7 +104,7 @@ class SelectedLangChainChatModel:
             )
         identity = model_identity(config)
         # No branch for the stand-in here, deliberately. Every caller of `in_use` has already
-        # asked `in_force().deterministic` and gone the other way if it was true, so a second
+        # asked `selection().deterministic` and gone the other way if it was true, so a second
         # test of the provider on this path could only ever disagree with that one — and a
         # stored selection naming a provider `build_chat_model` cannot build still refuses,
         # by the `ConfigurationError` it raises for any provider it has no branch for.
@@ -129,10 +129,18 @@ _log = logging.getLogger("archcompass.reasoning")
 
 
 @dataclass(frozen=True)
-class JudgementInForce:
+class JudgeSelection:
     """One reading of the model selection, answering every question a run asks of it.
 
-    Built only by `SelectedLangChainJudge.in_force`, and built whole: the selection, what a
+    Named for the judge and not for the judgement, because the two are opposite ends of the
+    same act and this codebase already spends `Finding` on the other end: a judgement is what
+    comes out, and this is what goes in. `Judgement` here would put two meanings on one word
+    in the one file where telling them apart is the whole subject. "Selection" is the head
+    noun the tree already uses for a chosen thing described rather than held — `PolicySelection`,
+    `CandidateSelection`, `EmbeddingModelSelection` — and this is the same shape: a
+    description of what will judge, not a judge you can call.
+
+    Built only by `SelectedLangChainJudge.selection`, and built whole: the selection, what a
     finding it produces is stamped with, which judge runs, what that judge stamps as its
     prompt, and whether it reaches a provider at all. There is no way to obtain one of those
     without the rest, which is the whole reason the record exists — `bootstrap` used to hold
@@ -191,7 +199,7 @@ class JudgementInForce:
 
 
 class SelectedLangChainJudge:
-    """The judge in force, and whether it is one that can read the repository.
+    """The selected judge, and whether it is one that can read the repository.
 
     `toolbox` is what decides, and it is the only thing that does. With one, the judgement is
     a bounded conversation that may look things up — and where a particular run carries
@@ -199,7 +207,7 @@ class SelectedLangChainJudge:
     handed to a different judge. Without a toolbox it is the single structured call it has
     always been. Both reach the same `FindingOutput`.
 
-    That the subject no longer chooses is the point of `in_force` below being answerable at
+    That the subject no longer chooses is the point of `selection` below being answerable at
     all: what a review is stamped with must not depend on a fact that only exists once the
     review is running.
 
@@ -219,7 +227,7 @@ class SelectedLangChainJudge:
         self._selected = selected
         self._toolbox = toolbox
 
-    def in_force(self) -> JudgementInForce:
+    def selection(self) -> JudgeSelection:
         """Which judge the next judgement is, and everything that follows from that.
 
         The one place any of it is decided. `CachingArchitectureJudge` keys on the record,
@@ -271,7 +279,7 @@ class SelectedLangChainJudge:
             # states its own reach and its own limits, and each sits beside the code that
             # decides them, so the two move together — which is the property no sentence here
             # can have.
-            return JudgementInForce(
+            return JudgeSelection(
                 model=config,
                 model_identity=DeterministicJudge.model_identity,
                 judge=DeterministicJudge,
@@ -281,11 +289,11 @@ class SelectedLangChainJudge:
         # calculated before anything asks a provider for anything, and a review of a branch
         # nobody has chosen a model for still has to say what changed. The empty identity is
         # what a stored finding is then compared against, and it matches nothing — which is
-        # the honest answer to "was this judged by the model in force".
+        # the honest answer to "was this judged by the model now selected".
         identity = "" if config is None else model_identity(config)
         toolbox = self._toolbox
         if toolbox is None:
-            return JudgementInForce(
+            return JudgeSelection(
                 model=config,
                 model_identity=identity,
                 judge=LangChainArchitectureJudge,
@@ -293,7 +301,7 @@ class SelectedLangChainJudge:
                     model, model_identity=stamp
                 ),
             )
-        return JudgementInForce(
+        return JudgeSelection(
             model=config,
             model_identity=identity,
             judge=DeepArchitectureJudge,
@@ -316,14 +324,14 @@ class SelectedLangChainJudge:
         # for having nothing to look at — the same single structured call, from the same
         # prompt — and it stamps its own identity on the way out of it. Forking here instead
         # meant one run stamped `judge:deep-v2` and the next stamped `judge:v3` over a
-        # difference `in_force` cannot see, because whether a run carries a subject is not
+        # difference `selection` cannot see, because whether a run carries a subject is not
         # knowable until the run happens.
         #
         # `investigation` is forwarded and dropped inside: the second pass that used to
         # produce one no longer exists, and forwarding it keeps the port's shape honest for
         # the one caller — `CachingArchitectureJudge` — that still passes whatever it was
         # given straight through.
-        built_over = self.in_force().built_over
+        built_over = self.selection().built_over
         if built_over is None:
             return DeterministicJudge().judge(
                 candidate, case, policies, investigation, subject=subject
@@ -338,27 +346,27 @@ class SelectedLangChainJudge:
         # twenty-six requests and the gateway routes each of them separately, so there is no
         # moment inside a judge at which the finished value could be handed to
         # `finding_from_output` — and there is one here, when the block closes. This is also
-        # the only layer that knows which provider is in force, which is what keeps
+        # the only layer that knows which provider is selected, which is what keeps
         # `langchain.py` and `deep_judge.py` free of any notion of a gateway: on Ollama the
         # record stays empty and this writes back the empty string the field already had.
         return replace(finding, served_by=route.served_by)
 
 
 class SelectedLangChainQuestionGenerator:
-    """The clarification round, asked by whichever chain is in force.
+    """The clarification round, asked by whichever chain the selection names.
 
-    `in_force` is `SelectedLangChainJudge.in_force` — the same bound method the revision
+    `selection` is `SelectedLangChainJudge.selection` — the same bound method the revision
     calculator and the finding cache hold, and the reason this class takes it rather than
-    testing the provider itself is written out on `JudgementInForce`.
+    testing the provider itself is written out on `JudgeSelection`.
     """
 
     def __init__(
         self,
         selected: SelectedLangChainChatModel,
-        in_force: Callable[[], JudgementInForce],
+        selection: Callable[[], JudgeSelection],
     ) -> None:
         self._selected = selected
-        self._in_force = in_force
+        self._selection = selection
 
     def generate(
         self,
@@ -368,7 +376,7 @@ class SelectedLangChainQuestionGenerator:
         round: int,
         excluded_equivalence_keys: frozenset[str],
     ) -> tuple[Question, ...]:
-        if self._in_force().deterministic:
+        if self._selection().deterministic:
             return DeterministicQuestionGenerator().generate(
                 case,
                 findings,
@@ -392,17 +400,17 @@ class SelectedLangChainReviewSynopsist:
     suite runs in — a report whose opening paragraph exists only against a hosted model is a
     paragraph nothing checks.
 
-    `in_force` is `SelectedLangChainJudge.in_force`, for the reason given on the question
+    `selection` is `SelectedLangChainJudge.selection`, for the reason given on the question
     generator above: which chain answers is one decision, taken in one place.
     """
 
     def __init__(
         self,
         selected: SelectedLangChainChatModel,
-        in_force: Callable[[], JudgementInForce],
+        selection: Callable[[], JudgeSelection],
     ) -> None:
         self._selected = selected
-        self._in_force = in_force
+        self._selection = selection
 
     def write(
         self,
@@ -416,7 +424,7 @@ class SelectedLangChainReviewSynopsist:
     ) -> ReviewSynopsis | None:
         if not findings:
             return None
-        if self._in_force().deterministic:
+        if self._selection().deterministic:
             return DeterministicSynopsist().write(
                 case,
                 findings,
@@ -437,20 +445,20 @@ class SelectedLangChainReviewSynopsist:
 
 
 class SelectedLangChainReviewAnswerer:
-    """A reader's question about a review, answered by the chain that is in force.
+    """A reader's question about a review, answered by the chain the selection names.
 
-    `in_force` is `SelectedLangChainJudge.in_force`, for the reason given on the question
+    `selection` is `SelectedLangChainJudge.selection`, for the reason given on the question
     generator above: which chain answers is one decision, taken in one place.
     """
 
     def __init__(
         self,
         selected: SelectedLangChainChatModel,
-        in_force: Callable[[], JudgementInForce],
+        selection: Callable[[], JudgeSelection],
         toolbox: ReviewToolbox | None = None,
     ) -> None:
         self._selected = selected
-        self._in_force = in_force
+        self._selection = selection
         self._toolbox = toolbox
 
     def answer(
@@ -461,7 +469,7 @@ class SelectedLangChainReviewAnswerer:
         *,
         about: Question | None = None,
     ) -> ConversationAnswer:
-        if self._in_force().deterministic:
+        if self._selection().deterministic:
             return DeterministicAnswerer(self._toolbox).answer(
                 review, history, question, about=about
             )
