@@ -492,8 +492,8 @@ function DocketRow({
         // topbar was pinned; the strip was pinned afterwards and this is the measurement that
         // had to move with it.
         //
-        // `relative`, because the verdict edge is drawn as an inset span rather than as this
-        // element's own `border-l`. Neither `bg-surface` on an open row nor `bg-transparent`
+        // `relative`, because the verdict edge is drawn as a positioned span rather than as
+        // this element's own `border-l`. Neither `bg-surface` on an open row nor `bg-transparent`
         // on a settled one is here any more: the `<ul>` around them is already `bg-surface`,
         // so both composited to the colour underneath them and said nothing. A row at rest
         // has no ground of its own; what says a row is open is the panel that appears below
@@ -501,24 +501,72 @@ function DocketRow({
         "relative scroll-mt-24"
       }
     >
-      {/* The verdict as an edge, inset four pixels at each end.
+      {/* The verdict as an edge, running the full height of its row.
           A docket is worked down a column, and the question asked of the whole column at
           once — where does the red start — is not one a mark inside a row can answer: at any
           size that fits beside a name, a glyph has to be looked *at*. An edge is read without
           being looked at, costs no horizontal space, and is a rule rather than a card, which
           is the structure this system already uses.
 
-          It is a positioned span rather than the article's `border-l` because a border runs
-          the full height of its box: a run of same-verdict rows — the common case on a second
-          visit — fused into one continuous bar down the whole list that read as the panel's
-          own border rather than as six verdicts. `inset-y-1` breaks that bar into one segment
-          per row at no cost in width. The class is still `TONE_EDGE`, so the hue arrives from
-          `lib/format` and is never picked here; the span is 3px wide and its left border is
-          3px, so the border is the whole of it. */}
+          It was `inset-y-1`, four pixels of air at each end, and that answered a real defect
+          the wrong way round. The defect: a run of same-verdict rows — the common case on a
+          second visit — fused into one unbroken bar down the whole list that read as the
+          panel's own border rather than as six verdicts. The wrong way round: 4px above a
+          row boundary and 4px below it, with the 1px divider between them, is a **nine
+          pixel** white notch cut into a red edge. Measured on the docket at 1440: an edge
+          from y=992 to y=1073 in an 89px row, the next starting at y=1082. Nine pixels is
+          not a boundary, it is a break — nine times every other seam on this surface — and
+          a break in a rule reads as a rendering fault rather than as a decision. It was
+          reported as a gap in the red, which is exactly what it is.
+
+          The separation the bar needed was already on the page. `divide-y` on the `<ul>`
+          puts a `--rule` hairline on every row boundary, and that hairline runs the `<li>`'s
+          whole width — across the three pixels this edge occupies as well as the row's
+          words, because both start at the list's content box. So the edge is broken at each
+          row boundary by exactly the one pixel that separates everything else here, at a
+          line the eye already knows the meaning of. Nothing had to be invented, and the
+          notch costs eight pixels of the verdict on every row to say what the divider says
+          for free.
+
+          The two do not overlap; they abut, and that is the mechanism rather than a
+          quibble. This span is positioned against the `<article>`, so `inset-y-0` resolves
+          against the article's box — which stops exactly where the `<li>`'s `border-bottom`
+          starts. Measured at 1440: the first row's edge ends at y=1077.03 and the hairline
+          occupies 1077.03 to 1078.03. Hang the same span off the `<li>` instead and
+          `inset-y-0` would resolve against a box that *includes* that border, the colour
+          would paint straight over the hairline, and a run of one verdict would fuse for
+          real. The test below catches that; this paragraph is why.
+
+          What it looks like, said honestly, because the inset was written on a mis-reading
+          of it: six identical verdicts read as one column of colour with hairline ticks in
+          it, not as six separate marks. That is correct. Six identical verdicts *are* one
+          run, and the question this edge exists to answer — where does the red start — is
+          answered better by a continuous shape than by six pieces of one. What made the old
+          bar a defect was the other half: that it could be taken for the panel's own chrome.
+          It cannot be. The panel's border is one pixel of `--rule` on all four sides — 10%
+          black in light, 11% white in dark. This is three pixels of an opaque verdict hue on
+          one — `--material`, which is the accent; `--held`, which is the ink; `--cleared`,
+          which is `--ink-3` and the dimmest of the three, and still opaque and still three
+          times the width. Nothing else about the panel is coloured. Where consecutive
+          verdicts differ the column visibly breaks into per-row segments, which is the only
+          place that difference is worth seeing.
+
+          A positioned span rather than the article's own `border-l` for a reason that
+          outlived the inset: an open row's argument and decision bar are inside this article,
+          and a border would take the row's padding with it. The class is still `TONE_EDGE`
+          from `ui/meta.tsx`, which is where this system's hues are named; which of them a row
+          gets is `descriptor.tone`, decided by the one verdict table in `lib/format` and
+          never picked here. The span is 3px wide and its left border is 3px, so the border is
+          the whole of it.
+
+          Both halves — continuous down a run, never touching across a boundary — are held by
+          `test_the_verdict_edge_is_cut_only_by_the_row_rule` in `tests/browser/`. They are
+          geometry, so jsdom cannot see either, and the whole lesson of the notch is that a
+          class nothing can fail is not a decision anybody checked. */}
       <span
         aria-hidden="true"
         className={cn(
-          "pointer-events-none absolute inset-y-1 left-0 w-[3px] border-l-[3px]",
+          "pointer-events-none absolute inset-y-0 left-0 w-[3px] border-l-[3px]",
           settled ? "border-l-transparent" : TONE_EDGE[descriptor.tone],
         )}
       />
@@ -947,9 +995,7 @@ function ClarificationCard({
           <span className="block text-[14px] font-semibold text-ink">
             {recorded
               ? `Round ${roundOf(review)} answered`
-              : `${plural(review.questions.length, "question")} want${
-                  review.questions.length === 1 ? "s" : ""
-                } an answer`}
+              : `${plural(review.questions.length, "question")} unanswered`}
           </span>
           {/* "re-judges what it touches" invited the reading that answering is cheap and
               local. It is neither: `select_rejudgements_node` returns every candidate,
@@ -1614,6 +1660,18 @@ export function Docket({
                     // rule never painted once: six candidates rendered as one unbroken sheet,
                     // on the surface whose design system calls hairlines its primary
                     // structural device.
+                    //
+                    // It separates two things now, not one. The `<li>` spans the list's whole
+                    // content box, so this hairline reaches across the three pixels of the
+                    // verdict edge as well as the row's words — which is what lets that edge
+                    // run its row's full height and still be cut once per row. In the other
+                    // axis the two abut rather than overlap: the edge is positioned against
+                    // the `<article>`, whose box ends where this border begins, so the border
+                    // is the whole of the break. Delete this and the edges of a same-verdict
+                    // run fuse; `test_the_verdict_edge_is_cut_only_by_the_row_rule` in
+                    // `tests/browser/` is where that is caught, colour included — dropping
+                    // `divide-rule` and keeping `divide-y` leaves `currentColor`, which is a
+                    // near-black line the width of the panel.
                     className="divide-y divide-rule overflow-hidden rounded-lg border border-rule bg-surface shadow-rim"
                   >
                     {section.findings.map((finding) => (
