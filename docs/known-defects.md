@@ -9,6 +9,13 @@ to find them again. Each one names the evidence it rests on and carries a status
 A fault that is fully fixed leaves this file, and so does one that turns out not to exist.
 Everything here was re-verified against the code on 2026-08-24, claim by claim. Two entries left on 2026-08-25 when the Google Batch subsystem was deleted: the positional response join went with it, and the concurrency knob it was the only reader of went with that.
 
+An entry may also be **wrong about its own size**, which is what happened to the phone entry
+below on 2026-08-27: the fault was real and the number describing it had been taken from a
+screen the product cannot produce. That is not grounds to delete an entry — the layout it
+describes still exists — but the measurement and the population it was taken over now have to
+be written down beside it, because a repair was very nearly made on the strength of the wrong
+one.
+
 ## OPEN — the one-review-one-sequence rule has no schema behind it
 
 Migration `003_one_revision_per_review.sql` rebuilt `core_review_snapshots` without the old
@@ -97,6 +104,87 @@ The peak is lower than when this was written and the entry's number predates the
 `Send` payload now carries three keys instead of the whole state, which took one round of six
 candidates from 21 MB of `__pregel_tasks` to 1.3 MB (`workflow/graph.py:199`). That bounds the
 fan-out, not the state each superstep writes, which is what this entry is about.
+
+## PARTLY FIXED — on a phone, a held finding's way out is reached after the whole argument
+
+Below `lg` the Judged band collapses to one column, and the rail comes after the argument in
+the DOM — which is deliberate and is what makes the stacked reading order right. The cost is
+that the **Answer it** control is reached by scrolling past the model's paragraph.
+
+**The number this entry carried was wrong by a factor of about two and a half, and it was wrong
+because it was taken from a screen nobody can be shown.** It said "roughly 1,500px", reasoning
+from the longest recorded reasoning: 2,139 characters, 57 line boxes in the 324px column a 390px
+viewport gives this block. Put on a held row in the live app that argument really does land the
+control 1,688px down. But it belongs to a *material* finding, and a material finding has no
+hinge and therefore no control here at all. `FindingOutput.the_verdict_carries_what_it_is_allowed_to`
+in `reasoning/adapters/langchain.py` refuses a hinge on any verdict but `held`;
+`finding-detail.tsx` draws nothing without one; and questions are generated per hinge rather
+than per verdict, so the `waitingOn` gate does not widen the population either. Of the 375
+recorded judgements in the workspace, all 69 held ones carry a hinge and not one of the 306
+cleared and material ones does.
+
+**Measured over the population that exists.** The held arguments run 156 to 971 characters.
+Swept over all 69 at 390x844 in the real app, each with its own recorded hinge and its blocks
+cut by the real `sentences()`, **Answer it** lands 275px to 956px below the top of the argument
+— median 624px, five of the 69 past the 844px viewport, eight past the 796px the sticky topbar
+leaves, none past 1,000px. The worst pairing the population admits at all, the longest held
+argument against the longest recorded hinge and a pairing that has never occurred, is 1,025px.
+The control itself sits 4px below the question it answers.
+
+**And it regressed, by 27px.** Two changes landed on this band and they pull in opposite
+directions. `sentences()` cutting the argument into blocks adds 8px of gap per cut: +84.8px of
+argument height on the longest held string, +119.2px on the longest string of any verdict.
+Moving the verdict's lede out of the rail and above the grid gives 58px back. Measured on the
+longest held argument by reversing each change in the live DOM: 929.5px before, 956.3px today.
+
+On the 2,139-character material argument the same two shapes read 1,626.6px and 1,687.8px. The
+1,688 is exact — it is what a one-line hinge under 57 line boxes of argument comes to — but it
+is the unreachable case, and the "roughly 1,530px before" it was being compared against does not
+reproduce against this markup at all: the shape this pass replaced measures 1,626.6px there.
+Whoever writes the next number should say which of the two populations it is over.
+
+**What is not wrong is the direction of the complaint, and what is wrong is which control it
+names.** Measured below the *end* of the argument on the same sweep: **Answer it** at 144–303px,
+**Judgement context** at 884–1,043px, the decision bar at 1,878–2,037px. The last two are on
+every verdict, so the control a phone buries in an open row is the decision, not the way out of
+a held one — **Answer it** is the first control a phone reaches. `tests/browser/test_mobile.py`
+measures that ordering and the 4px.
+
+**That was not enough to hold the shape this entry describes, and the sentence here claimed it
+was.** The three distances are signed, and an ordering is a relative claim: move the rail above
+`<ModelProse>` in `finding-detail.tsx`, rebuild the bundle, and the three read **−202.17px**,
+**+631.38px** and **+1,625.55px** — still ascending, so the test passed with the way out of a
+held finding drawn *above* the argument it is a margin note on, which is this entry's layout
+running backwards. Only the first term moves: the other two controls are drawn below the grid
+the rail and the argument share, so hoisting the rail inside that grid cannot lift them, and an
+ordering over the three can never notice it. Measured on the first held row of the browser
+suite's own review at 390x844, where the argument is 79.17px tall; the distance scales with the
+judgement, the sign does not. jsdom caught the move as a document-order failure (`finding-detail.test.tsx`, *"puts
+the rail after the argument"*), so the mechanism was never unguarded; the test named here as
+what holds the shape simply did not check it. It now asserts that **Answer it** is drawn below
+the bottom of the argument before it asserts anything about the order, which is the stacking
+this entry prices.
+
+Three repairs were considered when the number was thought to be 1,500px, and none is taken now
+that it is 624px.
+
+- An `order` class puts the paint order and the tab order in disagreement, which costs exactly
+  the readers who can least afford to scroll. `finding-detail.test.tsx` asserts that no element
+  in the band carries one.
+- Moving the hinge group out of the rail below `lg` buys the argument's own height — a median of
+  412px — and costs four things: the reader is asked before being told why; it displaces the
+  lede and the opening block that `pack`'s share ceiling exists to guarantee; a held row and a
+  cleared row stop being the same shape on a phone; and crossing 1024px unmounts the group, so
+  focus on the control is lost mid-resize. It also leaves the decision bar where it is, which is
+  the larger number.
+- A second control on the phone is a second affordance for one action, which
+  `review-workbench.test.tsx` already holds the line against.
+
+What is left open is the scroll itself, and it is priced rather than fixed: a reader on a phone
+still passes a median 624px of argument to reach the way out, and the argument is what the row
+was opened for. This is not the only way in either — while a review is held the clarification
+round is the **first item on the docket** and carries the page's one primary action, which a
+phone reader reaches without scrolling at all.
 
 ## PARTLY FIXED — `Label` still has twenty-two hand-rolled copies
 

@@ -78,10 +78,12 @@ and CI always win.
 
 **OpenRouter is the hosted boundary.** One credential reaches every model it lists, and
 which upstream serves a request is its routing decision rather than a provider ArchCompass
-knows about. Two things make that safe rather than merely convenient, and both are on every
-request: `provider.require_parameters` refuses a route that cannot honour the JSON schema
-the judgement is asking for, and the output ceiling travels as `max_tokens`, which is what
-those routes declare. See `reasoning/adapters/openrouter.py`.
+knows about. Nothing on the request narrows that decision: every parameter sent is a
+preference OpenRouter ranks routes by, and the output ceiling travels as `max_tokens`
+because that is the name those routes declare. The hard filter that used to sit beside it,
+`provider.require_parameters`, was removed after it left a request with no eligible route at
+all and 404'd mid-experiment; what answered is recorded instead, so every finding carries
+the endpoint that served it. See `reasoning/adapters/openrouter.py`.
 
 Its models are not listed here and there is no list of them in the code either. The
 catalogue is the source of truth, filtered to what a review needs — a model that declares

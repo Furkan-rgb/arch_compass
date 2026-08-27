@@ -118,10 +118,121 @@ browser's synthetic slant is doing something honest — leaning a line that is a
 | 17 | Sans, 600, `-0.02em` | An app page's `h1`. It was 28px, which spent the largest type on the page on the word the reader is least in doubt about — they pressed the nav link that says it. The landing display is a different job and keeps its own row below |
 | 34–62 | Sans, 600, `-0.035em` | Landing display only, `clamp()`ed |
 
-Measure: the model's prose caps at `62ch`, and everything else between `60ch` and `64ch`. Digits that line up in
-a column take `tabular-nums`. A qualified name is one token to the line breaker, so anything
-that can hold one takes `wrap-anywhere` — this is the single most common overflow bug in the
-product and `features/review/overflow.test.tsx` exists for it.
+### Measure
+
+The model's prose caps at **`58ch`** — 617.12px, since the block is set at 400 and Onest's zero
+advances 0.665em there (665 units on a 1000-unit em, off the `hmtx` table of the shipped
+`onest.woff2`; the same file's zero is 661.8 units at 600, which is the subject of "A `ch` is
+only honest…" below) — and that number is chosen from a floor rather than from a character
+count. The widest unbreakable
+token the corpus sets in this face is a 71-character qualified name at 541.7px, and 48 distinct
+tokens across 51 of the 375 recorded strings are wider than the 324px column a phone gives the
+block. Under that floor the name an argument is *about* gets split across two lines. The ceiling
+above it is the return sweep: at 617.12px a line that is not the last of its block averages
+**75.7** characters and reaches **90** at its fullest, which is the outside edge of what
+`leading-[1.65]` gets an eye back from. `62ch` measures **81.6** and **96** and is past it.
+Everything else sits between `60ch` and `64ch`.
+
+Every one of those figures is a rectangle rather than an estimate, and the method is worth
+stating because four passes have now put a wrong one here. Serve the built bundle, render all
+375 recorded strings through the real `ModelProse` — with the quoted names drawn as the mono
+chips they ship as, because a chip is wider than the Onest it displaces — and cluster a Range
+per character on the vertical centre of its box, one cluster to a line. That gives 3,248 line
+boxes over the corpus, 2,082 of them not the last of their block. The sweep climbs steadily with
+the measure: 73.1 at 56ch, 75.7 at 58, 77.3 at 59, 78.7 at 60, 80.3 at 61, 81.6 at 62. Measure
+the *string* instead of the render and every number comes out about a character generous — which
+is where the 73 this paragraph carried came from.
+
+**And say what a character on a line is**, because the method above does not decide it and the
+choice moves every figure in this section by about one. A soft wrap happens at a space, and that
+space is drawn on no line: it belongs to the line it ended, to the line it opened, or to
+neither. Every number here counts it as belonging to **the line it ended**, so a line holds the
+span of source from its own first visible character up to the next line's first, and the last
+line of a block holds the rest of the block.
+
+The reason is that those spans then partition the block, so the counts sum to the block's own
+length and can be checked against something other than a second run of the same script. They do,
+for all 1,166 blocks the corpus packs into. Count the visible run instead — first ink to last —
+and 1,058 of the 1,166 no longer add up, 75.7 reads 74.7, 64.5 reads 63.9, 90 reads 89, 81.6
+reads 80.7, and the climb drops to 72.2 / 74.7 / 76.3 / 77.7 / 79.4 / 80.7. That is a *different*
+correction from the string-versus-render one in the paragraph above, and the two are independent:
+one is about what is drawn, this one is about what is counted. The two readings sit 0.97 apart on
+average rather than exactly 1, because `wrap-anywhere` splits a long name mid-token and consumes
+no space when it does. Neither reading is wrong; leaving the choice unwritten is, and it is why
+these figures have been re-measured four times.
+
+**A `ch` is only honest where one font size *and one weight* are set.** It is the advance of
+the used font's zero, so it follows both. Onest ships as one variable file — `styles.css`
+declares a single `@font-face` spanning `font-weight: 400 700` — and its zero narrows as the
+instance gets heavier: **665** units on a 1000-unit em at wght 400, **661.8** at wght 600,
+read off the `hmtx` table and the `HVAR` advance delta of the shipped `onest.woff2`. (Not 662.
+That is 661.8 rounded to an integer unit by `fontTools`, and no browser rounds it. Chromium
+measuring `width: 100ch` against the shipped face gives 10.64px and 10.58875px at 16px.)
+
+So one `max-w-[46ch]` shared by a 24px title, an 18px heading, a 15px one and a 14px paragraph
+— the first three `font-semibold` — is four different widths: **730.63px, 547.97px, 456.64px
+and 428.26px**. That is how `ui/markdown.tsx` came to draw a section's opening hairline
+**119.71px** past the text under it, and how the finding band came to carry the same `58ch` on
+a 16px argument and the 13px semibold sentence above it at **617.12px and 499.00px**, a gap of
+118.12px. A measure shared across sizes is stated in `rem`.
+
+Read every heading at 400 and the same sums give 734, 551, 459, 122.36 and 501 — which is the
+sixth round of wrong numbers this section has carried, and the reason the weight is spelled out
+above rather than left to "a `ch` is 0.665em".
+
+Both of those were repaired without a test, and reverting either one stayed green. They have one
+each now, and each resolves a declared measure against the declared font size and weight and
+asserts the answers are one answer: `ui/markdown.test.tsx` over every renderer of a
+document — where "resolves the one name `46ch` used to carry to four different widths"
+recomputes all six figures above, so this paragraph names a test rather than holding a copy of
+its output — and
+`features/review/finding-detail.test.tsx` over the lede and the argument it stands above. Neither
+is in the forbidden table below, for the reason given there about the `link` variant: that table
+is what `design-system.test.ts`, `tokens.test.ts` and `verdict-hues.test.ts` enforce, and a
+measure is enforced where the surface is.
+
+**"Every renderer" is now a requirement rather than a count, and the difference was a live
+defect.** That test asserted that at least eight blocks carried a measure while the fixture
+rendered nine, so deleting `MEASURE` from any one renderer left eight that agreed on one edge
+and the whole suite passed. The `h4` renderer had in fact shipped that way — a `####` label
+running the panel's full 1168px over paragraphs stopping at 428px. It now asserts that every
+direct child of the document either carries the measure or is one of the three blocks that
+deliberately reach past it: a fence and a table, which scroll inside themselves, and a rule,
+which spans what it divides.
+
+**And two declared measures agreeing is not two edges agreeing.** A measure is a cap, and what
+a block draws at is the smaller of that cap and the box it is in — so a test that resolves two
+declared numbers is blind to two boxes of different widths, which is exactly what a two-column
+grid makes. The lede's `38.5rem` and the argument's `58ch` differ by 1.12px and were drawn
+**34.00px** apart at a 1024px viewport, where the argument's `1fr` track is 582px and the lede,
+standing outside the grid, was capped at 616px: 18.00px at 1040, agreeing from about 1060 up. It
+was invisible only because the three verdict descriptions in `lib/format` are 51, 60 and 60
+characters and none of them reaches 582px — a guarantee held by the length of three strings.
+The repair is containment rather than a second number: the lede is placed in the argument's own
+grid column, so no cap it declares can take it wider. `finding-detail.test.tsx` asserts the
+containment, which is a fact about the document that jsdom can see, and
+`tests/browser/test_workspace.py` measures the two rectangles across 390, 1024, 1040, 1060, 1280
+and 1440, which is the half only a layout engine can answer.
+
+A paragraph the model wrote is cut at its own sentence boundaries, up to six blocks. Past six
+the sentences are packed into blocks of even rendered length, and the block a reader arrives at
+is held to its share, so an argument never opens on its tallest paragraph. Nine of the 375
+recorded strings reach that cap; the other 366 are cut one block to a sentence. That share
+ceiling is one `continue` in `pack`, it changes 3 of the 375 and puts 2 of them on their tallest
+block when it is deleted, and every test in the product passed with it deleted until
+`ui/prose.test.tsx` was given recorded strings that discriminate.
+
+Those strings are now all nine rather than the two that catch that one mutation, and they live
+in `ui/prose.test-corpus.ts` with the extraction from `.archcompass/workspace.sqlite3` written
+out beside them. Two was enough to fail on a deleted ceiling and blind to a *relaxed* one:
+change the ceiling from `length > share` to `length > share * 1.1` and both of the two go on
+packing exactly as before, while the 1,838-character judgement opens on a block over its share
+that cannot be excused as a single sentence. A property about `pack` has to be checked over
+every string `pack` is handed.
+
+Digits that line up in a column take `tabular-nums`. A qualified name is one token to the line
+breaker, so anything that can hold one takes `wrap-anywhere` — this is the single most common
+overflow bug in the product and `features/review/overflow.test.tsx` exists for it.
 
 ## Colour
 
@@ -382,6 +493,57 @@ legible on both grounds. One gesture, not one colour.
 The same recipe is in two places on purpose: `ui/button.tsx`'s `ToggleButton`, and
 `components/ui/toggle.tsx` for the vendored Radix switch. Two toggles that look different are
 two toggles a reader has to learn separately.
+
+### A way out is a link, not a quieter button
+
+An open finding holds five controls. Three of them — **Accept and act**, **Park** and **Waive**
+— write a `StandingDecision`, and they are peers by an explicit decision recorded in
+`features/review/decision-bar.tsx`: spending the accent on a disposition already taken puts the
+loudest object in a settled row on the thing that needs no attention at all. The other two write
+nothing. **Answer it** is `onOpen("clarification")` and **Judgement context** opens a drawer;
+both leave the row.
+
+All five wore the `secondary` recipe, so an open row said the same thing about a way out that it
+said about a disposition. That is the three voices blurring: a bordered control at control size
+is **Decided**, *the record of what a person chose*, and neither of those two is a record of
+anything. The rule the voices carry is that an element which does not sit in one of the three is
+a design question, not a licence to use the nearest recipe.
+
+So the two are separated by **shape**, not by hue. `ui/button.tsx` has a `link` variant — full
+ink, no fill, no border, an underline resting at `--rule-strong` and going to the ink on hover:
+`PolicyRef`'s gesture in sans at control size. It keeps the 44px box, because that is a touch
+requirement and does not depend on how a control is drawn. Position cannot do this job. Position
+says order; the difference between navigating and deciding is a difference of kind, and on a
+cleared finding — no hinge, so no **Answer it** — the one remaining way out sits a few hundred
+pixels above three controls it was drawn identically to.
+
+It takes no chroma, and specifically no `--mark`. The mark is the accent under another name and
+it is spent on reaching the source a claim came from: a file, a policy, a cited finding. The
+clarification round and the context drawer are places in the product, not sources, and a button
+wearing the mark is the budget growing back through a shape the allowlist was written to catch.
+
+The accent is not the answer for **Answer it** either, and "it is the primary action" is the
+tempting reading. It is not. The one action the screen is asking for while a review is held is
+*answer the round*, and that already carries the page's primary, once, on the clarification card
+at the head of the docket. A primary on every held row is one action with N+1 primaries — and
+`--held` is `#0a0a0a` precisely so that a finding waiting on a person is present without being
+an alarm.
+
+This reads on all three verdicts, which is the property to check before changing it. A
+**cleared** or **material** finding has no hinge, so it carries one way out and three decisions;
+a **held** one carries two and three. In both, the bordered controls in an open row are exactly
+the ones that write something. `features/review/finding-detail.test.tsx` holds it — *"draws a
+way out of the row as a way out, not as a disposition"*.
+
+The variant is also the one place a recipe may refuse a size. `buttonClass` merges the size
+record *before* the variant record so `link` can take its side padding off, which makes the
+words the target rather than a box with its edges rubbed out. That order is a change to every
+button in the product and rests on no other variant naming a class in a size's group, so
+`ui/button.test.ts` asserts it rather than leaving it to a reading.
+
+No row is added to the forbidden table: that table is the rules enforced by
+`design-system.test.ts`, `tokens.test.ts` and `verdict-hues.test.ts`, and this one is enforced
+where the controls are, in the surface's own suite.
 
 ### shadcn components are vendored and repainted
 
