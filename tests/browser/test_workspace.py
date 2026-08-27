@@ -7,13 +7,20 @@ unchanged and described there.
 
 from __future__ import annotations
 
+import json
 import re
 from itertools import pairwise
+from typing import Any
 
 import pytest
 from playwright.sync_api import expect
 
-from tests.browser.harness import REVIEW_TIMEOUT_MS, open_first_candidate
+from tests.browser.harness import (
+    DESKTOP,
+    REVIEW_TIMEOUT_MS,
+    open_first_candidate,
+    show_everything,
+)
 
 pytestmark = pytest.mark.browser
 
@@ -281,6 +288,261 @@ EDGE_SLACK_PX = 0.5
 TRANSPARENT = "rgba(0, 0, 0, 0)"
 
 
+#: The verdicts dealt across the docket, over the review's findings in the order the API
+#: sends them. All three, because the product has three; dealt round-robin so that the deal
+#: does not depend on how many findings the example repository happens to produce.
+DEALT_VERDICTS = ("material", "held", "cleared")
+
+#: Every docket row's verdict rail, the id of the candidate it belongs to, and what the three
+#: verdict hues resolve to at that row.
+#:
+#: The candidate id is the binding: the verdict a row states is the verdict the response
+#: carried for that id, which is a fact the test knows because it wrote it.
+#:
+#: It is read off `data-candidate`, and that attribute is worth being exact about, because
+#: this comment said something false about it and took the claim from `harness.py`, which
+#: said the same. Nothing in the application reads it — `docket.tsx:671` writes it onto the
+#: row's button and no other non-test line in `frontend/src` mentions it, and the `j`/`k` walk
+#: steps through `visible.map((finding) => finding.candidate.id)` in React state
+#: (`docket.tsx:1468`) rather than through the DOM. So this is a seam, and the honest reason
+#: to prefer it is not that the product navigates by it. It is that the value in it is
+#: `finding.candidate.id` — the identity the walk steps through, the key a decision is filed
+#: under, and the id this test dealt a verdict to — written by the row itself. A redesign of
+#: everything visible about the row leaves it correct; a row's name, position or shape does
+#: not survive that.
+#:
+#: The hues are probed rather than written down, for the reason `DOCKET_EDGES` above probes
+#: the row rule: `var(--material)` is what the token means *at this row*, and a literal here
+#: would be a second copy of the stylesheet — a copy agrees with the product only until
+#: somebody edits one of them.
+DOCKET_RAILS = """
+() => [...document.querySelectorAll('ul[aria-label^="Candidates"]')].map((list) =>
+  [...list.children].map((item) => {
+    const article = item.firstElementChild;
+    const edge = article.querySelector(':scope > span[aria-hidden="true"]');
+    const probe = document.createElement('span');
+    probe.style.display = 'none';
+    item.appendChild(probe);
+    const hue = (token) => {
+      probe.style.color = `var(--${token})`;
+      return getComputedStyle(probe).color;
+    };
+    const hues = {
+      material: hue('material'),
+      held: hue('held'),
+      cleared: hue('cleared'),
+    };
+    probe.remove();
+    return {
+      candidate: article.querySelector('[data-candidate]').dataset.candidate,
+      colour: getComputedStyle(edge).borderLeftColor,
+      hues,
+    };
+  }),
+)
+"""
+
+
+def deal_a_mixed_column(page) -> dict[str, str]:  # type: ignore[no-untyped-def]
+    """Give the review's findings three different verdicts, and say which one went where.
+
+    **The verdicts are injected. Nothing else here is, and this is what that costs.** It
+    proves the workbench draws the verdict it is handed; it proves nothing whatever about
+    which verdicts the pipeline produces, and a mixed review is a state this suite has still
+    never seen a real judge reach.
+
+    A real fixture was looked for first and there is none. `DeterministicJudge.judge` — the
+    only judge any offline run has — reads `Verdict.HELD if hinge else Verdict.CLEARED` at
+    `reasoning/adapters/deterministic.py:112`, and its hinge is `None if case.answers` at
+    :105. `answers` belongs to the *case*, not to the candidate, so every candidate of one
+    review is judged by one question about one shared value and they all come back the same:
+    six held before anything is answered, six cleared after. Choosing a different repository
+    under `examples/cases/` changes which candidates are found and not what any of them is
+    judged. Nor does a second review mix them — the case is a term in
+    `CachingArchitectureJudge.key`, so answering moves every key at once and nothing is
+    carried forward at the old verdict. `material` is the sharper half of the same fact: this
+    judge cannot return it at all, so until this test the accent had never been on a rail in
+    any run of this suite. `test_policies_grid.py` established injecting one field of one
+    review response on this branch, and states its own limits the same way.
+
+    The deal is round-robin over the findings the response carries, and the docket sorts by
+    verdict rank, so the column arrives grouped: with the six candidates this repository
+    produces, two material rows, then two held, then two cleared. That leaves exactly one
+    boundary where two *coloured* verdicts are drawn one above the other, which is the thing
+    being looked for; the test below refuses a docket without one rather than passing
+    quietly.
+
+    Returns the deal as `{candidate id: verdict}`. The handler is index-based and so is
+    stable across the four-second poll, which re-fetches this response for as long as the page
+    is open.
+    """
+
+    dealt: dict[str, str] = {}
+
+    def handler(route, request) -> None:  # type: ignore[no-untyped-def]
+        response = route.fetch()
+        try:
+            document: dict[str, Any] = response.json()
+        except Exception:  # pragma: no cover - a non-JSON body is not this test's subject
+            route.fulfill(response=response)
+            return
+        for index, finding in enumerate(document.get("findings", [])):
+            verdict = DEALT_VERDICTS[index % len(DEALT_VERDICTS)]
+            finding["verdict"] = verdict
+            dealt[finding["candidate"]["id"]] = verdict
+        route.fulfill(response=response, body=json.dumps(document))
+
+    # The review document and not the run that produced it: a single path segment that is not
+    # `runs`, which is the pattern `test_policies_grid.py` already reaches this response with.
+    page.route(re.compile(r"/api/reviews/(?!runs)[^/?]+$"), handler)
+    return dealt
+
+
+def _rails_of_a_dealt_docket(context, review_url: str):  # type: ignore[no-untyped-def]
+    """Open the review in `context`, deal the column, and measure every rail in it.
+
+    A context rather than the shared `page` fixture, because the one thing the caller varies
+    is the colour scheme and that is a property of the context. Everything else is the fixture
+    verbatim.
+    """
+
+    page = context.new_page()
+    dealt = deal_a_mixed_column(page)
+    page.goto(review_url, wait_until="networkidle")
+    show_everything(page)
+    page.locator("[data-candidate]").first.wait_for(timeout=REVIEW_TIMEOUT_MS)
+    return dealt, page.evaluate(DOCKET_RAILS)
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_a_rail_states_the_verdict_of_its_own_row(browser, review_url: str, theme: str) -> None:  # type: ignore[no-untyped-def]
+    """Each row's rail is painted the hue its own verdict names, on a column of three.
+
+    Nothing bound those two together. A verifier retyped `TONE_EDGE.held` as
+    `border-l-material` in `ui/meta.tsx`, which paints every held candidate in the docket in
+    the accent red, and no gate in the repository failed — not this suite, and not
+    `ui/verdict-hues.test.ts`, which asks where the three hues may be *named* and never what
+    any of them is paired with. The edge is the third statement of a verdict, after the sign
+    and the word, and it is the one a column is read by before any word on it has been read,
+    so a held row drawn in the accent is the product's central judgement stated wrongly in the
+    register that carries furthest.
+
+    Three layers can each be wrong on their own and two of them are not on screen.
+    `verdictOf` maps a verdict to a tone and `TONE_EDGE` maps a tone to a class; both are data
+    and both are held in jsdom by `a verdict's hue is the one named after that verdict`,
+    which is where a pure mapping belongs. What jsdom cannot see is the rest: it applies no
+    stylesheet, so `border-l-held` there is a string rather than a colour, and it cannot see
+    whether the docket reaches for those tables at all. That is the whole of this test — a
+    verdict on the wire, through the component and the stylesheet, to a colour on a row.
+
+    So the claim is made per row and against the row's own verdict, never against a tally: a
+    docket where the material and held rails had swapped hues shows the same two colours in
+    the same two counts as a correct one, and only asking each row what verdict it carries
+    tells them apart. The colours compared against are `var(--material)`, `var(--held)` and
+    `var(--cleared)` resolved at the row itself, and they are checked to be three different
+    colours first, because comparing a row against a hue indistinguishable from its
+    neighbour's would be a passing test measuring nothing.
+
+    **Settled rows are skipped, and skipping them is why the counts below exist.** A settled
+    row draws a full-height *transparent* rail — `settled` picks the colour and never the box,
+    which is the invariant `test_the_verdict_edge_is_cut_only_by_the_row_rule` below measures
+    — so it makes no claim about hue to check. Every `cleared` row here is one:
+    `needsAttention` in `docket-rules.ts` settles a cleared candidate unless a decision was
+    taken against a different verdict, so `--cleared` on a rail needs a stale decision and is
+    out of this test's reach; it is held one layer down with the other two. That is a sweep
+    which could pass by comparing nothing at all, on a branch that has already shipped one of
+    those. So it counts what it compared: at least three rows over at least two verdicts, and
+    at least one place where two neighbours state two different verdicts in two different
+    colours — the mixed column, which no run had ever seen.
+
+    One thing a browser is the wrong instrument for, said here because it is the reason the
+    other layer exists. `--held` is declared as the ink itself — `#0a0a0a` in light and
+    `#fafafa` in dark, the same two values as `--ink` — so a rail retyped `border-l-ink`
+    would paint every held row in a colour indistinguishable from the right one, and this
+    test would pass. Nothing on screen can catch that. The class-level pairing in
+    `ui/verdict-hues.test.ts` can, and does.
+
+    **Both themes, and it took a mutation to earn the second one.** This ran at the shared
+    `page` fixture's colour scheme, which is Chromium's default and so is light — and each of
+    the three hues is declared twice, once in `:root` and again in the dark blocks, where
+    `--held` and `--cleared` are different values rather than the same ones. So a fault
+    confined to the dark half was invisible here. Measured, not reasoned: `--held` overridden
+    to `--material` inside `@media (prefers-color-scheme: dark)` and nothing else touched
+    left this test passing and painted every held rail in the accent for a dark reader.
+    `ui/tokens.test.ts` reads both scopes and would refuse *that* spelling, because it asks
+    that `--held` stay colourless; overriding it to `--cleared` instead is neutral, passes
+    there too, and was the second mutation this parameter was added for. The review is
+    session-scoped, so the second theme costs one more context and one more load, not a
+    second review.
+    """
+
+    context = browser.new_context(**DESKTOP, color_scheme=theme)
+    try:
+        rails = _rails_of_a_dealt_docket(context, review_url)
+    finally:
+        context.close()
+    dealt, lists = rails
+    rows = [row for listed in lists for row in listed]
+    assert rows, "the docket listed no candidates — there is no column here to measure"
+    assert dealt, "the review response was never intercepted, so no verdict here was dealt"
+    missing = [row["candidate"] for row in rows if row["candidate"] not in dealt]
+    assert not missing, f"the docket drew rows the deal never reached: {missing}"
+
+    # Three hues, or a row agreeing with its own verdict says nothing at all. They are close
+    # in kind — two of the three verdicts are carried by weight rather than by hue, so
+    # `--held` is declared as the ink and `--cleared` as `--ink-3` — which is why this is
+    # measured off the running page rather than assumed.
+    hues = rows[0]["hues"]
+    assert len(set(hues.values())) == 3, (
+        f"the three verdict hues resolve to {len(set(hues.values()))} colours: {hues}"
+    )
+
+    compared: list[str] = []
+    for row in rows:
+        # Transparent is the settled rail, which states its verdict in the sign and the word
+        # and withdraws the hue. There is no hue here to be wrong.
+        if row["colour"] == TRANSPARENT:
+            continue
+        verdict = dealt[row["candidate"]]
+        named = [name for name, value in row["hues"].items() if value == row["colour"]]
+        assert row["colour"] == row["hues"][verdict], (
+            f"a {verdict} row draws {row['colour']} where its own verdict names "
+            f"{row['hues'][verdict]} — "
+            + (
+                f"that is the hue of {named}"
+                # `border-l-held/15` lands here: the right hue at the wrong strength names no
+                # verdict at all, and reading "the hue of []" as "of none of them" is a step
+                # nobody should have to take at three in the morning.
+                if named
+                else "and that is no verdict's hue, which is where a right hue at a wrong "
+                "alpha comes out"
+            )
+        )
+        compared.append(verdict)
+
+    assert len(compared) >= 3 and len(set(compared)) >= 2, (
+        f"the sweep compared {len(compared)} rows over {len(set(compared))} verdicts — a "
+        "docket that settled almost everything makes this test pass without measuring a hue"
+    )
+
+    # And the column breaks where the verdicts do. This is the sentence the docket's own
+    # comment has always made about the rail and nothing had ever run: two verdicts side by
+    # side are two segments of two colours, not one bar. Within a list only — two groups are
+    # two `<ul>`s with a heading between them.
+    segments = [
+        (above, below)
+        for listed in lists
+        for above, below in pairwise(listed)
+        if TRANSPARENT not in (above["colour"], below["colour"])
+        and above["colour"] != below["colour"]
+    ]
+    assert segments, (
+        "no two neighbouring rows state two different verdicts in two different colours — "
+        "the deal reached the page but the column is one hue, so the one thing this test "
+        "exists to see is not on screen"
+    )
+
+
 def sweep_the_verdict_edges(lists: list[list[dict]]) -> int:
     """Every claim about the docket's verdict column, over one measurement of it.
 
@@ -301,8 +563,25 @@ def sweep_the_verdict_edges(lists: list[list[dict]]) -> int:
     # rest passes on a docket whose verdicts are three pixels of nothing, or three pixels of
     # dashes — different bugs wearing the same numbers, and the second is the reported defect
     # at its maximum: not one hole in the rail per row but one every other pixel.
-    assert all(row["width"] == "3px" for row in rows), rows
-    assert all(row["style"] == "solid" for row in rows), rows
+    #
+    # Each of the five below names the property it read and prints only the rows that failed
+    # it. They used to print `rows`: six dictionaries of the sixteen keys `DOCKET_EDGES`
+    # returns, none of which says which key the assertion had been about — and all five fire
+    # on the same subject, a rail that is not drawn, so a dump is the one thing that cannot
+    # tell them apart. Worth the five lines because of what one of them is holding: putting
+    # `opacity-15` on the rail's span in `docket.tsx` erases the verdict column on screen,
+    # was applied and run, and is caught here and by nothing else in the repository — not by
+    # `test_a_rail_states_the_verdict_of_its_own_row`, which reads a border colour that
+    # `opacity` does not touch, and not by the vitest suite, where a class is a string and
+    # nothing computes an opacity at all.
+    def _every(name: str, holds, said: str) -> None:  # type: ignore[no-untyped-def]
+        broken = [row for row in rows if not holds(row)]
+        assert not broken, (
+            f"{said}: {[row[name] for row in broken]} on {len(broken)} of {len(rows)} rails"
+        )
+
+    _every("width", lambda row: row["width"] == "3px", "a rail is not three pixels wide")
+    _every("style", lambda row: row["style"] == "solid", "a rail is not a solid stroke")
 
     # And it is painted. These three say nothing about the box, which is the reason they are
     # here: every other claim in this function reads a border colour or a bounding rectangle,
@@ -316,9 +595,9 @@ def sweep_the_verdict_edges(lists: list[list[dict]]) -> int:
     # `<ul>` is `bg-surface`, which is opaque, so a rail given a stacking order behind it is
     # as gone as one at zero opacity. `auto` or `0` are the two spellings of "wherever the
     # document put it", which is where this belongs; anything negative is behind the ground.
-    assert all(row["opacity"] == "1" for row in rows), rows
-    assert all(row["visibility"] == "visible" for row in rows), rows
-    assert all(row["depth"] in {"auto", "0"} for row in rows), rows
+    _every("opacity", lambda row: row["opacity"] == "1", "a rail is faded out")
+    _every("visibility", lambda row: row["visibility"] == "visible", "a rail is hidden")
+    _every("depth", lambda row: row["depth"] in {"auto", "0"}, "a rail is behind the ground")
 
     # Every edge is exactly its row's height and starts exactly at its row's left edge.
     #
@@ -443,7 +722,9 @@ def test_the_verdict_edge_is_cut_only_by_the_row_rule(page, review_url: str) -> 
     pixels of an opaque verdict hue on one, the dimmest of them `--cleared`, which is
     `--ink-3`. Nothing else about the panel is coloured. Where consecutive verdicts differ the
     column visibly breaks into per-row segments, which is exactly where the difference is
-    worth seeing.
+    worth seeing — and that half is measured by `test_a_rail_states_the_verdict_of_its_own_row`
+    above, on a docket dealt two coloured verdicts, rather than here. Everything below is a
+    box and a gap, and holds whatever the rows are coloured.
 
     Three claims, and they fail in different directions, which is why there are three.
 

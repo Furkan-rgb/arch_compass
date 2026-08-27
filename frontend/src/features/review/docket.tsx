@@ -551,6 +551,15 @@ function DocketRow({
           verdicts differ the column visibly breaks into per-row segments, which is the only
           place that difference is worth seeing.
 
+          That last sentence was written from the design and went a long time without a run
+          behind it. Offline — which is every browser check — the judge holds or clears on one
+          question asked about the review's *case* rather than about a candidate
+          (`reasoning/adapters/deterministic.py:105`), so all six candidates come back with
+          one verdict and no run had ever drawn two hues in one column.
+          `test_a_rail_states_the_verdict_of_its_own_row` in `tests/browser/` deals three
+          verdicts across one docket and measures the boundary; it says in its own docstring
+          what dealing them costs.
+
           A positioned span rather than the article's own `border-l` for a reason that
           outlived the inset: an open row's argument and decision bar are inside this article,
           and a border would take the row's padding with it. The class is still `TONE_EDGE`
@@ -558,6 +567,13 @@ function DocketRow({
           gets is `descriptor.tone`, decided by the one verdict table in `lib/format` and
           never picked here. The span is 3px wide and its left border is 3px, so the border is
           the whole of it.
+
+          Which hue a verdict gets was nobody's claim until that test. `TONE_EDGE.held`
+          retyped as `border-l-material` paints every held candidate in the accent and the
+          whole repository stayed green, because `ui/verdict-hues.test.ts` asked only *where*
+          the three hues may be named. It asks what each is paired with now, and the browser
+          test asks the rest: that this row, on screen, is painted the colour its own verdict
+          names.
 
           Both halves — continuous down a run, never touching across a boundary — are held by
           `test_the_verdict_edge_is_cut_only_by_the_row_rule` in `tests/browser/`. They are

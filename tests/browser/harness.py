@@ -153,7 +153,11 @@ def run_review(browser, workspace_url: str) -> str:  # type: ignore[no-untyped-d
 # Getting to a state, without depending on what it is called
 #
 # The frontend is under active redesign, so everything below finds things by role, by
-# landmark, or by a data attribute the application itself navigates with. Where a word is
+# landmark, or by a data attribute carrying an identity the application itself works in —
+# `data-candidate`, which holds `finding.candidate.id`. That used to read "a data attribute
+# the application itself navigates with", which is the third place on this branch to have
+# said so and is not true of any attribute here; `open_first_candidate` below has the
+# measurement. Where a word is
 # unavoidable it is one of the product's own nouns from the charter ("queue", "judgement
 # context"), matched case-insensitively as a substring so a rewording around it still
 # matches. Nothing here asserts on copy; these are directions, not claims.
@@ -220,9 +224,18 @@ def show_everything(page) -> None:  # type: ignore[no-untyped-def]
 def open_first_candidate(page) -> None:  # type: ignore[no-untyped-def]
     """Open the first row of the docket, which expands the assessment under it.
 
-    `[data-candidate]` is the hook the docket's own `j`/`k` navigation reads, so it is
-    load-bearing application code rather than a test seam, and it survives a redesign of
-    everything visible about the row.
+    `[data-candidate]` is the row's stated identity, and this used to claim more than that:
+    that the docket's own `j`/`k` navigation reads it, so it was load-bearing application
+    code rather than a test seam. It is not. `docket.tsx:671` writes the attribute onto the
+    row's button and no non-test line in `frontend/src` mentions it anywhere else; the walk
+    steps through `visible.map((finding) => finding.candidate.id)` in React state
+    (`docket.tsx:1468`). A false reason for a good choice is worse than no reason, because
+    the next helper written beside it inherits the reason and not the check.
+
+    The choice is still right, on the claim that survives measuring. What the attribute holds
+    is `finding.candidate.id` — the identity the walk steps through, and the key every
+    decision is filed under — put there by the row itself. That is why it survives a redesign
+    of everything visible about the row, which a name, a position or a shape does not.
     """
 
     rows = page.locator("[data-candidate]")

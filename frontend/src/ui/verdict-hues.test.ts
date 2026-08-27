@@ -2,6 +2,9 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { VERDICT_ORDER, verdictOf } from "../lib/format";
+import { TONE_EDGE, TONE_TEXT } from "./meta";
+
 /**
  * Red, amber and green mean one thing here, and it is not "nice box".
  *
@@ -83,5 +86,43 @@ describe("the verdict palette", () => {
     // beside it would look just as load-bearing.
     const present = new Set(sourceFiles(join(__dirname, "..")));
     expect([...ALLOWED.keys()].filter((file) => !present.has(file))).toEqual([]);
+  });
+});
+
+/**
+ * And which of the three a verdict gets, which nothing was holding.
+ *
+ * The test above asks *where* the three hues may be named. It never asks what any of them is
+ * paired with, and the difference is the whole of this defect: `TONE_EDGE.held` was retyped
+ * as `border-l-material` — repainting every held row in the docket in the accent red, which
+ * is the product's central judgement stated wrongly in the register a column is read in
+ * first — and every gate in the repository stayed green.
+ *
+ * Two tables have to agree for a row to be right, and either can be edited alone.
+ * `lib/format`'s `VERDICTS` maps a wire verdict to a tone; `TONE_EDGE` and `TONE_TEXT` above
+ * map that tone to a class. So the claim is made across both, as the composition the docket
+ * actually performs.
+ *
+ * Written as `border-l-${verdict}` rather than as a second copy of the table on purpose. A
+ * test that listed the five classes and checked they all appeared would pass a *swap* of two
+ * entries, where every class is still used and only the pairing is wrong; deriving the
+ * expected class from the verdict's own name fails that, fails the mutation above, and fails
+ * a `VERDICTS` entry pointed at the wrong tone. All three were run. Only the three verdict
+ * tones are claimed here — `neutral` and `marked` are not verdicts, and nothing names them.
+ *
+ * What this cannot see is everything downstream of the class. jsdom applies no stylesheet, so
+ * `border-l-held` here is a string and not a colour, and this file cannot tell whether the
+ * docket reaches for these tables at all. Both are on screen, and
+ * `test_a_rail_states_the_verdict_of_its_own_row` in `tests/browser/test_workspace.py`
+ * measures them in Chromium against a docket dealt three different verdicts.
+ */
+describe("a verdict's hue", () => {
+  it("is the one named after that verdict", () => {
+    expect(VERDICT_ORDER.map((verdict) => TONE_EDGE[verdictOf(verdict).tone])).toEqual(
+      VERDICT_ORDER.map((verdict) => `border-l-${verdict}`),
+    );
+    expect(VERDICT_ORDER.map((verdict) => TONE_TEXT[verdictOf(verdict).tone])).toEqual(
+      VERDICT_ORDER.map((verdict) => `text-${verdict}`),
+    );
   });
 });

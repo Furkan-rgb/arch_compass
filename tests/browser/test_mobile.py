@@ -15,8 +15,14 @@ Two checks, both of which name what broke rather than that something did:
 * **Every row is a target.** 44px in the smaller dimension, which is the charter's fifth
   principle and the size of the part of a thumb that lands where it was aimed.
 
-Both are written against roles, landmarks and the data attributes the application itself
-navigates with, because the copy on these pages is being rewritten while this is written.
+Both are written against roles, landmarks and `data-candidate`, because the copy on these
+pages is being rewritten while this is written. That attribute is not read by the
+application — `docket.tsx:671` is the only line outside a test that names it, and it writes
+it; the keyboard walk steps through `finding.candidate.id` in React state. What makes it a
+sound anchor is what it holds rather than who reads it: the candidate identity the walk
+steps through and the key a decision is filed under, written by the row itself, so it
+survives a redesign of the row. The older wording here claimed the application navigated by
+the attribute, which was measured false.
 Where a word appears it is one of the product's own nouns and it is matched as a
 case-insensitive substring.
 """
