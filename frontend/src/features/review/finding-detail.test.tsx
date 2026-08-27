@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -697,7 +697,63 @@ describe("the Judged band", () => {
     // because the sentence that used to open the rail is now above the whole grid.
     const first = rail.firstElementChild!;
     expect(first.className).toContain("mt-0");
-    expect(within(band).getByText(/Judged against case revision/)).toBe(first);
+    expect(within(band).getByText(/Judged on case revision/)).toBe(first);
+  });
+
+  /**
+   * One answer total on the surface, counting what it says it counts.
+   *
+   * `case.answers` holds skipped questions beside answered ones, so the provenance line used
+   * to count a skip as an answer — and the hinge footnote five lines below it ran the filter
+   * and printed the other number. A reader on a round they had answered once and skipped
+   * twice read "3 answers" above "1 answer recorded so far", about one case.
+   *
+   * The skip is still said, because it happened: the question was put and declined, and the
+   * case revision carries that. What is gone is the second total.
+   */
+  const withAnswers = (statuses: string[]) => {
+    const review = reviewFixture();
+    review.case.answers = statuses.map((status, index) => ({
+      // An answer carries the whole question it replies to, so the review's own question is
+      // the honest thing to reply to — an invented one would answer nothing on this record.
+      question: { ...review.questions[0], id: `question-${index + 1}` },
+      status,
+      value: status === "answered" ? "Because the gateway owns it." : null,
+      actor: "reviewer",
+      answered_at: "2026-01-02T00:00:00Z",
+    }));
+    return review;
+  };
+
+  it("counts what the judgement was given, and calls a skip a skip", () => {
+    const cases: [string[], string][] = [
+      [[], "Judged on case revision 1, before any answer."],
+      [["answered"], "Judged on case revision 1, with 1 answer."],
+      [["answered", "answered"], "Judged on case revision 1, with 2 answers."],
+      [
+        ["answered", "skipped", "answered"],
+        "Judged on case revision 1, with 2 answers and 1 skipped.",
+      ],
+      [
+        ["skipped", "skipped"],
+        "Judged on case revision 1, with 2 questions skipped and no answer.",
+      ],
+    ];
+    for (const [statuses, sentence] of cases) {
+      const review = withAnswers(statuses);
+      const { band } = draw(held(review), review);
+      expect(within(band).getByText(sentence), statuses.join("+")).toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it("says the answer total once, not again under the hinge", () => {
+    const review = withAnswers(["answered", "skipped", "answered"]);
+    const { body } = draw(held(review), review);
+    // The hinge keeps its sentence about what answering does. What it no longer keeps is a
+    // second count of the same case, which was the one a reader had to reconcile.
+    expect(within(body).queryByText(/recorded so far/)).not.toBeInTheDocument();
+    expect(within(body).getAllByText(/\d+ answers?\b/)).toHaveLength(1);
   });
 
   /**

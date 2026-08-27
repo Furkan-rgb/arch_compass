@@ -85,16 +85,16 @@ function policiesSummary(finding: Finding, retrieval?: RetrievalProvenance): str
   const bore = finding.policies.length;
   if (!retrieval) {
     return bore
-      ? `${plural(bore, "policy", "policies")} bore on this · no retrieval recorded`
+      ? `${plural(bore, "policy", "policies")} applied · search not recorded`
       : "No retrieval was recorded for this candidate";
   }
   const retrieved = retrieval.selected_policy_ids.length;
-  if (bore) return `${plural(bore, "policy", "policies")} bore on this · ${retrieved} retrieved`;
+  if (bore) return `${bore} of ${retrieved} policies applied`;
   if (retrieval.corpus_fingerprint === EMPTY_CORPUS) {
     return "No policy corpus was configured · nothing was searched";
   }
   if (!retrieved) return "The corpus was searched · nothing came back above the threshold";
-  return `0 of ${retrieved} retrieved policies bore on this judgement`;
+  return `0 of ${retrieved} policies applied`;
 }
 
 /**
@@ -181,7 +181,7 @@ function BlockLabel({ children, className }: { children: ReactNode; className?: 
 /**
  * A policy, as the way to read it.
  *
- * A finding says which policies bore on it and prints the id it cites them under, and until
+ * A finding says which policies applied to it and prints the id it cites them under, and until
  * now that id was plain mono: a reader asking why a candidate was called material could see
  * the title and the model's reasoning about it, and had no way to the policy's own words
  * short of going to Policies and searching the title by hand. The charter's fourth decision
@@ -350,6 +350,30 @@ function Disclosure({
  * The re-judgement scope is the backend's, not a guess: `select_rejudgements_node` returns
  * every candidate, because an answer is about intent and intent bears on all of them.
  */
+/**
+ * What the judgement had from the reader, which is not how many questions were put to them.
+ *
+ * `case.answers` carries skipped questions beside answered ones — `AnswerStatus` is
+ * `answered` or `skipped` — so counting the array called every skip an answer. A round where
+ * somebody answered one of three and skipped the rest printed "3 answers" here, four lines
+ * above a line counting the same case at 1. Two numbers under one word, and the overstated
+ * one was the provenance line, which is the one a reader trusts.
+ *
+ * A skip is not silence either. The question was put, the reader declined it, and the case
+ * revision advanced carrying that. So both are said, and the reader can see which is which.
+ */
+function judgedAgainst(review: Review): string {
+  const answered = review.case.answers.filter(
+    (answer) => answer.status === "answered",
+  ).length;
+  const skipped = review.case.answers.length - answered;
+  const revision = `Judged on case revision ${review.case.revision}`;
+  if (!answered && !skipped) return `${revision}, before any answer.`;
+  if (!answered) return `${revision}, with ${plural(skipped, "question")} skipped and no answer.`;
+  if (!skipped) return `${revision}, with ${plural(answered, "answer")}.`;
+  return `${revision}, with ${plural(answered, "answer")} and ${skipped} skipped.`;
+}
+
 function hingeFootnote(review: Review, asked: boolean): string {
   if (review.status === "cancelled") {
     return asked
@@ -445,7 +469,6 @@ export function FindingBody({
   const investigation = review.investigation_manifest.find(
     (entry) => entry.candidate_id === finding.candidate.id,
   );
-  const answered = review.case.answers.filter((answer) => answer.status === "answered");
   const firstLocation = finding.evidence.find((item) => item.location)?.location;
   // How many distinct files the excerpts come from, which is what the Evidence header can say
   // that the cards under it cannot — each of those carries its own location.
@@ -649,10 +672,7 @@ export function FindingBody({
                 replaces `Footnote`'s own `mt-3` rather than fighting it. What stood above it
                 was the verdict's description, which has gone to the head of the band — the
                 comment arguing for that move went with it. */}
-            <Footnote className="mt-0">
-              Judged against case revision {review.case.revision} and{" "}
-              {plural(review.case.answers.length, "answer")}.
-            </Footnote>
+            <Footnote className="mt-0">{judgedAgainst(review)}</Footnote>
 
             {finding.hinge ? (
               <div className="mt-5">
@@ -662,8 +682,8 @@ export function FindingBody({
                     tones — `#fafafa` against `#ebebeb` on a white row, with both call sites
                     then overriding the text to full ink and cancelling the only other thing
                     the tones carried. Fifteen values of grey and a border alpha is not enough
-                    to tell *the reason this finding is held* from *a suggestion the product
-                    explicitly disclaims*. So the hinge keeps the box, and the recommendation
+                    to tell *the reason this finding is held* from *a course of action
+                    nobody has taken yet*. So the hinge keeps the box, and the recommendation
                     is prose under its label.
 
                     `max-w-[30rem]`, which `Notice` itself has none of. Inside the rail it is
@@ -786,22 +806,21 @@ export function FindingBody({
                     </Button>
                   ) : null}
                 </Notice>
-                <Footnote>
-                  {hingeFootnote(review, Boolean(openQuestion))}{" "}
-                  {plural(answered.length, "answer")} recorded so far.
-                </Footnote>
+                {/* No count after this sentence. It used to end "N answers recorded so
+                    far", off a filter this file ran itself, which put a second answer total
+                    five lines under the provenance line above — and `clarifications-surface`
+                    exists because a bare count is the weaker half of what a reader wants
+                    anyway. The Rounds surface has the answers themselves. */}
+                <Footnote>{hingeFootnote(review, Boolean(openQuestion))}</Footnote>
               </div>
             ) : null}
 
             {finding.recommended_response ? (
               <div className="mt-5">
-                <BlockLabel>Recommended response</BlockLabel>
+                <BlockLabel>Recommendation</BlockLabel>
                 <p className="mt-1.5 max-w-[46ch] text-[14px] leading-relaxed text-ink wrap-anywhere">
                   <Prose>{finding.recommended_response}</Prose>
                 </p>
-                <Footnote>
-                  A recommendation, not a change. ArchCompass does not write the fix.
-                </Footnote>
               </div>
             ) : null}
           </div>
@@ -1051,13 +1070,81 @@ export function FindingBody({
               So the cap is the note's measure plus the card: 46 characters at the 13px the
               note is now set in is 397.67px, and 397.67 + 30 is 427.67, rounded to a
               quarter-rem the way `ui/markdown.tsx` rounds its own. The note then draws at
-              **398.00px** and stops within a third of a pixel of the "No policy bore on this
-              judgement" paragraph below, which is this list's own empty state at
+              **398.00px** and stops within a third of a pixel of the "No policy applied here"
+              paragraph below, which is this list's own empty state at
               `max-w-[46ch] text-[13px]` — the two answers to one question, ending in one
               place. That `ui/markdown.tsx` arrives at the same 26.75rem from 46ch at 14px on
               the block itself is a coincidence of two derivations, not a shared constant, and
-              the two must not be made into one. */
-          <ul className="grid max-w-[26.75rem] gap-2">
+              the two must not be made into one.
+
+              **That number is now the width of a column rather than the width of the list**,
+              and it is the same number for the same reason. It was written as `max-w` on the
+              `ul`, which caps the card only for as long as there is one card to a row — and
+              there is a great deal of row. The docket runs in a `max-w-[76rem]` column, so this
+              fold body measures **1,126px at a 1280px viewport and at every width above it**,
+              which is the same 1126 this file already argues from twice. Two policies therefore
+              spent two rows and 428px of 1,126, and left 62% of the fold empty, while each note
+              read at exactly the measure derived above.
+              `repeat(auto-fill,minmax(0,26.75rem))` moves the cap on to the track, which is
+              what the paragraph above says it should have been on all along — the cap belongs
+              to the card, and a measure is a property of the text inside it. Each card is at
+              most 428px, the note inside it still draws at **398.00px**, and the browser test
+              named below measures both rather than trusting this sentence.
+
+              **Intrinsic sizing rather than a container query or a breakpoint**, and the choice
+              is available rather than clever. Tailwind is 4.3.3, so `@container` is in core and
+              nothing in `frontend/src` uses it yet; a viewport breakpoint would be the wrong
+              question outright, because this fold sits inside a docket row inside a panel and
+              the panel is not the viewport. But `auto-fill` already answers the right question
+              and answers it continuously: the repetition count is computed from the grid's own
+              resolved inline size, so it needs no `@container` wrapper, no `container-type`
+              containment on a shared `Disclosure` body, and no width written down twice. A
+              second column needs 864px of fold — two tracks and the 8px gap — which the fold
+              has from a 1024px viewport (934px of body) and has not at 768 (678px). Below 436px
+              the formula gives no column at all and `auto-fill` floors it at one; the single
+              track then shrinks to the space there is and the card fills the column exactly as
+              it did before, so at 390px the fold is 324px, the card is 324px and the note is
+              294px, all three unchanged by this edit.
+
+              **How many columns actually get used is settled by the store, not by the grid.**
+              Over the 148 findings in `core_review_snapshots`, 69 carry one policy (46.6%) and
+              79 carry two (53.4%); none carries none and none carries three. Widen to all 379
+              stored findings — those 148 plus the 231 in `core_finding_cache` — and the shape
+              holds: 33 with none, 178 with one, 163 with two, and **5 with three, which is the
+              most any of them has ever held**. Two columns is therefore the whole of the case,
+              and it is also all the fold has room for: `floor((1126 + 8) / 436)` is 2, so no
+              width this docket reaches offers a third track. That is the answer to the question
+              a hand-written `grid-cols-3` would have got wrong from both ends — it would leave
+              a third of its row empty on the 53% that carry two, and it would not fit. One
+              policy draws exactly what it drew before, and the 5 findings with three draw two
+              and then one.
+
+              **Natural height, not equal height**, which is the one place a card grid usually
+              goes the other way. A grid item stretches by default and `items-start` is what
+              stops it. Two things decide it here. The card has nothing at its bottom edge — no
+              action, no footer, no figure — so an equalised bottom hairline would be aligning
+              nothing against nothing. And the notes are genuinely unequal: over the 168 stored
+              findings holding more than one policy the two notes differ by 43 characters at the
+              median and 70.6 at the mean, but 10 of them differ by more than 200 and the worst
+              real pair is **1,080 characters against 340**. Drawn side by side at this measure
+              those are a 504.00px card and a 195.50px one, so stretching would hand the short
+              one **308.50px** of nothing — and because the fold body is `--surface-2` and the
+              card has no fill of its own, that emptiness is the same colour on both sides of
+              the rule it is enclosed by. It reads as a box drawn too big rather than as a card.
+              A ragged lower edge on two bordered columns is the cheaper failure, and at the
+              median difference of 43 characters it is under one line of it.
+
+              The `Footnote` under the list keeps its own `max-w-[46ch]`, which is 367.08px at
+              its 12px, and it stays at the fold's left edge under the first column. It is the
+              caption for the whole fold rather than for a card, and letting a 12px line run the
+              864px two columns occupy would be 40% past **617.12px**, which is where the model's
+              own paragraph stops and is the widest reading measure in the product.
+              `features/review/finding-detail.test.tsx` holds that 367.08 as one of the four
+              widths this surface is allowed to resolve a `46ch` to, so it is not free to move.
+
+              Geometry, so jsdom can see none of it:
+              `tests/browser/test_policies_grid.py` is what fails when this stops being true. */
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(0,26.75rem))] items-start gap-2">
             {/* A hairline card with no fill, for the reason `EvidenceBlock` has none: the
                 fold body it sits in is `--surface-2`, and `--surface` is above it in light
                 and below it in dark, so the same card read as raised in one theme and as a
@@ -1111,14 +1198,14 @@ export function FindingBody({
           </ul>
         ) : (
           <p className="max-w-[46ch] text-[13px] leading-6 text-ink-2">
-            No policy bore on this judgement. The model was given the case, the measurements and
+            No policy applied here. The model was given the case, the measurements and
             the evidence, and reached the verdict without a policy to weigh it against.
           </p>
         )}
         {retrieval ? (
           <Footnote>
-            {retrieval.selected_policy_ids.length} retrieved for this candidate by{" "}
-            {retrieval.retriever}; {finding.policies.length} bore on the judgement.
+            {retrieval.retriever} found {retrieval.selected_policy_ids.length} policies for
+            this candidate. {finding.policies.length} applied.
           </Footnote>
         ) : (
           <Footnote>No retrieval was recorded against this candidate.</Footnote>
