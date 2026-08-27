@@ -4,7 +4,7 @@ import { api, type Review } from "../../api";
 import { Button, ExternalButtonLink } from "../../ui/button";
 import { Markdown, headingSlug } from "../../ui/markdown";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
-import { Prose } from "../../ui/prose";
+import { ModelProse } from "../../ui/prose";
 import { EmptyState, ErrorNotice, LoadingPanel } from "../../ui/states";
 import { Attribution } from "./finding-detail";
 
@@ -175,15 +175,33 @@ export function ReportSurface({ review }: { review: Review }) {
               the file disagreeing about what the paragraph is. The identity beside it is the
               attribution, which is the half that was missing. */}
           <Attribution voice="In summary" by={review.synopsis_identity || undefined} />
-          {/* Through `Prose`, because the prompt behind this paragraph orders backticks: it
-              tells the model to name a candidate "by the identifier you were given, in
-              backticks". Every synopsis on record complies, so this is the one surface where
-              a raw delimiter was guaranteed rather than incidental. `Prose` returns nodes and
-              not a paragraph, so the measure, the leading and the preserved line breaks below
-              are unchanged by it. */}
-          <p className="mt-2.5 max-w-[46ch] whitespace-pre-line text-[16px] leading-[1.65] text-ink wrap-anywhere">
-            <Prose>{summary}</Prose>
-          </p>
+          {/* Through `ModelProse`, which is the whole of the "set the way every other
+              model-authored paragraph is set" claim the comment above makes — and which this
+              block was not honouring while it made it. It was `46ch` against the finding's
+              `58ch` and a conversation answer's `62ch`, and it was the only one of the three
+              with no sentence split at all: a synopsis is the same 500-character unbroken
+              paragraph a judgement is, and it ran as one block at the narrowest measure of the
+              three. `ModelProse` carries the backtick rendering too, which this surface needs
+              more than the others — the prompt behind this paragraph orders the model to name
+              a candidate "by the identifier you were given, in backticks", so a raw delimiter
+              here was guaranteed rather than incidental.
+
+              `stripSummary` above already knows this text can hold a blank line. That is the
+              same fact `whitespace-pre-line` inside `ModelProse` renders, and it is why that
+              class is not a guard on any of the three.
+
+              This block is 617px wide and the document below it is 428px, and that gap is not
+              a defect to close. It used to be 61px, which is the bad number: two columns that
+              nearly agree read as one column that failed to line up. 189px reads as what it is
+              — a lede at the model's reading size, then a document at body size — and the two
+              are not adjacent anyway: the sections strip below is a full-width band on
+              `--surface-2`, and a region boundary is exactly what stops two measures being
+              compared. Making them equal would cost one of them: 617px at the document's 14px
+              is 78 characters a line, and 428px at the model's 16px is under the 543px a
+              qualified name needs. The misalignment on this page that *was* worth closing was
+              inside the document — one `46ch` set at four font sizes is four widths — and it
+              is closed in `ui/markdown.tsx`. */}
+          <ModelProse className="mt-2.5">{summary}</ModelProse>
         </div>
       ) : null}
       {sections.length > 1 ? (

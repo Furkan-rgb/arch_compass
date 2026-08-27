@@ -12,7 +12,7 @@ import { EvidenceBlock } from "../../ui/code";
 import { ArrowRight, ChevronDown } from "../../ui/icons";
 import { MetaList, MetaRow, Mono, PathRef } from "../../ui/meta";
 import { Label } from "../../ui/panel";
-import { Prose } from "../../ui/prose";
+import { ModelProse, Prose } from "../../ui/prose";
 import { Notice } from "../../ui/states";
 
 /**
@@ -105,6 +105,42 @@ function policiesSummary(finding: Finding, retrieval?: RetrievalProvenance): str
  * 650px at the reading size and admitted 89 lowercase characters, forty per cent more than
  * the number implied. The unit is kept, because it keeps the measure proportional to the size
  * the block is set at; the number is corrected to the 30em a measure actually is.
+ *
+ * It is the supporting measure now, and no longer the only one. The model's argument left
+ * `46ch` for `58ch`, because that same proportionality cuts the other way at the reading
+ * size: `ch` scales with the type, so an equal `ch` on a 16px paragraph and on this 12px
+ * footnote gives them the same *character count* at two different widths — and the block set
+ * largest then held the fewest words on the surface. The count, counted in a browser over the
+ * recorded corpus rather than assumed, is **59**: 46ch is 367.08px here, and on that measure a
+ * line that is not the last of its block carries 59.0 characters. Fifty-nine is a footnote's
+ * line and **75.7** is an argument's, which is the `58ch` next door — measured the same way, and
+ * the two are stated in one quantity on purpose, because the whole subject of this comment is a
+ * pair of numbers that meant different things while wearing the same words. A footnote is a
+ * line under a block and wants the shorter measure; an argument is read and wants the longer.
+ *
+ * "The same way" is now a method rather than a promise, because this pair has been re-measured
+ * four times and moved three: serve the built bundle, render all 375 recorded strings through
+ * the real `ModelProse` with its quoted names drawn as chips, cluster a Range per character on
+ * the vertical centre of its box, and average the lines that are not the last of their block.
+ * The 59 has held every time. The 73 beside it was the same sweep taken over the *string* rather
+ * than over the render, which loses the width a mono chip adds; it is 75.7.
+ *
+ * The half of that method nobody wrote down, and the half that decides the last digit of both
+ * numbers: a soft wrap eats a space that is drawn on no line, and it is counted here as
+ * belonging to **the line it ended**, so a line holds the source from its own first visible
+ * character up to the next line's first. `docs/design-system.md` states the choice and the
+ * reason. Counted as the visible run instead, first ink to last, this pair is 58.1 and 74.7 —
+ * both perfectly defensible numbers, and not these ones. That is the whole reason this comment
+ * has moved three times.
+ *
+ * 46ch here is 367.08px because a footnote inherits weight 400. It is not 395.76px, which is
+ * what the same 46ch resolves to twenty lines up on the 13px `font-semibold` lede, since Onest's
+ * zero is 665 units on a 1000-unit em at 400 and 661.8 at 600.
+ *
+ * The number is spelled out because this comment's own subject is a number in a comment that
+ * drifted. The one it replaces said "sixty", which is what `ch` is worth if you take it as
+ * half an em — the same assumption that put `62ch` on three surfaces believing it was 62
+ * characters when it was 89, and the assumption this paragraph exists to correct.
  */
 function Footnote({ children, className }: { children: ReactNode; className?: string }) {
   return <p className={cn("mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-3", className)}>{children}</p>;
@@ -350,13 +386,21 @@ function hingeFootnote(review: Review, asked: boolean): string {
  * would be answering a question already answered.
  *
  * It is laid out by how much room each part actually needs, which is not the same as how
- * important each part is. The model's argument is two or three sentences and caps at `46ch`,
- * so it takes the full width and stops; the evidence is source code, which needs every pixel
- * it can get. A first attempt put the argument in a `1fr` column beside a `24rem` one holding
- * everything the machine produced, and got both wrong at once: seven hundred pixels of empty
- * left column padded out to match its neighbour, and `class Clock(Protocol):` clipped in a
- * gutter. So the argument is a band across the top, and under it the readings take a narrow
- * column beside the excerpts, which take the rest.
+ * important each part is. The evidence is source code, which needs every pixel it can get. A
+ * first attempt put the argument in a `1fr` column beside a `24rem` one holding everything
+ * the machine produced, and got both wrong at once: seven hundred pixels of empty left column
+ * padded out to match its neighbour, and `class Clock(Protocol):` clipped in a gutter. So the
+ * argument is a band across the top, and under it the readings take a narrow column beside
+ * the excerpts, which take the rest.
+ *
+ * The band across the top used to be one paragraph capped at `46ch` — "it takes the full
+ * width and stops", this comment said, and it did neither: 489px of text in a 1126px row left
+ * 57% of the band empty beside the one paragraph the product exists to show. It is now what
+ * the verdict means, then the argument at `58ch` beside a rail carrying what the judgement was
+ * weighed against and the single thing the finding asks of you. The verdict's own sentence
+ * leads the band at every width rather than sitting in the rail, because below `lg` the rail
+ * stacks under the argument and an introduction arriving 1,853px after the thing it
+ * introduces is not one.
  */
 export function FindingBody({
   review,
@@ -405,48 +449,191 @@ export function FindingBody({
 
   return (
     <div>
-      {/* ── The argument, across the top ─────────────────────────────────────── */}
+      {/* ── The argument, beside what the judgement asks of you ───────────────── */}
       <section className="min-w-0 px-4 py-4 sm:px-5">
         <Attribution
           voice="Judged"
           by={`${finding.model_identity} · ${retrievalLabel(finding, retrieval)}`}
         />
-        {/* The only thing on the surface set at the reading size. The model's output is an
-            argument a reader is meant to weigh and disagree with, and it says so by being
-            the longest measure and the largest body text here.
+        {/* `mt-2.5` is the gap under a 10px attribution label, and `gap-y-3.5` is the gap
+            between the two paragraphs now inside this grid — the verdict's sentence and the
+            argument under it. Those were `mt-2.5` on the sentence and `mt-3.5` on the grid when
+            the sentence stood outside it, so the same two distances are drawn; only what
+            declares them moved.
 
-            `wrap-anywhere` because the model writes about code: a 34-character qualified
-            name inside a paragraph is wider than a 320px phone.
+            **All three children are placed explicitly, and that is the repair rather than a
+            tidy-up.** The verdict's sentence takes column one row one, the argument column one
+            row two, the rail column two row two. Auto-placement would put the argument in the
+            rail's column, so the placement is not optional — but *which* cell each one takes is
+            the point. The sentence is inside the argument's own track, so no width it declares
+            can take it past the argument's right edge at any viewport. It used to sit above the
+            whole grid with a `38.5rem` cap standing in for that edge, and two numbers agreeing
+            is not the same as one number: 38.5rem is 616px and the argument's column is
+            `1fr` — 582px at a 1024px viewport, 600px at 1040, and only from about 1060 up is it
+            wide enough for the cap to be the narrower of the two. Measured at 1024 the sentence
+            was capped 34.00px past the argument it stands over. Latent, because the three
+            descriptions in `lib/format` are 51, 60 and 60 characters and none of them reaches
+            580px — which means the guarantee was being held by the length of three strings.
 
-            And `Prose`, for the same reason: a model writing about code quotes an identifier
-            in backticks, and about one reasoning string in eight arrives with a span in it.
-            Rendered as raw text those delimiters were on screen, at the one size on this
-            surface a reader is asked to read rather than scan. `Prose` returns nodes rather
-            than a block, so every measurement above still belongs to this paragraph. */}
-        <p className="mt-2.5 max-w-[46ch] whitespace-pre-line text-[16px] leading-[1.65] text-ink wrap-anywhere">
-          <Prose>{finding.reasoning}</Prose>
-        </p>
-        <Footnote>
-          {descriptor.description} Judged against case revision {review.case.revision} and{" "}
-          {plural(review.case.answers.length, "answer")}.
-        </Footnote>
+            The rail keeps row two, so its first line still sits on the argument's first line
+            and nothing about the band's appearance moves. `mt-1.5` and `lg:mt-0` on it are the
+            same arithmetic: stacked below `lg` the rail wants the 20px it always had, which is
+            the 14px row gap plus six.
 
-        {/* What the judgement is waiting on and what it suggests: two short blocks that
-            never both fill a row, so they share one wherever there is room for two — and
-            only then. The split used to be unconditional, so a finding with a hinge and no
-            recommendation confined the one thing standing between the reader and six settled
-            candidates to 47% of the row and ran 490px of empty panel down the right of it.
-            The finding is allowed to change width halfway down; it is not allowed to change
-            width for a block that is not there. */}
-        {finding.hinge || finding.recommended_response ? (
-          <div
-            className={cn(
-              "mt-4 grid gap-4",
-              finding.hinge && finding.recommended_response && "lg:grid-cols-2",
-            )}
+            The band is two columns, and what fills the rail is now one line thinner than when
+            the column was argued for. Every finding still has a case footnote, so the rail is
+            never literally empty; a held one adds the question it is waiting on and the button
+            that answers it, and a material one adds what it suggests. But the verdict's own
+            sentence has gone to the head of the band, so on a *cleared* finding — which carries
+            neither a hinge nor a recommendation — the rail is a single 12px footnote in a 416px
+            column.
+
+            Neither absence comes from `domain/finding.py`, which is where this comment used to
+            send a reader. `Finding.__post_init__` refuses a recommendation on a non-material
+            finding and refuses a hinge *beside* a recommendation, and it takes a cleared finding
+            carrying a hinge alone without a word. The rule is one layer out, at the boundary a
+            model's judgement enters by: `FindingOutput.the_verdict_carries_what_it_is_allowed_to`
+            in `reasoning/adapters/langchain.py` raises on a hinge under any verdict but `held`.
+            306 of the 375 recorded judgements are cleared or material and not one of them
+            carries a hinge; all 69 held ones do.
+
+            `lg:self-start` on the rail is what makes that survivable, and it is the whole of
+            the fix. A grid item stretches down its row by default, so the rail's hairline ran
+            the height of the *argument*: 239px of content at the top of an 1,147px border on
+            the longest recorded reasoning, which is 908px of line with nothing beside it —
+            79% empty at 1440, 78% at 1024. Measured after the lede moved out of the rail, and
+            worse than before it moved, because that took content out of the rail without
+            shortening the band. Aligned to the start the border ends where its content does
+            and the column is 239px of margin note, which is what it always was; the empty
+            space beside a long argument is the margin a long argument has, and a rule drawn
+            through it was the only thing claiming otherwise.
+
+            The mirror of it at the short end is not the same defect and does not get the same
+            treatment. On the 148-character reasoning the *argument* stops after two lines
+            against a 239px rail, which reads as 79% of the left column empty by the same
+            arithmetic — but the band is 239px tall there rather than 1,147px, so the ratio is
+            190px of white beside a footnote and not 908px of hanging line. Ratios do not
+            carry the absolute height, and it is the height that makes the long case a hole.
+
+            The block this replaced reserved a second column only when a hinge and a
+            recommendation both arrived — which is a pairing the domain forbids outright, so
+            the branch had never once executed. `Finding.__post_init__` raises on a finding that
+            hinges and recommends, and raises again on a non-material finding that recommends
+            anything at all — named rather than cited by line, because the two line numbers this
+            sentence carried had both moved by half a file and `docs/frontend-regions.md` refuses
+            line numbers for that reason. The rule that comment stated was right and it was the
+            block itself that was breaking it: while it refused to reserve width for an absent
+            neighbour, the argument beside it left 637px of empty panel down the right of
+            every finding at 1440.
+
+            The rail is on the right, not the left, because the section's own padding is the
+            left edge that the argument, the readings, the evidence and the decision bar all
+            share — see the `sm:px-5` argument in `Disclosure` above. A left rail would have
+            put its hairline in line with the Measured band's, and the price would have been
+            indenting the model's paragraph off the one edge five stacked regions agree on.
+
+            `border-rule` and not `border-rule-strong`: the strong rule is reserved for the
+            edge of something you could pick up, and this is a margin. It stops short of the
+            band's own top hairline, because the grid sits inside the section's `py-4`, and
+            short of the bottom one by however far its content ends above it — which is what
+            keeps it reading as a margin rule rather than as a divider of the kind the
+            Measured band draws below. */}
+        <div className="mt-2.5 grid gap-y-3.5 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)] lg:gap-x-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] xl:gap-x-10">
+          {/* What the verdict means, said before the argument rather than beside it.
+
+              It was in the rail, which reads correctly at 1440 and inverts on a phone: below
+              `lg` the rail stacks under the argument, so on the longest recorded reasoning this
+              sentence arrived 1,853 CSS pixels after the paragraph it exists to introduce —
+              measured, rail top 1461 against argument top -392 at 390 — with the button that
+              unblocks the review behind it. The one product-authored line in the band was read
+              last on the width where the wall is worst: the same string is 38 lines at 1440 and
+              64 at 390.
+
+              First in the DOM rather than reordered into place. The pass before this one refused
+              an `order` class for the same effect and was right to: a rail that paints above the
+              argument and tabs after it is a page whose reading order and keyboard order
+              disagree, which is a cost paid by the readers least able to absorb it.
+              `col-start` and `row-start` are not that class — they place a grid item, they do
+              not renumber the document, and paint order matches document order at every width
+              here. Nothing focusable moves in any case: this sentence is not a tab stop.
+
+              `lg:col-start-1 lg:row-start-1` is what actually holds this line inside the
+              argument's right edge, and the grid comment above says why it had to.
+
+              `max-w-[38.5rem]` is a guard, not a measure, and now a guard against one thing
+              rather than two. The three descriptions in `lib/format` are 51, 60 and 60
+              characters, so at 13px the line is about 390px and wraps only below `sm`. What the
+              cap still buys is the wide end: at 1440 the argument's column is about 700px, and
+              a fourth verdict with a long description would set a 13px line wider than the 16px
+              paragraph under it, which reads as the small text being the important text. What
+              it no longer has to buy is the narrow end, where it was quietly failing — the
+              column does that, at every width, by construction. The `46ch` it replaced was
+              395.76px against a string needing 390 — one character from wrapping a one-line
+              sentence.
+
+              In `rem`, and that is the correction rather than the value. This carried the same
+              `max-w-[58ch]` the argument below it does, which reads as the two sharing a right
+              edge and is not what it means: a `ch` is the advance of the used font's zero, so it
+              follows the element's size *and its weight*. This line is 13px `font-semibold` and
+              the argument is 16px at 400, and Onest's zero is 665 units on a 1000-unit em at
+              wght 400 but 661.8 at wght 600 — so 58 of them is 617.12px there and 499.00px here,
+              a gap of 118.12px. One class, two elements, two widths, twenty lines apart — the
+              exact trap `ui/prose.tsx` spends four paragraphs warning about. Both figures on
+              this line were wrong until the seventh pass, at 398px and 501px, because both were
+              taken at 400 on a block set at 600; `docs/design-system.md` carries the weights and
+              `ui/markdown.test.tsx` recomputes the arithmetic. 38.5rem is 616px whatever this
+              block is set at, and it stays that if somebody changes the size of this line.
+
+              13px semibold is the scale's secondary-body row, and `text-ink-2` keeps it under
+              the 16px argument. It is promoted in size and weight and never in hue, and never to
+              the reading size: this is the product's sentence about a verdict, not the model's
+              voice, and the one thing that marks the model's voice is that 16px is used nowhere
+              else. The docket row above prints `descriptor.label` and never this, so the lede
+              repeats nothing.
+
+              It is also product-authored, which is why it can stand where a promoted first
+              sentence of the model's could not. The longest recorded reasoning opens by saying
+              the abstraction violates a policy, argues with itself twice in the open, and closes
+              on the opposite verdict; a lede taken from the prose would print a claim the
+              paragraph goes on to reverse, in the largest type on the page. */}
+          <p
+            className="max-w-[38.5rem] text-[13px] font-semibold leading-6 text-ink-2 lg:col-start-1 lg:row-start-1"
           >
+            {descriptor.description}
+          </p>
+          {/* The only thing on the surface set at the reading size, and the reason it is one
+              element rather than a class list: the measure, the leading, the sentence gap and
+              the preserved line breaks all moved into `ModelProse`, which is now the only
+              place in the product that sets 16px body.
+
+              They moved because the argument for each of them applied to two other blocks that
+              had never heard it. The review's synopsis on the report surface and a model's
+              answer in a conversation are the same voice on the same terms — `Attribution`'s
+              own doc comment says the first of those is "the same kind of thing" — and the
+              three had reached `58ch`, `46ch` and `62ch` with only this one cut into sentences
+              at all. Three treatments of one paragraph is what the design system's guards
+              exist to prevent, and the fix for it is not a fourth hand-tuned class list.
+
+              What stays here is the choice to render `finding.reasoning` and nothing about how.
+              `ui/design-system.test.ts` fails the build if a second block reaches for the
+              reading size, so this cannot silently grow its own recipe back. */}
+          <ModelProse className="lg:col-start-1 lg:row-start-2">{finding.reasoning}</ModelProse>
+
+          <div
+            className="mt-1.5 min-w-0 lg:col-start-2 lg:row-start-2 lg:mt-0 lg:self-start lg:border-l lg:border-rule lg:pl-5 xl:pl-6"
+          >
+            {/* `mt-0`, because this is the rail's first line now and has to sit on the same
+                baseline as the argument's first line beside it. `cn` is tailwind-merge, so it
+                replaces `Footnote`'s own `mt-3` rather than fighting it. What stood above it
+                was the verdict's description, which has gone to the head of the band — the
+                comment arguing for that move went with it. */}
+            <Footnote className="mt-0">
+              Judged against case revision {review.case.revision} and{" "}
+              {plural(review.case.answers.length, "answer")}.
+            </Footnote>
+
             {finding.hinge ? (
-              <div className="min-w-0">
+              <div className="mt-5">
                 <BlockLabel>Hinges on</BlockLabel>
                 {/* One of the pair is in a box and the other is not, which is a difference a
                     reader sees at a glance. They used to be two boxes drawn from two `Notice`
@@ -454,33 +641,121 @@ export function FindingBody({
                     then overriding the text to full ink and cancelling the only other thing
                     the tones carried. Fifteen values of grey and a border alpha is not enough
                     to tell *the reason this finding is held* from *a suggestion the product
-                    explicitly disclaims*, which sit side by side in the same grid. So the
-                    hinge keeps the box, and the recommendation is prose under its label. */}
-                <Notice tone="working" className="mt-1.5">
+                    explicitly disclaims*. So the hinge keeps the box, and the recommendation
+                    is prose under its label.
+
+                    `max-w-[30rem]`, which `Notice` itself has none of. Inside the rail it is
+                    inert — the column is narrower. It exists for the stacked layout below
+                    `lg`, where this box used to run the full width of the row: 1126px of
+                    border around one 14px sentence, the widest element in the region by a
+                    factor of two and a third, drawn around the smallest text in it. */}
+                <Notice tone="working" className="mt-1.5 max-w-[30rem]">
                   <p id={hingeId} className="text-[14px] leading-relaxed text-ink wrap-anywhere">
                     <Prose>{finding.hinge}</Prose>
                   </p>
                   {waitingOn && onAnswer ? (
-                    /* The one action that unblocks every candidate in a waiting review, so it
-                       is the primary and not a ghost at the weight of "Judgement context" nine
-                       hundred pixels below. Unlike Accept / Park / Waive, which are peers by
-                       design, there is no competing choice here.
+                    /* `link`, and the demotion runs one step further than the last pass took
+                       it — not to a quieter button, but out of the button vocabulary.
+
+                       Two passes argued about the fill on this control and both argued the
+                       wrong axis. It was `primary`, which is `--accent-fill`, and
+                       `docs/design-system.md` names the five jobs the accent is spent on: the
+                       mark, the primary action, `--mark`, a material verdict, a review in
+                       flight. This is none of them. It is not "the primary action" either,
+                       though that is the tempting reading: the one action the screen is asking
+                       for while a review is held is *answer the round*, and that action already
+                       carries the page's primary, once, on the clarification card at the head
+                       of the docket. A primary per held row is one action with N+1 primaries.
+                       The second argument stands as well — `--held` is `#0a0a0a`, "waiting on a
+                       person — full ink, present, not an alarm" — so the alarm hue on the held
+                       verdict's own control puts back exactly the chroma the palette took off
+                       the verdict.
+
+                       What `secondary` then got wrong was the axis. It left five controls in an
+                       open row at one recipe and two of them decide nothing: this one is
+                       `onOpen("clarification")` in `docket.tsx`, and "Judgement context" in the
+                       Measured column opens a drawer. The three voices give a bordered control
+                       at control size to **Decided**, "the record of what a person chose", so a
+                       way out wearing it is navigation dressed as a disposition — the blur the
+                       voices exist to stop. The comment this replaces answered that with "which
+                       of the four controls in an open row you meet first is said by position,
+                       which is honest". Position can say order; it cannot say kind. And it does
+                       not hold order either: on a cleared finding there is no hinge and no
+                       control here at all, and "Judgement context" is left sitting a few
+                       hundred pixels above three peers it is drawn identically to.
+
+                       So the weight moves to shape. `link` is `PolicyRef`'s gesture in sans —
+                       ink, an underline at `--rule-strong` going to the ink on hover, no box —
+                       and the prominence a held finding is owed stays where the last pass put
+                       it: this is the only interactive thing inside the only bordered block in
+                       the band, under its own label, under the question itself. `size="md"`
+                       still carries the 44px floor; that is a touch requirement and does not
+                       depend on how a control is drawn.
+
+                       Not `ghost`, which is the other quiet variant: `text-ink-2`, a
+                       transparent border and a `bg-sunken` hover. The `working` Notice's ground
+                       *is* `--sunken`, so a ghost here has no rest state a reader can find and
+                       no hover state either. Not `quiet`, for the same collision, which is what
+                       the last pass found.
+
+                       The action stays here rather than moving down to the decision bar, and
+                       the reason is the domain. That bar writes a `StandingDecision` for one
+                       candidate on one branch; answering the round revises the case and judges
+                       every candidate again. A fourth control among three peers would read as a
+                       fourth disposition whatever it was drawn as.
+
+                       `mt-1` rather than `mt-2.5`: `min-h-11` around a 14px line with `px-0`
+                       and no fill brings about fifteen pixels of its own air above the words,
+                       which is what the old margin was supplying.
 
                        No `aria-label`. It named the button "Answer the open question: …" with
                        the whole question folded in, so the visible words were not in the
                        accessible name — nothing to say for anyone driving the page by voice,
-                       and a paragraph where a name should be for anyone listening. The
-                       question is what `aria-describedby` is for, and it is already on screen
-                       directly above.
+                       and a paragraph where a name should be for anyone listening. The question
+                       is what `aria-describedby` is for, and it is on screen directly above.
 
-                       The arrow is drawn. It was `&rarr;`, which is the forbidden glyph
-                       written as an entity: the guard scans source for the character and an
-                       entity contains none, while the browser renders U+2192 out of whatever
-                       the operating system has, since neither Onest nor Plex Mono ships it. */
+                       How far down a phone this sits is carried in `docs/known-defects.md`, and
+                       the number that entry was written from is unreachable. It put this
+                       control "roughly 1,500px" below the top of the argument, reasoning from
+                       the longest recorded reasoning — 2,139 characters, 57 line boxes in the
+                       324px column a 390px viewport gives this block. Reproduced in the live
+                       app that string does land the control 1,688px down. But it belongs to a
+                       *material* finding, and a material finding has no hinge and therefore no
+                       control here at all:
+                       `FindingOutput.the_verdict_carries_what_it_is_allowed_to` in
+                       `reasoning/adapters/langchain.py` refuses a hinge on any verdict but
+                       `held`, and a question is generated per hinge rather than per verdict, so
+                       `waitingOn` does not widen it either. Not one of the 306 recorded cleared
+                       and material judgements carries a hinge; all 69 held ones do.
+
+                       The arguments this control can stand under are those 69: 156 to 971
+                       characters, against 2,139 for the corpus. Swept over all of them at
+                       390x844 in the real app, each carrying its own recorded hinge and its
+                       blocks cut by the real `sentences`, it lands 275px to 956px below the top
+                       of the argument — median 624, five past the 844px viewport, eight past the
+                       796px the sticky topbar leaves, none past 1,000. The worst case the
+                       population admits at all is the longest held argument against the longest
+                       recorded hinge, a pairing that has never occurred: 1,025px. None of the 69
+                       reaches `MOST_PARTS`, so `pack` never runs on a held finding — every one of
+                       them is cut one block to a sentence.
+
+                       It is also the *first* control a phone reaches in an open row, which is
+                       the half the entry left out. Measured below the end of the argument on the
+                       same sweep: this at 144–303px, "Judgement context" at 884–1,043px, the
+                       decision bar at 1,878–2,037px. Those last two are on every verdict. What a
+                       phone buries in an open row is the decisions, and moving this one earlier
+                       would make the row that has an extra way out the only row whose controls
+                       arrive before its evidence. `tests/browser/test_mobile.py` holds the
+                       ordering and the 4px.
+
+                       The arrow is drawn. It was `&rarr;`, the forbidden glyph written as an
+                       entity: the guard scans source for the character and an entity contains
+                       none, while the browser renders U+2192 out of whatever the operating
+                       system has, since neither Onest nor Plex Mono ships it. */
                     <Button
-                      variant="primary"
+                      variant="link"
                       size="md"
-                      className="mt-2.5 min-h-11"
+                      className="mt-1"
                       aria-describedby={hingeId}
                       onClick={onAnswer}
                     >
@@ -497,7 +772,7 @@ export function FindingBody({
             ) : null}
 
             {finding.recommended_response ? (
-              <div className="min-w-0">
+              <div className="mt-5">
                 <BlockLabel>Recommended response</BlockLabel>
                 <p className="mt-1.5 max-w-[46ch] text-[14px] leading-relaxed text-ink wrap-anywhere">
                   <Prose>{finding.recommended_response}</Prose>
@@ -508,7 +783,7 @@ export function FindingBody({
               </div>
             ) : null}
           </div>
-        ) : null}
+        </div>
       </section>
 
       {/* ── The exhibit: the readings beside the code they were taken from ───── */}
@@ -646,10 +921,26 @@ export function FindingBody({
           {/* The deeper audit — the case, the policy corpus, what else touches this code, the
               retrieval behind it — at the foot of the machine's own column, which is where a
               reader who wants more of it has just finished reading. It used to sit beside the
-              MEASURED label, where a ghost button with no border read as a second heading. */}
+              MEASURED label, where a ghost button with no border read as a second heading.
+
+              `link` rather than `secondary`, and that old heading problem is why it is this
+              variant and not the ghost it once was: a way out is a line of underlined words
+              with an arrow on it, and no block label in this product wears an underline. It
+              opens a drawer and records nothing, so it is the same kind of control as "Answer
+              it" in the band above and is drawn the same way — which leaves the `secondary`
+              recipe meaning one thing in an open row, *this writes a decision*. That is the
+              half of the change a cleared or material finding can see, since neither has a
+              hinge and this is their only way out.
+
+              `sm` stays. Size is density and shape is kind: this is the dense foot of a column
+              rather than the answer to a question, and `sm` grows to the 44px floor by itself
+              on a coarse pointer. `mt-2`, not `mt-3.5`, because `min-h-8` with `px-0` around a
+              12px line now brings ten pixels of its own air. `px-0` also sets it flush with the
+              left edge of the `dl` above it, which a `secondary`'s `px-2.5` had it inset from. */}
           {onOpenContext ? (
-            <Button variant="secondary" size="sm" className="mt-3.5" onClick={onOpenContext}>
+            <Button variant="link" size="sm" className="mt-2" onClick={onOpenContext}>
               Judgement context
+              <ArrowRight aria-hidden="true" className="size-[12px]" />
             </Button>
           ) : null}
         </section>

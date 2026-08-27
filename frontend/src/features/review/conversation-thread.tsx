@@ -8,7 +8,7 @@ import { Button } from "../../ui/button";
 import { Textarea } from "../../ui/field";
 import { CheckIcon, ChevronDown } from "../../ui/icons";
 import { Label } from "../../ui/panel";
-import { Prose, plainProse } from "../../ui/prose";
+import { ModelProse, Prose, plainProse } from "../../ui/prose";
 import { Spinner } from "../../ui/states";
 import { Attribution } from "./finding-detail";
 import { InvestigationTranscript, investigationSummary } from "./investigation";
@@ -70,13 +70,18 @@ export function ConversationExchange({
             answer the reviewer submits, and `Attribution` is the line the finding and the
             report already use for exactly this. */}
         <Attribution voice="Answered" by={message.answer.model_identity || "model not recorded"} />
-        {/* The conversation contract asks the model, in as many words, to "name one by its
-            backticked participant, the way the listing does", and the listing it is fed on
-            the way in backticks every line. So a span here is guaranteed rather than
-            incidental, at the reading size, and raw delimiters were what a reader saw. */}
-        <p className="mt-1 max-w-[62ch] whitespace-pre-line text-[16px] leading-[1.65] text-ink wrap-anywhere">
-          <Prose>{message.answer.text}</Prose>
-        </p>
+        {/* Through `ModelProse`, which is where the reading size now lives. This block had the
+            same claim on it as the two above — the model's voice, named and set at the reading
+            size — and set it at `62ch` against the finding's `58ch` and the synopsis's `46ch`,
+            with no sentence split on any answer however long. An answer here is the same kind
+            of paragraph a judgement is, from the same models under the same "prose" contract,
+            so it is drawn the same way and the measure is argued once.
+
+            The contract also asks the model, in as many words, to "name one by its backticked
+            participant, the way the listing does", and the listing it is fed on the way in
+            backticks every line. So a span here is guaranteed rather than incidental, and
+            `ModelProse` renders it. */}
+        <ModelProse className="mt-1">{message.answer.text}</ModelProse>
 
         {suggested && onUseAnswer ? (
           /* Words offered for the reader's own box, and nothing more than offered.
@@ -95,10 +100,27 @@ export function ConversationExchange({
                 ready-made sentence beneath it was full ink, so the eye landed on the words to
                 submit before the reasons for them, under a panel whose own doc says the agent
                 must never decide the answer. */}
-            {/* Same model, same call, same contract as the answer above, so the same
-                treatment. This one has a second reason: the raw string is what the button
-                below writes into the reviewer's own box, so a delimiter left standing here
-                travels into the record as part of their answer. */}
+            {/* Same model, same call, same contract as the answer above — and deliberately
+                not the same treatment, which is the correction this comment carries. It said
+                "so the same treatment" while setting 14px `--ink-2` at `62ch` beside a
+                `ModelProse` block at 16px full ink, so it described the one thing it did not
+                do, in a file where the block above it had just been converged.
+
+                It stays subordinate on the argument the comment directly above already makes:
+                the reasoning is what the reader came for and the ready-made sentence is
+                offered under it, so promoting this to the reading size and full ink puts the
+                eye on the words to submit before the reasons for them — the exact inversion
+                that was corrected here. There is a second reason it cannot go through
+                `ModelProse` even if somebody wanted it to: the reading size is the one thing
+                that marks the model's voice, and two blocks at it inside one bubble say the
+                answer and the draft are two utterances rather than one answer and an offer
+                taken out of it. `ui/design-system.test.ts` holds that line for the whole tree.
+
+                What is the same is the rendering, and it always was: `Prose` draws the quoted
+                names, because the raw string is what the button below writes into the
+                reviewer's own box and a delimiter left standing here travels into the record
+                as part of their answer. `62ch` is 14px's measure in this file, shared with the
+                reviewer's own question above — the pairing this block belongs to. */}
             <p className="mt-1 max-w-[62ch] whitespace-pre-line text-sm leading-6 text-ink-2 wrap-anywhere">
               <Prose>{suggested}</Prose>
             </p>
