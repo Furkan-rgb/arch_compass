@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { api, type Review, type ReviewConversation } from "../../api";
 import { shortId } from "../../lib/format";
 import { Tag } from "../../ui/badge";
 import { Button } from "../../ui/button";
-import { Textarea } from "../../ui/field";
 import { CheckIcon, ChevronDown } from "../../ui/icons";
 import { Label } from "../../ui/panel";
 import { ModelProse, Prose, plainProse } from "../../ui/prose";
+import { KeyCap } from "../../ui/shortcuts";
 import { Spinner } from "../../ui/states";
 import { Attribution } from "./finding-detail";
 import { InvestigationTranscript, investigationSummary } from "./investigation";
@@ -48,28 +48,36 @@ export function ConversationExchange({
             phone and nothing else in the panel can help.
 
             `max-w-[62ch]` because nothing in this exchange capped its measure, and on the Ask
-            surface it is drawn inside the page's whole 76rem column — **about 169 characters a
+            surface it is drawn inside the page's whole 76rem column — **about 163 characters a
             line**, the longest prose in the product at the loosest measure.
 
-            Neither number in that sentence is the column's, and the gap is two subtractions
-            rather than one. 76rem is 1216px and the panel really does draw at it; the column
-            itself spends 48px on its `sm:px-6`, leaving 1168px, and the box around the question
-            spends another 26px on its `px-3` and two hairlines. So an uncapped `<p>` in it
-            measures **1142px** — the same "a measure is a property of the text and not of the
-            box around it" the policy cap in `features/review/finding-detail.tsx` is a paragraph
-            about, and this comment said 1216 less 26 for one pass, which is 1190. All three
-            widths are read off the live Ask panel at a 1440px viewport with
-            `getBoundingClientRect`, not derived. And 169 is a character
-            count rather than the 62 of the cap: a `ch` is the advance of Onest's zero, which is
-            about a third wider than a character of its body text, so `62ch` at 14px is 577.22px
-            and holds around 83. Both counts are a `Range` per character in a headless Chromium
-            serving the built stylesheet, each line counted from its own first visible character
-            to the next line's and averaged over full lines only — the sweep `ui/prose.tsx`
-            states in full and `ui/onest.test-metrics.ts` keeps the per-character reading of.
-            Nothing in the store records a question, so there is no corpus of the right kind to
-            sweep; it is run over the two the repository already measures, and they agree to
-            within a character: 168.77 over the 514 policy notes and 169.52 over the 375
-            recorded judgements at 1142px, against 82.89 and 83.13 at 577.22px. */}
+            Neither number in that sentence is the column's, and the gap is four subtractions
+            rather than one. 76rem is 1216px and the route really does draw at it; it spends
+            48px on its `sm:p-6`, leaving 1168px for the `Panel`; the panel spends two hairlines
+            and `PanelBody` spends 40px on its `sm:px-5`, leaving 1126px; and the box around the
+            question spends a last 26px on its `px-3` and two hairlines. So an uncapped `<p>` in
+            it measures **1100px** — the same "a measure is a property of the text and not of
+            the box around it" the policy cap in `features/review/finding-detail.tsx` is a
+            paragraph about. This comment has now been wrong twice by skipping boxes: it said
+            1216 less 26, which is 1190, and then 1168 less 26, which is 1142 and left out the
+            panel body the exchange is actually inside. Every width here is read off the live
+            Ask panel at 1440x960 with `getBoundingClientRect`, and so is every box between the
+            paragraph and the document, which is the check the arithmetic kept failing.
+
+            163 is a character count rather than the 62 of the cap: a `ch` is the advance of
+            Onest's zero, which is about a third wider than a character of its body text, so
+            `62ch` at 14px is 577.22px and holds about 83. Both counts are a `Range` per
+            character in a headless Chromium serving the built stylesheet, each line counted
+            from its own first visible character to the next line's and averaged over full lines
+            only — the sweep `ui/prose.tsx` states in full and `ui/onest.test-metrics.ts` keeps
+            the per-character reading of. Nothing in the store records a question, so there is
+            no corpus of the right kind to sweep; this one is the 139 recorded judgement
+            rationales of 400 characters or more in the workspace store, run through this very
+            element with its own cap taken off and put back: **162.69** at 1100px and **83.01**
+            at 577.22px. The narrow figure is what says the method is the same one — the earlier
+            sweep read 82.89 and 83.13 for it, over two other corpora — and the wide figure is
+            the one that moved, because 169 was measured in a box 42px wider than this
+            paragraph has ever been drawn in. */}
         {/* Through `Prose` even though these are the reader's own typed words, not the
             model's. It is the top half of a pair whose bottom half is rendered, and rendering
             one and not the other is the visible inconsistency — a reviewer who types a
@@ -304,9 +312,46 @@ export function useConversations(review: Review, questionId = "") {
  * A textarea, not an input. The placeholder invites a sentence and a real question is two or
  * three lines of one, so a one-line field meant the words scrolled out of their own box while
  * being typed and could not be re-read before they were sent — at 1440 the same element was a
- * 1060px single line, which is the worst shape a sentence can be given. The button moved under
- * the box with it: beside a growing field it would have to sit somewhere arbitrary in the
- * vertical, and at 390px it was already being squeezed to "As…".
+ * 1060px single line, which is the worst shape a sentence can be given.
+ *
+ * **The composer is one box, and the button is inside it.** It used to be a `Textarea` with a
+ * detached right-aligned row 8px beneath it, which is two bordered objects reading as a field
+ * and some unrelated control that happened to be near it. Three arrangements were weighed; the
+ * two that lost are written down because they are the two anybody would reach for next.
+ *
+ * *Floating the button over the field's lower-right*, the chat-app default, was the closest
+ * loser. It costs a padding reserve under the text — 52px of it, to clear a 44px target inset
+ * 8px — so the field is a box with a permanently empty band at the bottom whether or not the
+ * button is there, and the two things overlap on the one pixel that matters: Chromium draws
+ * the `resize-y` grip in the textarea's bottom-right corner, which is exactly where the button
+ * goes. Keeping the button meant `resize-none` and silently taking away the only way to make
+ * this box bigger.
+ *
+ * *A single row that grows, with the button centred in the right of it*, loses on the sentence
+ * two paragraphs up and on a second count: a target that moves as you type is a target you
+ * have to re-find, and a centred one moves 12px for every 24px line the field gains.
+ *
+ * The third is what is here, taken one step further than it was put. Keeping the button outside
+ * the field and tying it to it by closing the gap leaves two adjoining borders and a seam; so
+ * the field's own edge is promoted to a box instead, the textarea inside it gives up its border
+ * and its ground, and a rail along the bottom of that same box holds the button. The button is inside the field's hairline, so it reads as part of it at 390 and at
+ * 1440 without either of the costs above: the text never runs under anything, the grip stays
+ * where it was and stays reachable, and the rail is a row of its own so a 44px target does not
+ * come out of the two rows there are to type in.
+ *
+ * **It costs nothing in height.** Both arrangements measure 118px, at 1440x960 and at 390x844
+ * alike. The old one is a 66px textarea — `min-h-16` is 64 and two 24px lines inside `py-2`
+ * and two hairlines are 66, so the min never bound — plus the 8px gap plus a 44px button. This
+ * one is two hairlines plus a 64px textarea, where `min-h-16` does bind because `pt-2.5 pb-1`
+ * is 14px of padding rather than 16 and there is no border left on it, plus a 52px rail. Both
+ * read with `getBoundingClientRect` against the built stylesheet; the old one is reproduced
+ * from its own class lists as `cn` resolved them, which is the only way to measure a layout
+ * that is no longer in the tree.
+ *
+ * `features/review/conversation-thread.test.tsx` holds the structure and
+ * `tests/browser/test_workspace.py` holds the geometry, which is the split this repository
+ * makes everywhere: jsdom computes no layout, so nothing in vitest can see that the button is
+ * inside the box.
  */
 export function AskBox({
   label,
@@ -339,6 +384,9 @@ export function AskBox({
    */
   onAsk: (text: string) => void | Promise<unknown>;
 }) {
+  // The rail's hint is the textarea's description as well as a line of text, so it needs an
+  // id, and `useId` is what makes two composers on one page not share one.
+  const hintId = useId();
   const send = async () => {
     if (!value.trim() || pending) return;
     try {
@@ -352,19 +400,54 @@ export function AskBox({
   return (
     /* `38.5rem`, and it was `max-w-[64ch]`, which is two mistakes in one class list.
        The first is that a `ch` is the advance of the zero of the element's **own** used font
-       and this `div` declares no font size, so 64 of them resolved against the root's 16px and
-       drew 680.96px — while the `Textarea` inside it is `text-sm`, whose own 64ch is 595.84px.
-       Eighty-five pixels between the number written down and the text it was written about.
-       The second is that a measure is a property of prose and this is a box to type in. What it
-       should be capped at is not a count of characters but the column the exchange is read in:
-       an answer above it is `ModelProse` at 58ch and 16px, which draws 617.12px, and the
-       question above that stops at 577.22px. At 680.96px the composer was the widest thing in
-       the thread by 64px, which reads as a second column rather than as the end of the one
-       above it. 38.5rem is 616px — the answer's edge to within about a pixel, said in the unit
-       `ui/markdown.tsx` argues for, where a quarter-rem reads as a value somebody chose. */
-    <div className="grid max-w-[38.5rem] gap-2">
-      <Textarea
+       and the wrapper this sat on declared no font size, so 64 of them resolved against the
+       root's 16px and drew 680.96px — while the `Textarea` inside it is `text-sm`, whose own
+       64ch is 595.84px. Eighty-five pixels between the number written down and the text it was
+       written about. The second is that a measure is a property of prose and this is a box to
+       type in. What it should be capped at is not a count of characters but the column the
+       exchange is read in: an answer above it is `ModelProse` at 58ch and 16px, which draws
+       617.12px, and the question above that stops at 577.22px. At 680.96px the composer was
+       the widest thing in the thread by 64px, which reads as a second column rather than as
+       the end of the one above it. 38.5rem is 616px — the answer's edge to within about a
+       pixel, said in the unit `ui/markdown.tsx` argues for, where a quarter-rem reads as a
+       value somebody chose.
+
+       The number moved element when the composer became one box, and it had to stay the same
+       number: it is now the width of the box that is *drawn*, where before it was a wrapper
+       nobody could see, so the field's own right edge went from 616px to 616px and the button
+       came inside it. That is what `test_workspace.py` measures rather than restating.
+
+       The rest of this class list is the field's recipe from `ui/field.tsx`, moved one element
+       out. `controlClass` is the recipe for *an element that is itself the control*, and here
+       the control is this box — so the edge, the ground and the radius are declared on it and
+       the textarea inside is transparent. That is the one place this component may not compose
+       `Textarea`: passing `border-0 bg-transparent rounded-none` into it would have left a
+       class list that says both `border` and `border-0` and reads as neither.
+
+       The focus indicator comes with the edge, at the geometry the base rule declares —
+       `2px solid var(--ink)` at `outline-offset: 2px`, from `styles.css` — drawn around the
+       box rather than around the textarea. `ui/field.tsx` argues at length that `outline-none`
+       on a field is how this product lost its one focus indicator, and this does not reopen
+       that: nothing is removed, it is moved onto the rectangle a reader sees as the control.
+       Left on the textarea it would draw a rounded rectangle *inside* the box, overlapping the
+       box's own left and right edges and cutting across it above the rail.
+
+       `has-[textarea:focus…]` rather than `focus-within`, because the button is in here too
+       and draws its own ring from the same base rule — `focus-within` would put a second ring
+       around the whole composer every time the button took focus. */
+    <div className="max-w-[38.5rem] rounded-sm border border-rule-control bg-control transition has-[textarea:focus]:border-ink has-[textarea:focus-visible]:outline-2 has-[textarea:focus-visible]:outline-offset-2 has-[textarea:focus-visible]:outline-ink">
+      {/* `block`, because a textarea is `inline-block` by default and an inline-level child
+          puts a line box under it — **seven pixels** of the parent's ground between the text
+          and the rail that nothing in either class list accounts for, which is the box
+          growing from 118px to 125px. Read by taking `block` off in the source, rebuilding
+          the bundle and measuring the live Ask panel at 1440x960: the textarea ends at the
+          same place either way and the rail's top moves from 401.64 to 408.64. This comment
+          said four, which is neither the gap nor the height it costs; the descender space
+          under an inline box is a property of the parent's font metrics rather than a
+          constant, so it is a number to measure and not one to reason to. */}
+      <textarea
         aria-label={label}
+        aria-describedby={hintId}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
@@ -382,10 +465,49 @@ export function AskBox({
           }
         }}
         rows={2}
-        className="min-h-16"
         placeholder={placeholder}
+        className="block min-h-16 w-full resize-y bg-transparent px-3 pb-1 pt-2.5 text-sm leading-6 text-ink outline-none placeholder:text-ink-3"
       />
-      <div className="flex justify-end">
+      {/* The rail. `pr-2` against the text's `px-3` is not a slip: the button is a filled
+          rectangle and the text is glyphs, so setting both to 12px would leave the button
+          looking further out than the line above it. */}
+      <div className="flex items-center justify-between gap-3 pb-2 pl-3 pr-2">
+        {/* Enter already sends, and nothing on this surface said so. The keyboard route is
+            the fast one and it is also the surprising one — an ask runs an agent, takes tens
+            of seconds and cannot be recalled — so a reader who does not know about it is one
+            reflex keystroke away from having sent a question they had not finished writing.
+            That is worth a line on a surface this branch has otherwise been clearing. It is
+            `aria-describedby` as well as visible, because the person who most needs telling
+            that a key does something is the one who cannot see the button beside it.
+
+            **What it costs, measured at 390x844 on the built stylesheet.** No height at all:
+            the rail exists to hold a 44px button and this is a 22px line box centred in the
+            same row. In width it is 88.89px, in a rail whose content box is 302px — with the
+            12px gap and the 54.58px button that is 155.47px spent and 146.53px left.
+
+            **The half that is deliberately missing is "Shift+Enter for a line".** It is
+            missing because it is false on the device that width describes. There is no Shift
+            key on a soft keyboard, so on a phone the return key sends and there is no newline
+            to offer — which is a real gap in this composer and a change to what a key does,
+            not a change to what a label says, so it is not this pass's to make. One line that
+            is true everywhere beats two where the second is false on the narrow one.
+
+            That reason is the whole of it, and it has to be, because there is no room either.
+            This comment said the pair measured 202.98px and left 32.44px at 390, and it does
+            not: written the way the first half is written — a `KeyCap`, which is the component
+            that exists for exactly this — `<KeyCap>Enter</KeyCap> to send,
+            <KeyCap>Shift+Enter</KeyCap> for a line` measures **228.22px** in this very rail,
+            leaving **7.20px** of the 302px content box once the 12px gap and the 54.58px
+            button are paid for. That one is read in the rail itself, by building the second
+            half into this `span` and taking `getBoundingClientRect`. The other renderings are
+            read against the built stylesheet in a bare page, which runs about half a pixel
+            wide of the live rail on the string both can measure: two separate caps is 241.67px
+            there, which does not fit at all, and the closest thing to 202.98 is the second
+            half set as bare text at 199.81px — a key in body type beside a key in a cap. No
+            rendering that carries a cap comes near 202.98. */}
+        <span id={hintId} className="text-[11px] leading-4 text-ink-3">
+          <KeyCap>Enter</KeyCap> to send
+        </span>
         <Button disabled={!value.trim() || pending} onClick={() => void send()}>
           {pending ? <Spinner /> : "Ask"}
         </Button>

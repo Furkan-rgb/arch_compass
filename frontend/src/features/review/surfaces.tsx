@@ -832,10 +832,25 @@ export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candi
                   <div className="grid gap-2">
                     <div className="rounded-md border border-rule bg-surface-2 px-3 py-2.5">
                       <Label>Question</Label>
-                      {/* Drawn exactly as `ConversationExchange` draws the same string one
-                          render later, so the placeholder does not change shape the moment
-                          the real exchange replaces it. */}
-                      <p className="mt-1 text-sm leading-6 text-ink wrap-anywhere">
+                      {/* Drawn as `ConversationExchange` draws the same string one render
+                          later, so the placeholder does not change shape the moment the real
+                          exchange replaces it.
+
+                          `max-w-[62ch]` is the whole of that claim, and it was the one class
+                          missing — under a comment that said "exactly". Measured in the live
+                          Ask panel at 1440x960: uncapped, the reader's own question was set
+                          here at **1100px and 162.69 characters a line**, the loosest measure
+                          the product can draw, held for the tens of seconds an agent takes, and
+                          then snapped to **577.22px and 83.01** the moment the answer landed
+                          and the real exchange replaced it. A placeholder exists so that
+                          nothing jumps; one that jumps is worse than none.
+
+                          Both pairs are `conversation-thread.tsx`'s, measured through this
+                          element with the cap taken off and put back, and that comment records
+                          the sweep behind the character counts. The other sibling that copied
+                          this device, `question-help.tsx:155`, carried the cap all along, which
+                          is what made this a divergence rather than a decision. */}
+                      <p className="mt-1 max-w-[62ch] text-sm leading-6 text-ink wrap-anywhere">
                         <Prose>{ask.variables}</Prose>
                       </p>
                     </div>

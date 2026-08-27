@@ -1339,3 +1339,280 @@ def test_the_workbench_fits_a_phone_on_every_tab(page, review_url: str) -> None:
                 offenders.append(f"{tab} at {width}px clips {hidden}")
 
     assert not offenders, "; ".join(offenders)
+
+
+# --------------------------------------------------------------------------------------
+# The Ask composer: one box, and the pending question inside the measure it will be read at
+# --------------------------------------------------------------------------------------
+
+#: The composer's cap, in CSS pixels. `38.5rem`, and derived rather than chosen — the answer
+#: above it is `ModelProse` at 58ch/16px, which draws 617.12px, so this is that column's edge
+#: to within about a pixel. `conversation-thread.tsx` carries the argument; what is asserted
+#: here is that the number survives a redesign of the element it sits on.
+COMPOSER_WIDTH_PX = 616.0
+
+#: A `getBoundingClientRect` is snapped to a 1/64px grid, and a hairline is a real pixel of
+#: containment either way. One pixel absorbs the first and cannot hide the second.
+COMPOSER_SLACK_PX = 1.0
+
+#: The charter's fifth principle, and the size `ui/button.tsx` gives a `md` button so that it
+#: clears the floor without a call site asking.
+#:
+#: It is checked *here*, in a narrow window with an ordinary pointer, and that is deliberate.
+#: `test_mobile.py` sweeps every target on a real phone and now includes this surface, but a
+#: phone reports a coarse pointer, and on a coarse pointer the dense `sm` size grows to 44 by
+#: itself — so a composer whose button had been shrunk to fit inside the field would pass there
+#: and be 32px on every desk. This is the context that can still tell the two sizes apart.
+TAP_TARGET_MINIMUM_PX = 44
+
+#: Where the parts of the composer are, and what draws an edge.
+#:
+#: The box is found by walking up from the textarea to the first ancestor with a border, which
+#: is what "the field's edge" means as a fact about the drawing rather than as a class list.
+#: On the old arrangement that walk stops on the textarea itself, and the button is not inside
+#: it — which is the assertion, and the reason the walk is written this way rather than as a
+#: parent lookup that would be true of any markup at all.
+_COMPOSER = r"""
+() => {
+  const area = document.querySelector('textarea[aria-label]');
+  if (!area) return null;
+  const bordered = (el) => parseFloat(getComputedStyle(el).borderTopWidth) > 0;
+  let box = area;
+  while (box && !bordered(box)) box = box.parentElement;
+  if (!box) return null;
+  // `:not([role])` is load-bearing: the surface switcher above this panel has a tab that
+  // also says Ask, and finding that one instead makes every assertion below a statement
+  // about the tablist. Found document-wide rather than inside the box on purpose — asking
+  // the box for its own button would make the containment true by construction.
+  const button = [...document.querySelectorAll('button:not([role])')].find(
+    (b) => (b.innerText || '').trim() === 'Ask',
+  );
+  if (!button) return null;
+  const r = (el) => {
+    const b = el.getBoundingClientRect();
+    return {left: b.left, right: b.right, top: b.top, bottom: b.bottom,
+            width: b.width, height: b.height};
+  };
+  return {
+    box: r(box),
+    area: r(area),
+    button: r(button),
+    boxIsTheTextarea: box === area,
+    buttonInBox: box.contains(button),
+    areaBorder: parseFloat(getComputedStyle(area).borderTopWidth),
+    boxBorder: parseFloat(getComputedStyle(box).borderTopWidth),
+  };
+}
+"""
+
+#: A question long enough to fill the field and then some, so "the text never runs under the
+#: button" is asked of text that would if anything could.
+_A_LONG_QUESTION = (
+    "Why does archcompass.reasoning.adapters.selected depend on archcompass.bootstrap, and "
+    "is that the deliberate seam the boundary policy describes or the leak it forbids, given "
+    "that the module is imported by the factory and by the cache and by nothing else at all?"
+)
+
+
+def _open_ask(page) -> None:  # type: ignore[no-untyped-def]
+    """The Ask surface, with the composer rendered.
+
+    The tab is reached through the surface tablist rather than by name-on-the-page, for the
+    reason `harness.py` gives about copy being rewritten around these tests.
+    """
+
+    page.locator('[role="tablist"]').first.wait_for(state="visible", timeout=REVIEW_TIMEOUT_MS)
+    page.locator('[role="tablist"]').first.get_by_role("tab", name="Ask").click()
+    page.locator("textarea[aria-label]").first.wait_for(state="visible", timeout=20_000)
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("width", [1440, 390])
+def test_the_ask_composer_reads_as_one_control(  # type: ignore[no-untyped-def]
+    browser, review_url: str, theme: str, width: int
+) -> None:
+    """The button is inside the field it acts on, and that is a rectangle rather than a class.
+
+    `conversation-thread.test.tsx` asserts the containment as a fact about the document, which
+    is the half jsdom can see. This is the half it cannot: that the element carrying the field's
+    edge really does enclose the button, that the composer still stops at the width somebody
+    derived for it, and that the text and the button never share any of the same vertical — the
+    cost that sank the chat-app arrangement where the button floats over the field's corner.
+
+    Both themes, because the composer's edge is `--rule-control` and the whole reason that token
+    exists is that in light `--control` and `--surface` are both `#ffffff`, so the hairline is
+    the entire affordance on one of the two grounds and nothing else says where the box is.
+
+    Both widths, because "reads as part of the field" is the claim at 390 and at 1440 alike.
+    390 here is a narrow window rather than a phone — a real phone, with the coarse-pointer
+    branches that come with one, is `test_mobile.py`'s, for the reason `TAP_TARGET_MINIMUM_PX`
+    gives above.
+    """
+
+    context = browser.new_context(
+        viewport={"width": width, "height": 900}, color_scheme=theme
+    )
+    page = context.new_page()
+    try:
+        page.goto(review_url, wait_until="networkidle")
+        _open_ask(page)
+        page.evaluate("() => document.fonts.ready")
+
+        # Empty, then holding more than it can show. The second is what asks whether a long
+        # question runs under the button; the first is what asks about the placeholder, which
+        # occupies the same lines the first line of a question would.
+        for state, typed in (("empty", ""), ("a long question", _A_LONG_QUESTION)):
+            if typed:
+                page.locator("textarea[aria-label]").first.fill(typed)
+            measured = page.evaluate(_COMPOSER)
+            assert measured is not None, (
+                f"at {width}px in {theme} the Ask surface has no composer to measure"
+            )
+            where = f"at {width}px in {theme}, {state}"
+
+            # The redesign, as a rectangle. On the arrangement this replaced the walk above
+            # stops on the textarea and this line is what fails.
+            assert not measured["boxIsTheTextarea"], (
+                f"{where}: the only bordered element is the textarea itself, so the button is "
+                "outside the field again"
+            )
+            assert measured["buttonInBox"], f"{where}: the Ask button is not inside the field's box"
+            box, button, area = measured["box"], measured["button"], measured["area"]
+            for side, inside, outside in (
+                ("left", button["left"], box["left"]),
+                ("top", button["top"], box["top"]),
+            ):
+                assert inside >= outside - COMPOSER_SLACK_PX, (
+                    f"{where}: the button's {side} edge is {outside - inside:.2f}px outside the box"
+                )
+            for side, inside, outside in (
+                ("right", button["right"], box["right"]),
+                ("bottom", button["bottom"], box["bottom"]),
+            ):
+                assert inside <= outside + COMPOSER_SLACK_PX, (
+                    f"{where}: the button's {side} edge is {inside - outside:.2f}px outside the box"
+                )
+
+            # One edge, on the box. Two would be the two-boxes look coming back by another route.
+            assert measured["boxBorder"] > 0 and measured["areaBorder"] == 0, (
+                f"{where}: the field is drawn with {measured['boxBorder']}px on the box and "
+                f"{measured['areaBorder']}px on the textarea, which is two edges, not one"
+            )
+
+            # Nothing typed can reach the button, because the two never share a row.
+            assert area["bottom"] <= button["top"] + COMPOSER_SLACK_PX, (
+                f"{where}: the text area overlaps the button by "
+                f"{area['bottom'] - button['top']:.2f}px, so a long question runs under it"
+            )
+
+            # The derived cap, on the element that is now drawn at it.
+            if width == 1440:
+                assert abs(box["width"] - COMPOSER_WIDTH_PX) <= COMPOSER_SLACK_PX, (
+                    f"{where}: the composer is {box['width']:.2f}px wide rather than "
+                    f"{COMPOSER_WIDTH_PX:.0f}px — the answer above it is read at 617.12px and "
+                    "this is the edge that was derived from it"
+                )
+            else:
+                # At 390 the cap is not what binds; the phone is. What has to hold is that the
+                # box is inside the viewport and still holds a thumb-sized target.
+                assert box["right"] <= width + COMPOSER_SLACK_PX, (
+                    f"{where}: the composer reaches {box['right'] - width:.2f}px past the "
+                    f"{width}px viewport"
+                )
+                smaller = min(button["width"], button["height"])
+                assert smaller + 0.5 >= TAP_TARGET_MINIMUM_PX, (
+                    f"{where}: the Ask button is {button['width']:.0f}x{button['height']:.0f}px, "
+                    f"{smaller:.0f}px in its smaller dimension against a {TAP_TARGET_MINIMUM_PX}px "
+                    "floor — moving a button inside a field is the change that makes shrinking "
+                    "it look reasonable, and this is where the two sizes are still distinguishable"
+                )
+    finally:
+        context.close()
+
+
+#: The pending question, and what it would measure with its cap taken off.
+#:
+#: Both, in one pass and on the same element, because the second is what stops the first being
+#: a number that happens to be true. A cap that binds and a cap that binds nothing look
+#: identical from the capped side.
+_PENDING_QUESTION = r"""
+() => {
+  const p = document.querySelector('li[aria-live] p');
+  if (!p) return null;
+  const had = p.className;
+  const capped = p.getBoundingClientRect().width;
+  p.className = had.replace(/\s*max-w-\[\d+ch\]/, '');
+  const uncapped = p.getBoundingClientRect().width;
+  p.className = had;
+  return {capped, uncapped, className: had};
+}
+"""
+
+
+def test_the_pending_question_is_drawn_at_the_measure_the_answer_will_be(  # type: ignore[no-untyped-def]
+    browser, review_url: str
+) -> None:
+    """A placeholder exists so that nothing jumps, and this one jumped.
+
+    `surfaces.tsx` draws the reader's own question while the agent works, through the class list
+    `ConversationExchange` uses for the same string a render later — under a comment that said
+    "exactly" and was missing `max-w-[62ch]`. So the question was set at the panel's full width
+    for the tens of seconds an ask takes and then snapped to the exchange's measure when the
+    answer landed. Its sibling `question-help.tsx` copied the same device and carried the cap,
+    which is what made this a divergence rather than a decision.
+
+    Two assertions, and the second is the one that keeps the first honest: the placeholder is
+    drawn at the width the real exchange is drawn at, **and** taking the cap off that very
+    element moves it — otherwise this passes on a panel that was narrow anyway.
+
+    No model is reached. The one request that would run an agent is intercepted and never
+    fulfilled, which is precisely the state being measured; the conversation it would have been
+    filed under is answered from here too, so nothing is written to the workspace either.
+    """
+
+    context = browser.new_context(**DESKTOP)
+    page = context.new_page()
+    try:
+        page.route(
+            re.compile(r"/api/review-conversations$"),
+            lambda route: route.fulfill(
+                status=201,
+                content_type="application/json",
+                body=json.dumps(
+                    {
+                        "id": "conversation-held",
+                        "review_id": "review",
+                        "question_id": "",
+                        "messages": [],
+                    }
+                ),
+            ),
+        )
+        # Never fulfilled: the surface stays pending, which is the whole subject.
+        page.route(re.compile(r"/api/review-conversations/[^/]+/messages$"), lambda route: None)
+
+        page.goto(review_url, wait_until="networkidle")
+        _open_ask(page)
+        page.evaluate("() => document.fonts.ready")
+        page.locator("textarea[aria-label]").first.fill(_A_LONG_QUESTION)
+        page.get_by_role("button", name="Ask").click()
+        page.locator("li[aria-live] p").first.wait_for(state="visible", timeout=20_000)
+
+        measured = page.evaluate(_PENDING_QUESTION)
+        assert measured is not None, "the question is not kept on screen while it is answered"
+
+        # The measure the answer will be read at, which is the exchange's own and is stated in
+        # `conversation-thread.tsx`: 62ch at 14px is 577.22px.
+        assert abs(measured["capped"] - 577.22) <= COMPOSER_SLACK_PX, (
+            f"the pending question is drawn at {measured['capped']:.2f}px rather than the "
+            f"577.22px the exchange replacing it is drawn at: {measured['className']}"
+        )
+        # And the cap is what is holding it there. Without this the line above passes on any
+        # panel narrower than 62ch, including one somebody has just broken.
+        assert measured["uncapped"] > measured["capped"] + 100, (
+            f"taking the measure off this paragraph moves it from {measured['capped']:.2f}px to "
+            f"{measured['uncapped']:.2f}px, which is not far enough for the cap to be the thing "
+            "holding it — this check would pass with no cap at all"
+        )
+    finally:
+        context.close()

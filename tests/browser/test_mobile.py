@@ -512,6 +512,22 @@ def test_every_tap_target_in_the_review_is_wide_enough_for_a_thumb(  # type: ign
     measure("judgement context at 390px")
     close_dialog(phone_page)
 
+    # The Ask surface, which is the fourth place on this page a thumb lands and was the one
+    # state this sweep never reached. It is here because its composer now holds its button
+    # *inside* the field — the arrangement where a target is most easily squeezed to fit the
+    # box around it — and because the openers beside it are `sm` controls that reach the floor
+    # only through `pointer-coarse`.
+    #
+    # The box is typed into first, and that is not decoration. `Ask` is disabled while there
+    # is nothing to send, `exemption` above quite correctly refuses to measure a control that
+    # cannot be activated, and a state that only ever shows the disabled one measures the
+    # composer's button never. A word in the field is what puts it on screen as a target.
+    surface_tabs(phone_page).last.click()
+    composer = phone_page.locator("textarea[aria-label]").first
+    composer.wait_for(state="visible", timeout=20_000)
+    composer.fill("Why is the gateway held?")
+    measure("ask surface at 390px")
+
     # Kept in the output rather than swallowed: an exemption nobody ever reads is a hole
     # rather than an exemption. pytest shows it on failure, or on demand with `-s`.
     print("\nTap targets exempted with a reason:")
