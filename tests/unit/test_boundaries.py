@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import re
 from enum import Enum
 from pathlib import Path
 from typing import get_args, get_origin, get_type_hints
 
 from archcompass.bootstrap import CHECKPOINT_RECORD_TYPES
+from archcompass.persistence.ports import ScopeSelectionRepository
+from archcompass.reasoning.adapters.providers import DETERMINISTIC_DESCRIPTOR
 from archcompass.workflow.state import ReviewState
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src" / "archcompass"
@@ -583,4 +586,897 @@ def test_every_key_a_candidate_branch_writes_leaves_it() -> None:
     assert written <= declared, (
         f"judge_candidate writes {sorted(written - declared)}, which "
         "CandidateReviewOutput does not declare — a Send branch drops those silently"
+    )
+
+
+#: Where the stand-in provider is allowed to be named, and where it is allowed to be
+#: recognised. Two files, because those are two different acts: `providers.py` registers the
+#: descriptor that gives the provider its name, and `SelectedLangChainJudge.in_force` is the
+#: single reading of the model selection that everything else in the product is handed.
+_STAND_IN_DEFINITION = "reasoning/adapters/providers.py"
+_STAND_IN_DECISION = ("reasoning/adapters/selected.py", "in_force")
+
+#: How the stand-in's name is read where reading it is legitimate. `providers.py` is allowed
+#: the literal by the sibling test, so both spellings have to be swept; a comparison written
+#: inside that file would be as much a second decision as one written anywhere else.
+_STAND_IN_READ = "DETERMINISTIC_DESCRIPTOR.name"
+
+#: The identifier the descriptor itself is bound to, split out of `_STAND_IN_READ` so that
+#: the two sweeps below cannot drift into naming different things. What the second of them
+#: looks for is the object rather than the string it carries: holding the descriptor is what
+#: puts the name within reach, and no second recognition can be written without holding it.
+_STAND_IN_DESCRIPTOR = _STAND_IN_READ.split(".")[0]
+
+#: Every place in `src/` that may name the descriptor, as (file, enclosing function). Four,
+#: because four different acts need it and no fifth does: `providers.py` builds it,
+#: `bootstrap` lists it among the providers this build can reach, `deterministic.py` derives
+#: from its name the stamp that every finding, synopsis and answer carries, and `in_force`
+#: recognises the selection. An import is not on this list because an import is not a use: it
+#: binds a name, and `ast` records that on an `alias` node rather than on a `Name`.
+_STAND_IN_DESCRIPTOR_SITES = (
+    ("bootstrap.py", "<module>"),
+    ("reasoning/adapters/deterministic.py", "<module>"),
+    ("reasoning/adapters/providers.py", "<module>"),
+    _STAND_IN_DECISION,
+)
+
+#: The stand-in's model name, rationed the same way and for the same reason. Rationing the
+#: descriptor closed every spelling that reaches the stand-in through its *provider*, and left
+#: a door beside it: `model == DETERMINISTIC_MODEL` recognises exactly the same selection,
+#: holds no descriptor, writes no literal, and passed the whole sweep. The two names are the
+#: two halves of `DETERMINISTIC_MODEL_IDENTITY` and they sit in the same file, so guarding one
+#: and not the other was arbitrary rather than principled.
+#:
+#: Three sites, one fewer than the descriptor's, because nothing recognises a selection by its
+#: model: `providers.py` defines it and offers it as the one model this provider has, and
+#: `deterministic.py` builds the stamp out of it. `in_force` is deliberately absent — the
+#: decision is the provider's, and a fifth place that wanted to make it by model would have to
+#: add itself here in the same commit, which is the review this exists to force.
+_STAND_IN_MODEL_SITES = (
+    ("reasoning/adapters/deterministic.py", "<module>"),
+    ("reasoning/adapters/providers.py", "<module>"),
+    ("reasoning/adapters/providers.py", "probe_deterministic"),
+)
+
+#: What may be held, and by whom. A mapping rather than two tests, so that a third name worth
+#: rationing is a row here instead of a copy of the sweep — the shape this whole guard exists
+#: to refuse.
+_STAND_IN_HOLDINGS = {
+    _STAND_IN_DESCRIPTOR: _STAND_IN_DESCRIPTOR_SITES,
+    "DETERMINISTIC_MODEL": _STAND_IN_MODEL_SITES,
+}
+
+
+def _docstring_nodes(tree: ast.AST) -> set[int]:
+    """The string constants that are documentation, by `id()`, so a sweep can skip them.
+
+    Prose about a rule is not a copy of the rule, and the modules that own this one explain
+    it at length — `deterministic.py` opens by quoting the very branch it replaced. A sweep
+    that could not tell those apart from source would be a sweep somebody deletes.
+    """
+
+    docstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(
+            node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+        ):
+            continue
+        first = node.body[0] if node.body else None
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            docstrings.add(id(first.value))
+    return docstrings
+
+
+def _enclosing_function_names(tree: ast.AST) -> dict[int, str]:
+    """Which function each node is written inside, by `id()`, innermost winning.
+
+    `ast.walk` is breadth-first, so an outer function is visited before the functions nested
+    in it and the inner name overwrites the outer one — which is the attribution a reader
+    would give: a closure defined in `bootstrap.build_runtime` is its own place to forget a
+    rule, not `build_runtime`'s.
+    """
+
+    holder: dict[int, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            for child in ast.walk(node):
+                holder[id(child)] = node.name
+    return holder
+
+
+def _stand_in_spellings(tree: ast.AST, literal: str) -> set[str]:
+    """Every word in this module that means the stand-in's name, including the copies of it.
+
+    The sweep below used to read only the two sides of one `ast.Compare` as they were
+    written, and that is not enough to make the claim it makes. Lift the field into a local
+    first — which is how anybody writes a null check — and the comparison names a variable
+    instead of the descriptor::
+
+        _name = None if _cfg is None else _cfg.provider
+        if _name == DETERMINISTIC_DESCRIPTOR.name:
+
+    That is a second recognition of the stand-in, and both of these tests passed with it
+    sitting in `src/`. So does a helper that takes the provider as a plain string rather than
+    the selection — near enough to the `_is_deterministic` this rule was written about to be
+    the same mistake, though that one took the selection and was caught. Two natural
+    spellings, and the comment beside `in_force` claimed both would fail.
+
+    It is caught now because the sweep no longer asks anything about the left-hand
+    side; the mirror image of it, where the descriptor is the half lifted into a local, is
+    what this function is for::
+
+        _stand_in = DETERMINISTIC_DESCRIPTOR.name
+        if _cfg.provider == _stand_in:
+
+    Only an exact rebinding is followed — a name assigned nothing but a spelling already
+    known to mean the stand-in, standing alone or as one element of a tuple — and the pass
+    repeats until no new name is bound, so a chain of copies is followed too. A value
+    *derived* from the name is deliberately left alone:
+    `DETERMINISTIC_MODEL_IDENTITY` is built out of it by an f-string and means "this model",
+    which is a different question from "this provider". Nothing in `src/` compares against it
+    today — it is stamped, never tested — and a comparison that did appear would be asking
+    what produced a stored finding rather than what is selected now. That is a neighbouring
+    decision with its own single owner, and this sweep does not claim to cover it.
+
+    Names are collected for the whole module rather than per function, because a module-level
+    constant read inside three functions is exactly the second place to forget a rule that
+    this test exists to refuse, and a per-function view would not see it.
+
+    The chase stops there, and stopping is the point. A copy made by a call, by an f-string or
+    by a parameter default is not followed, and there is no dataflow analysis in this file.
+    There does not need to be: the sweep two tests below rations the descriptor itself, so a
+    copy of its name can only be made in one of the four places allowed to hold it. Three of
+    those four are module scopes, which is the whole of what is left to this function, and an
+    exact rebinding is what a person writes there.
+    """
+
+    spellings = {_STAND_IN_READ, literal}
+    while True:
+        grown = set(spellings)
+        for node in ast.walk(tree):
+            targets: list[ast.expr]
+            value: ast.expr | None
+            if isinstance(node, ast.Assign):
+                targets, value = list(node.targets), node.value
+            elif isinstance(node, ast.AnnAssign | ast.NamedExpr):
+                targets, value = [node.target], node.value
+            else:
+                continue
+            if value is None:
+                continue
+            # `_STAND_IN, _RETRIES = DETERMINISTIC_DESCRIPTOR.name, 3` binds the name as
+            # surely as a statement of its own, and it is the one multiple-binding form
+            # people actually write. Taken element by element, because unparsing the whole
+            # right-hand side of it yields a tuple, which is a spelling of nothing.
+            if (
+                len(targets) == 1
+                and isinstance(targets[0], ast.Tuple)
+                and isinstance(value, ast.Tuple)
+                and len(targets[0].elts) == len(value.elts)
+            ):
+                grown.update(
+                    target.id
+                    for target, element in zip(targets[0].elts, value.elts, strict=True)
+                    if isinstance(target, ast.Name) and ast.unparse(element) in grown
+                )
+                continue
+            if ast.unparse(value) not in grown:
+                continue
+            grown.update(target.id for target in targets if isinstance(target, ast.Name))
+        if grown == spellings:
+            return spellings
+        spellings = grown
+
+
+def test_the_stand_in_provider_is_written_out_in_exactly_one_place() -> None:
+    """The name `fake` exists once in the source: on the descriptor that registers it.
+
+    This is the rule the migration checksum established, applied to a provider name. Where
+    two things must name one value, do not write the name twice — and this name had been
+    written four times: the descriptor, two `provider == "fake"` tests in `selected.py`, and
+    the `f"fake:{model}"` the stand-in stamps every finding, synopsis and answer with.
+
+    A copy of it is not a loud failure. `DETERMINISTIC_MODEL_IDENTITY` is compared against
+    what a stored finding carries, so a rename that moved the descriptor and left the stamp
+    behind would make the delta report a moved model for every candidate of every review —
+    which is the defect this whole line of work exists to close, arriving by a different
+    door. Every other reader asks `DETERMINISTIC_DESCRIPTOR.name`, so a rename is one edit.
+
+    The name is looked for as a word inside every string the module actually evaluates, not
+    only as a whole one, because the copy that mattered was a prefix: `f"fake:{model}"` holds
+    the provider name and is equal to nothing. Docstrings are skipped and comments are not
+    string constants at all, so the prose that explains this rule does not trip it.
+    """
+
+    name = DETERMINISTIC_DESCRIPTOR.name
+    spelled = re.compile(rf"\b{re.escape(name)}\b")
+    written = []
+    for path in _python_files(SOURCE_ROOT):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        documentation = _docstring_nodes(tree)
+        written.extend(
+            path.relative_to(SOURCE_ROOT).as_posix()
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in documentation
+            and spelled.search(node.value)
+        )
+    assert written == [_STAND_IN_DEFINITION], (
+        f"the stand-in provider is written out as {name!r} in {sorted(written)}; it may be "
+        f"spelled only in {_STAND_IN_DEFINITION}, and read everywhere else off "
+        "DETERMINISTIC_DESCRIPTOR.name"
+    )
+
+
+def test_only_the_judgement_in_force_decides_that_the_stand_in_is_selected() -> None:
+    """One place asks whether the selection is the stand-in. Everything else asks that place.
+
+    The failure this guards is not hypothetical and it is not the first of its kind. Three
+    capabilities in `selected.py` shared a `_is_deterministic` helper whose body was, word for
+    word, the expression inside `in_force` — sitting under a comment claiming the rule lived
+    in one place. Before that, `bootstrap` mapped the same provider to the stand-in's model
+    identity while the stand-in stamped it from `deterministic.py`, and a third callback read
+    the selection again for the retriever. Two of those derived the same fact differently and
+    a verdict swung `cleared → material → cleared → material` across four revisions of one
+    unchanged commit, because the delta compared a stamp against a value nothing stamped.
+
+    Each fix made both sides read one value; each held until a code path arrived that did not
+    read it. So this is asked of the source rather than of behaviour — and it has to be, since
+    a re-spelled copy of the rule agrees with the original on every input a test could pass
+    it. What it cannot agree with is the next edit to one of them.
+
+    What is swept is any comparison, anywhere in `src/`, in which the stand-in's name appears
+    at all — the literal, `DETERMINISTIC_DESCRIPTOR.name`, or a local or module name copied
+    from either by `_stand_in_spellings`. Nothing is asked about the other side of it. That
+    is both stronger and shorter than asking for the provider field and the name on the two
+    sides of one `ast.Compare`, which is what this test did until it was falsified: lifting
+    the field into a local first walked straight past it, and this docstring claimed
+    otherwise. There is no honest reason to compare against this name and not be deciding
+    that the stand-in is selected, so the pair of conditions bought nothing but the hole.
+
+    This is not the outer wall any more, and it should not be read as one. The test below
+    refuses the descriptor itself to every file but four, so a comparison has to be written
+    inside one of those four to reach this sweep at all. It is kept because three of the four
+    are module scopes that the sweep below cannot help but allow, and a copy made there and
+    compared inside a method of the same module is caught here and nowhere else.
+    """
+
+    literal = repr(DETERMINISTIC_DESCRIPTOR.name)
+    deciders: list[tuple[str, str]] = []
+    for path in _python_files(SOURCE_ROOT):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        holder = _enclosing_function_names(tree)
+        spellings = _stand_in_spellings(tree, literal)
+        # The literal carries its own quotes and cannot take a `\b` on the left, so it stays
+        # a substring test; every other spelling is a bare name or an attribute read, where
+        # the boundary is what stops `_name` from matching inside `_name_of_the_model`.
+        named = re.compile(
+            "|".join(rf"\b{re.escape(word)}\b" for word in sorted(spellings - {literal}))
+        )
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            sides = [ast.unparse(node.left), *map(ast.unparse, node.comparators)]
+            if any(literal in side or named.search(side) for side in sides):
+                deciders.append(
+                    (
+                        path.relative_to(SOURCE_ROOT).as_posix(),
+                        holder.get(id(node), "<module>"),
+                    )
+                )
+
+    assert deciders == [_STAND_IN_DECISION], (
+        f"the stand-in is recognised in {sorted(deciders)}; exactly one place may compare "
+        f"anything against its name — {_STAND_IN_DECISION[0]}:{_STAND_IN_DECISION[1]} — and "
+        "every other caller reads `in_force().deterministic` off the record it returns"
+    )
+
+
+def _descriptor_bindings(tree: ast.AST, held: str) -> set[str]:
+    """What this module calls the rationed name, including under an `as` name.
+
+    Read off the module's own imports rather than assumed, so the sweep follows the file's
+    vocabulary instead of one spelling of it: `import ... as _stand_in` is a rename, and a
+    guard that only knew the canonical name would report success over the file that used it.
+    """
+
+    bound = {held}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            bound.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == held
+            )
+    return bound
+
+
+def test_four_places_hold_the_stand_in_descriptor_and_nothing_else_may() -> None:
+    """Holding the descriptor is what this refuses, not comparing against the name it carries.
+
+    The sibling above asks about comparisons, and asking about comparisons is a chase. It was
+    strengthened once to follow the name into a local, and three spellings still walked past
+    it — each of them a real file that this module passed in full. The name unpacked out of a
+    tuple, `_STAND_IN, _RETRIES = DETERMINISTIC_DESCRIPTOR.name, 3`. The name copied
+    through a call, `_STAND_IN = str(DETERMINISTIC_DESCRIPTOR.name)`. The name handed in as a
+    parameter default, `def probe(configuration, stand_in=DETERMINISTIC_DESCRIPTOR.name)`.
+    The third is not the exotic one: passing a collaborator in as a parameter is how
+    `bootstrap` hands `in_force` to its readers, so it is the likeliest next spelling rather
+    than the least.
+
+    Following each of them costs dataflow analysis in a test file, and what it would buy is a
+    list of the forms somebody has thought of. So the question is asked one step earlier: to
+    decide anything about the stand-in you must first be holding the descriptor, and it is the
+    descriptor that is rationed here. All three spellings fail this test, and so do three that
+    a sweep of comparisons cannot see at all — a dict keyed by the provider name, a
+    `startswith`, a `match` — because none of those can be written without the descriptor
+    either. The rule does not care what a fifth place would do with it, which is exactly why
+    it does not have to know.
+
+    The inverse was considered and rejected: sweep every comparison against a `.provider` and
+    allow-list the one legitimate site. `src/` compares a provider in nineteen places across
+    six files — `factory` routing to a transport, the catalogue matching a stored selection,
+    the embedding default — and eighteen of them are honest. An eighteen-entry allow-list is
+    not a guard, it is a form to fill in, and the path that should have been refused is added
+    to it in the same commit that writes it.
+
+    What this does not reach, and does not claim to. A value *derived* from the name rather
+    than the name itself: `DETERMINISTIC_MODEL_IDENTITY` is built in `deterministic.py` out of
+    it, and a reader testing a stored `model_identity` against that constant would be asking
+    what produced a finding rather than what is selected now — a neighbouring decision with
+    its own owner, declined here for the reason `_stand_in_spellings` declines it. Nor does either
+    sweep see a second recognition written inside `in_force`, the one function both of them
+    allow, or a name reached by `getattr` rather than written.
+    """
+
+    for rationed, allowed in _STAND_IN_HOLDINGS.items():
+        holders: list[tuple[str, str]] = []
+        for path in _python_files(SOURCE_ROOT):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            holder = _enclosing_function_names(tree)
+            bound = _descriptor_bindings(tree, rationed)
+            for node in ast.walk(tree):
+                # Both halves of how a module reaches it: the bare name an import bound, and
+                # the attribute read of a module imported whole. Neither matches an `alias`,
+                # so the import that makes the name available is not counted as a use of it.
+                reached = (isinstance(node, ast.Name) and node.id in bound) or (
+                    isinstance(node, ast.Attribute) and node.attr == rationed
+                )
+                if not reached:
+                    continue
+                holders.append(
+                    (
+                        path.relative_to(SOURCE_ROOT).as_posix(),
+                        holder.get(id(node), "<module>"),
+                    )
+                )
+
+        assert sorted(set(holders)) == sorted(allowed), (
+            f"`{rationed}` is held in {sorted(set(holders))}; only {sorted(allowed)} may "
+            "name it, and anything else that needs to know whether the stand-in is selected "
+            "reads `in_force().deterministic`"
+        )
+
+
+#: The modules holding a `ScopeSelectionRepository` today, by path under `src/archcompass`.
+#: The sweep below allows a new one and checks its key like every other, but it refuses to
+#: run with fewer than these. A guard whose subject has been renamed out from under it
+#: sweeps nothing and reports success — the failure every other sweep in this file opens
+#: with `is_dir()` to avoid.
+_SCOPE_SELECTION_READERS = frozenset(
+    {
+        "analysis/analyzer.py",
+        "analysis/freshness.py",
+        "repositories/service.py",
+    }
+)
+
+#: A receiver named `scope_selections`, however it is reached: `self._scope_selections`,
+#: `scope_selections`, `self.scope_selections`. The port is never held under another name in
+#: this tree, and holding it under one would be the edit that hides a call site from here.
+_SCOPE_SELECTION_HOLDER = re.compile(r"(^|\.)_?scope_selections$")
+
+#: Read off the protocol rather than written out here, so a method renamed on the port, or a
+#: third one added to it, is swept without anybody remembering to come back. Naming them in
+#: this file would be the same mistake the sweep exists to forbid, one level up.
+_SCOPE_SELECTION_METHODS = frozenset(
+    name
+    for name, value in vars(ScopeSelectionRepository).items()
+    if not name.startswith("_") and callable(value)
+)
+
+#: The ways a caller may obtain the key, and none of them build it. `ASKED` is the question
+#: put to the analyzer, which is the object that decides the answer. `CARRIED` is a plain
+#: attribute chain ending in the answer it already gave — `version.root_path`,
+#: `summary.root_path`, `repository.canonical_root` — read whole off a record written from
+#: it. `ABSENT` is the empty string, which a web route holds where there is no repository to
+#: name; it is admitted because it is a miss by construction rather than a miss by
+#: misspelling, since the only writer of this table records `version.root_path` and the
+#: analyzer will not return an empty root for one. What none of the three can express is an
+#: expression that assembles the string, so a `Path`, a `str()`, an `expanduser()`, a
+#: `resolve()` or a `/` anywhere in the key fails all of them.
+_SCOPE_KEY_ASKED = re.compile(r"[\w.]+\.canonical_root\(.+\)")
+_SCOPE_KEY_CARRIED = re.compile(r"[\w.]+\.(root_path|canonical_root)")
+_SCOPE_KEY_ABSENT = frozenset({"''", '""'})
+
+#: Both function nodes, since every sweep below treats an `async def` exactly as a `def`.
+_DEF = ast.FunctionDef | ast.AsyncFunctionDef
+
+#: One parsed module: its path under `src/archcompass`, its tree, the function each node sits
+#: in and the class each node sits in, both by `id()`. The last two are what let the sweep
+#: follow a name out of the function that used it and into the ones that supply it.
+_SweptModule = tuple[
+    str, ast.AST, dict[int, ast.FunctionDef | ast.AsyncFunctionDef], dict[int, str]
+]
+
+
+def _enclosing_functions(tree: ast.AST) -> dict[int, ast.FunctionDef | ast.AsyncFunctionDef]:
+    """Which function each node is written inside, by `id()`, innermost winning.
+
+    The node rather than its name, because the sweep below has to read a function's parameter
+    list and follow the calls made inside it. Innermost wins for the same reason it does in
+    `_enclosing_function_names`: `ast.walk` is breadth-first, so an outer function is visited
+    before the ones nested in it and the inner name overwrites the outer.
+    """
+
+    holder: dict[int, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            for child in ast.walk(node):
+                holder[id(child)] = node
+    return holder
+
+
+def _enclosing_classes(module: str, tree: ast.AST) -> dict[int, str]:
+    """Which class each node is written inside, by `id()`, qualified by module.
+
+    Qualified because the names collide: `RepositoryIndexService._recorded_for` and
+    `ReviewWorkflowService._recorded_for` are two unrelated private helpers in two packages,
+    and a sweep that followed `self._recorded_for(...)` by name alone walked from one into the
+    other and reported the second one's `thread_id` as a badly spelled repository root.
+    """
+
+    owner: dict[int, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for child in ast.walk(node):
+                owner[id(child)] = f"{module}::{node.name}"
+    return owner
+
+
+def _bound_parameters(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """The positional parameters a call site actually writes an argument for.
+
+    `self` is dropped: `self._recorded_for(root)` passes one argument to a function declared
+    with two, and every index after it would be off by one.
+    """
+
+    names = [item.arg for item in [*function.args.posonlyargs, *function.args.args]]
+    return names[1:] if names[:1] == ["self"] else names
+
+
+def _arguments_passed_for(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    owner: str | None,
+    parameter: str,
+    sources: list[_SweptModule],
+) -> list[tuple[ast.expr, ast.FunctionDef | ast.AsyncFunctionDef | None]]:
+    """What every caller in `src/` passes for `parameter`, paired with the function it sat in.
+
+    Every module and not just the one the function lives in, because
+    `RepositoryIndexService.scope` is public and the caller that reaches it is a web route two
+    packages away. A forwarder whose callers were only looked for at home would leave a hole
+    exactly the width of that route.
+
+    Calls are matched by name, which is ambiguous, so a call through `self` is admitted only
+    from inside the same class. That restriction is not tidiness: without it this sweep
+    followed `ReviewWorkflowService._recorded_for(thread_id, review_id)` into the repository
+    service's unrelated helper of the same name and failed on `thread_id`. A call through
+    anything else — `runtime.repository_service.scope(root)` — cannot be attributed to a class
+    from syntax alone and is admitted on the name, which over-collects towards more
+    expressions having to satisfy the rule rather than fewer.
+    """
+
+    parameters = _bound_parameters(function)
+    if parameter not in parameters:
+        return []
+    index = parameters.index(parameter)
+    found: list[tuple[ast.expr, ast.FunctionDef | ast.AsyncFunctionDef | None]] = []
+    for _module, tree, holder, classes in sources:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            called = node.func
+            if isinstance(called, ast.Name):
+                name, through_self = called.id, False
+            elif isinstance(called, ast.Attribute):
+                name = called.attr
+                through_self = (
+                    isinstance(called.value, ast.Name) and called.value.id == "self"
+                )
+            else:
+                continue
+            if name != function.name:
+                continue
+            if through_self and classes.get(id(node)) != owner:
+                continue
+            keyword = next((item for item in node.keywords if item.arg == parameter), None)
+            if keyword is not None:
+                found.append((keyword.value, holder.get(id(node))))
+            elif index < len(node.args):
+                found.append((node.args[index], holder.get(id(node))))
+    return found
+
+
+def _key_expressions(
+    expression: ast.expr,
+    function: ast.FunctionDef | ast.AsyncFunctionDef | None,
+    owner: str | None,
+    sources: list[_SweptModule],
+    seen: frozenset[tuple[int, str]] = frozenset(),
+) -> list[ast.expr]:
+    """Every expression that can arrive here, following names and branches one hop at a time.
+
+    A name is evidence of nothing on its own, and one hop of indirection is all it takes to
+    put a hand-spelled key beyond a sweep's reach: `self._recorded_for(...)` is that hop, and
+    the mutation that re-spelled the key at *its* call site rather than at `.get` failed no
+    test in the tree. So a name is resolved — to the right-hand side of the assignment that
+    made it, or,
+    when it is a parameter, to whatever each caller in the tree passes for it. Assignments are
+    preferred, because a parameter that is reassigned no longer carries what was passed. A
+    conditional yields both of its arms, since either one can be the key.
+
+    A name that resolves to nothing is handed back as itself and fails the rule below. An
+    unexaminable key is not a key anybody has shown to be asked for, and the loud failure says
+    exactly which expression to go and look at.
+    """
+
+    if isinstance(expression, ast.IfExp):
+        return [
+            resolved
+            for branch in (expression.body, expression.orelse)
+            for resolved in _key_expressions(branch, function, owner, sources, seen)
+        ]
+    if not isinstance(expression, ast.Name) or function is None:
+        return [expression]
+    marker = (id(function), expression.id)
+    if marker in seen:
+        return [expression]
+    onwards = seen | {marker}
+    assigned = [
+        node.value
+        for node in ast.walk(function)
+        if (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == expression.id
+                for target in node.targets
+            )
+        )
+        or (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == expression.id
+            and node.value is not None
+        )
+    ]
+    onward_from: list[tuple[ast.expr, ast.FunctionDef | ast.AsyncFunctionDef | None, str | None]]
+    if assigned:
+        onward_from = [(value, function, owner) for value in assigned if value is not None]
+    else:
+        onward_from = [
+            (value, caller, _owner_of(caller, sources))
+            for value, caller in _arguments_passed_for(
+                function, owner, expression.id, sources
+            )
+        ]
+    if not onward_from:
+        return [expression]
+    return [
+        resolved
+        for value, caller, caller_owner in onward_from
+        for resolved in _key_expressions(value, caller, caller_owner, sources, onwards)
+    ]
+
+
+def _owner_of(
+    function: ast.FunctionDef | ast.AsyncFunctionDef | None, sources: list[_SweptModule]
+) -> str | None:
+    """The qualified class a function is written in, or `None` for a module-level one."""
+
+    if function is None:
+        return None
+    for _, _, _, classes in sources:
+        if id(function) in classes:
+            return classes[id(function)]
+    return None
+
+
+def test_a_scope_selection_key_is_always_asked_for_and_never_spelled_out() -> None:
+    """Nothing in `src/` computes the string a scope selection is filed under. It asks for it.
+
+    `scope_selections` is keyed by a plain path string, and a lookup under a spelling nothing
+    recorded does not fail — it returns `None`, which reads as "nobody chose a scope". The
+    review then runs over the whole repository, its fingerprint is taken over a different set
+    of files than the stored atlas covers, and `AtlasFreshnessService` marks that atlas stale
+    on every open, forever. The workspace on this machine is living in the near miss already:
+    `scope_selections` holds a row for `examples/cases/acme-shop/repository` while
+    `atlas_versions` holds one for `eval/cases/acme-shop/repository` — the same case under two
+    spellings of its root, with the recorded scope invisible to one of them.
+
+    Three readers used to spell that key out by hand, each carrying its own copy of
+    `str(root.expanduser().resolve(strict=False))` beside a comment promising it matched the
+    others. They did match. That is what makes a duplicated derivation survive every behavioural
+    test written against it — the shape `a30648e` and `366b7e5` each fixed elsewhere in this
+    repository, and which came back both times when a new code path arrived that derived the
+    value again. `AtlasSource.canonical_root` answers the question instead, so there is no
+    expression left to keep in step — and this sweep is what stops a fourth one being written.
+    Six re-spellings were tried against this sweep: at `.get`, at the private helper that
+    forwards to it, in the freshness check, behind a local name, at a web route two packages
+    away, and as a `canonical_root` of the service's own. Each one is caught here and fails
+    nothing else, and each one passes the whole unit suite with this test deselected — because
+    none of them changes what the code does, which is the entire difficulty.
+
+    Every allowed form asks or carries; none of them builds. `analyzer.canonical_root(path)`
+    puts the question to the object that decides the answer; `version.root_path`,
+    `summary.root_path` and `repository.canonical_root` read that same answer back off records
+    written from it. Anything that assembles the string here fails, including a copy that is
+    correct today, which is the only kind this defect has ever arrived as.
+    """
+
+    sources: list[_SweptModule] = []
+    for path in _python_files(SOURCE_ROOT):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        module = path.relative_to(SOURCE_ROOT).as_posix()
+        sources.append(
+            (module, tree, _enclosing_functions(tree), _enclosing_classes(module, tree))
+        )
+
+    keys: set[tuple[str, str, str]] = set()
+    readers: set[str] = set()
+    for module, tree, holder, classes in sources:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr not in _SCOPE_SELECTION_METHODS:
+                continue
+            if not _SCOPE_SELECTION_HOLDER.search(ast.unparse(node.func.value)):
+                continue
+            readers.add(module)
+            if not node.args:
+                keys.add((module, node.func.attr, ast.unparse(node)))
+                continue
+            enclosing = holder.get(id(node))
+            for resolved in _key_expressions(
+                node.args[0], enclosing, classes.get(id(node)), sources
+            ):
+                keys.add((module, node.func.attr, ast.unparse(resolved)))
+
+    assert readers >= _SCOPE_SELECTION_READERS, (
+        f"this sweep found scope-selection calls only in {sorted(readers)}, and expects them "
+        f"in at least {sorted(_SCOPE_SELECTION_READERS)}; a sweep that has lost its subject "
+        "reports success over no code at all"
+    )
+    spelled = sorted(
+        entry
+        for entry in keys
+        if entry[2] not in _SCOPE_KEY_ABSENT
+        and not _SCOPE_KEY_ASKED.fullmatch(entry[2])
+        and not _SCOPE_KEY_CARRIED.fullmatch(entry[2])
+    )
+    assert not spelled, (
+        "a scope selection is keyed by a string the caller works out for itself: "
+        + "; ".join(
+            f"{module}: scope_selections.{method}({key})" for module, method, key in spelled
+        )
+        + " — the key may only be `<analyzer>.canonical_root(<root>)`, asked of the object "
+        "that decides it, or a `.root_path` / `.canonical_root` read whole off a record that "
+        "was written from that answer"
+    )
+
+    # A second answerer is the same defect wearing the right name. The rule above admits any
+    # `.canonical_root(...)`, so a service that grew a helper of that name whose body was the
+    # old hand-spelled expression would satisfy it while reintroducing exactly what it forbids
+    # — `_SCOPE_KEY_ASKED` matches `self.canonical_root(repository)` in full, and that mutation
+    # passed this test until these lines were added. What makes the question worth asking at
+    # all is that the answer is the string `analyze` will stamp on the atlas, so only the thing
+    # that runs the analysis may answer it: every `canonical_root` in `src/` sits beside an
+    # `analyze` in the same class. A second analyzer is welcome and would carry both; a helper
+    # on a service carries neither the method nor the guarantee.
+    answered_by = [
+        (module, owner.name, {item.name for item in owner.body if isinstance(item, _DEF)})
+        for module, tree, _, _ in sources
+        for owner in ast.walk(tree)
+        if isinstance(owner, ast.ClassDef)
+        and any(isinstance(item, _DEF) and item.name == "canonical_root" for item in owner.body)
+    ]
+    loose = sorted(
+        f"{module}:{node.name}"
+        for module, tree, _, classes in sources
+        for node in ast.walk(tree)
+        if isinstance(node, _DEF) and node.name == "canonical_root" and id(node) not in classes
+    )
+    assert answered_by, (
+        "nothing in src/ defines `canonical_root`; the question this rule is built on has no "
+        "answerer, so the sweep above is checking a shape nobody implements"
+    )
+    assert not loose, (
+        f"`canonical_root` is defined outside any class at {loose}; the answer is only worth "
+        "asking for because it is the string that analyzer's own `analyze` will stamp"
+    )
+    impostors = sorted(
+        f"{module}:{owner}" for module, owner, methods in answered_by if "analyze" not in methods
+    )
+    assert not impostors, (
+        f"{impostors} answer `canonical_root` without running an analysis; only an analyzer "
+        "may answer it, because the answer's whole content is what that analyzer's `analyze` "
+        "will stamp on the atlas — a helper of this name anywhere else is the hand-spelled "
+        "key back again, under a spelling the rule above cannot tell from the real one"
+    )
+
+
+#: The record one reading of the model selection produces, and the only name this sweep is
+#: handed. Which function produces one, and what each reader calls the callable it holds, are
+#: both derived from the annotations in `src/` below — a list of reader names maintained here
+#: would be the second place to forget, which is the thing four fixes of this defect have now
+#: been lost to.
+_SELECTION_RECORD = "JudgementInForce"
+
+#: Where a reading is taken today, as a lower bound rather than an equality: wiring an eighth
+#: reader should not have to be recorded here, but a sweep that has stopped finding these has
+#: stopped sweeping and would report success over no code at all. Six of them are the readers
+#: `bootstrap` hands `SelectedLangChainJudge.in_force` to; the seventh is that judge reading
+#: its own answer to decide which judge it is.
+_SELECTION_READERS = frozenset(
+    {
+        ("reasoning/cache.py", "key"),
+        ("analysis/delta.py", "calculate"),
+        ("bootstrap.py", "deterministic_retrieval_mode"),
+        ("reasoning/adapters/selected.py", "judge"),
+        ("reasoning/adapters/selected.py", "generate"),
+        ("reasoning/adapters/selected.py", "write"),
+        ("reasoning/adapters/selected.py", "answer"),
+    }
+)
+
+
+def _selection_reader_names(trees: list[ast.AST]) -> tuple[frozenset[str], frozenset[str]]:
+    """Every name in `src/` that yields a reading of the model selection, found by annotation.
+
+    Two families, and neither is spelled out. A *producer* is a function whose return
+    annotation names the record — `SelectedLangChainJudge.in_force` is the only one, and
+    `bootstrap` and `selected.py` call it by that name. A *holder* is an attribute a
+    constructor assigns from a parameter annotated as a callable returning the record;
+    `cache.py` and `selected.py` call theirs `_in_force` and `delta.py` calls its
+    `_judgement`, which is exactly why this reads annotations rather than names.
+
+    Deriving both is what lets the guard survive a rename and an eighth reader. Nothing here
+    is edited when one is wired, because pyright already makes that reader declare the type
+    at the `bootstrap` call site, and declaring it is what puts it in this sweep.
+    """
+
+    producers: set[str] = set()
+    holders: set[str] = set()
+    for tree in trees:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if node.returns is not None and _SELECTION_RECORD in ast.unparse(node.returns):
+                producers.add(node.name)
+            held = {
+                argument.arg
+                for argument in (
+                    *node.args.posonlyargs,
+                    *node.args.args,
+                    *node.args.kwonlyargs,
+                )
+                if argument.annotation is not None
+                and _SELECTION_RECORD in ast.unparse(argument.annotation)
+                and "Callable" in ast.unparse(argument.annotation)
+            }
+            holders.update(
+                target.attr
+                for statement in ast.walk(node)
+                if isinstance(statement, ast.Assign)
+                and isinstance(statement.value, ast.Name)
+                and statement.value.id in held
+                for target in statement.targets
+                if isinstance(target, ast.Attribute)
+            )
+    return frozenset(producers), frozenset(holders)
+
+
+def test_no_function_reads_the_model_selection_more_than_once() -> None:
+    """One reading per operation. A second call is the torn read, and it has been written.
+
+    `in_force()` is asked per call and not once at build, because a workspace changes its
+    model through `PUT /api/models/selection` while the process runs and the change has to
+    take effect. That is the feature, and it is also the hazard: two calls inside one
+    operation can straddle the change, and a reader that takes a field from each ends up with
+    a pair no selection ever had — the old model's name beside the new model's prompt.
+
+    `cache.py` argues this out in full three lines above the read, and the comment was the
+    only thing holding it: reverting that single `in_force()` to a call each leaves every unit
+    test in this suite passing, which was measured before this guard was written. Every stub
+    the suite hands these readers answers the same thing twice, so no behavioural test in the
+    tree can distinguish one reading from two. `test_reasoning_adapters.py` now has two that
+    can, over a selection that moves between calls — but those cover two of the seven readers,
+    and the lesson of the four previous fixes is that the eighth code path is the one nobody
+    writes a test for. So the shape is asked of the source, where it is one rule over all of
+    them.
+
+    The rule is deliberately about the call count and not about how many fields are read.
+    "Two calls but only one field each" is not safe either — two readers of one operation
+    splitting the work between them is the same torn read spread over two lines — and a
+    count is the thing that cannot be argued with. Binding the record to a local costs
+    nothing, so there is no legitimate second call to protect.
+    """
+
+    trees = {
+        path: ast.parse(path.read_text(encoding="utf-8"))
+        for path in _python_files(SOURCE_ROOT)
+    }
+    producers, holders = _selection_reader_names(list(trees.values()))
+    assert producers, (
+        f"no function in src/ returns a {_SELECTION_RECORD}; this sweep has lost the record "
+        "it is named after and would pass over anything"
+    )
+    assert holders, (
+        f"nothing in src/ holds a Callable[[], {_SELECTION_RECORD}]; the six readers "
+        "`bootstrap` wires are invisible to this sweep"
+    )
+
+    reads: list[tuple[str, str]] = []
+    repeated: list[str] = []
+    for path, tree in trees.items():
+        module = path.relative_to(SOURCE_ROOT).as_posix()
+        enclosing = _enclosing_function_names(tree)
+        # A local alias counts as the reader it aliases. `judging = self._judgement` followed
+        # by two `judging()` calls is the same torn read written around a guard that only knew
+        # how to see `self._judgement()`, and it is the first thing anybody tries. Binding the
+        # *record* — `in_force = self._in_force()` — is the correct spelling and is not an
+        # alias, which is why only a bare attribute counts here and never a call's result.
+        aliases = {
+            target.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr in producers | holders
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        counted: dict[str, int] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not (
+                (isinstance(node.func, ast.Attribute) and node.func.attr in producers | holders)
+                or (isinstance(node.func, ast.Name) and node.func.id in aliases)
+            ):
+                continue
+            where = enclosing.get(id(node), "<module>")
+            counted[where] = counted.get(where, 0) + 1
+        reads.extend((module, where) for where in counted)
+        repeated.extend(
+            f"{module}:{where} reads it {count} times"
+            for where, count in sorted(counted.items())
+            if count > 1
+        )
+
+    assert set(reads) >= _SELECTION_READERS, (
+        f"this sweep found readings of the model selection only in {sorted(set(reads))}, and "
+        f"expects them in at least {sorted(_SELECTION_READERS)}; a sweep that has lost its "
+        "subject reports success over no code at all"
+    )
+    assert not repeated, (
+        "the model selection is read twice inside one operation: "
+        + "; ".join(repeated)
+        + " — a workspace can change its model between the two calls, so the two readings "
+        "are not one selection. Bind `in_force()` to a local once and read every field off "
+        "that record."
     )

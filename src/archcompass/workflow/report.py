@@ -20,7 +20,8 @@ into Markdown:
   standing decisions are a separate record and the footer says so.
 * **Say where it came from.** Every finding carries its policies, its evidence locations and
   its detection rationale; the footer carries the model, the prompt, the retriever and the
-  atlas the whole thing was read from.
+  atlas the whole thing was read from — and, where a gateway said so, which of that model's
+  endpoints actually answered, because a model name is not a route.
 * **Uncertainty is stated, not smoothed.** A held finding prints its hinge. A review that is
   still waiting says at the top that it is not final.
 * **The second visit is the important one.** What moved since the previous review is a
@@ -410,6 +411,18 @@ def _provenance(
 ) -> str:
     models = sorted({item.model_identity for item in findings if item.model_identity})
     prompts = sorted({item.prompt_identity for item in findings if item.prompt_identity})
+    # Every endpoint that answered anywhere in this review, split back out of the per-finding
+    # field because each finding stores its own comma-joined set. Sorted and deduplicated for
+    # the same reason the models above are: a review of forty candidates would otherwise
+    # print one name forty times.
+    endpoints = sorted(
+        {
+            endpoint
+            for item in findings
+            for endpoint in item.served_by.split(",")
+            if endpoint
+        }
+    )
     parser = " ".join(f"{key}={value}" for key, value in atlas.parser_configuration) or "—"
     lines = [
         f"- **Judged by** {', '.join(f'`{item}`' for item in models) or '—'}"
@@ -422,6 +435,20 @@ def _provenance(
         + (f", commit `{repository.commit}`" if repository.commit else ""),
         f"- **Case** `{case.id}` at revision {case.revision}",
     ]
+    # Which of a hosted model's endpoints answered, and only where one said so. "Judged by"
+    # names a model, and a gateway serves one model from several endpoints that are not the
+    # same silicon, the same quantisation or the same sampler — so the line above satisfies
+    # the charter's "say where it came from" up to a routing decision it cannot see, and this
+    # is the rest of the sentence. It is here rather than folded into "judged by" because it
+    # is not part of what was selected: nobody chose it, the gateway did, per request.
+    #
+    # Omitted rather than printed as "—" when nothing named an endpoint, which is the
+    # ordinary case: a local Ollama and the deterministic stand-in have no endpoint to name,
+    # and every review filed before the field existed has none stored. A dash there would
+    # read as a hosted route that failed to be recorded, which is a different and worse
+    # claim than saying nothing.
+    if endpoints:
+        lines.append(f"- **Served by** {', '.join(f'`{item}`' for item in endpoints)}")
     # Said separately from "judged by" because it is a separate call. A finding carried
     # forward from review 2 was judged by whatever model was selected then; the paragraph at
     # the top was written now, and a reader weighing it should be told by what.

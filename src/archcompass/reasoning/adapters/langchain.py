@@ -6,7 +6,7 @@ import json
 import logging
 from collections.abc import Sequence
 from functools import partial
-from typing import Any, Final, Literal, cast
+from typing import Any, ClassVar, Final, Literal, cast
 
 from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
@@ -297,10 +297,13 @@ _REPAIR_PREVIEW_CHARACTERS: Final = 2_000
 type Request = str | list[BaseMessage]
 
 
-def _repair_prompt(
+def repair_prompt(
     prompt: Request, parsing_error: object, raw: object
 ) -> Request | None:
     """The original request, the answer that was refused, and why — or nothing.
+
+    Public for the same reason as `OneRepair`: `prompt_inventory` renders it, because every
+    judge sends this after an answer that did not fit the schema.
 
     `None` when there is no parser complaint to quote, because then there is nothing to say
     that the first prompt did not already say, and asking again would be the same request
@@ -367,7 +370,7 @@ def _attempt(
     """One structured call as `(parsed, parsing_error, raw)`, however the transport says it.
 
     The point is that the caller never learns which of the two shapes it got. A raised
-    refusal carries no raw message to quote, which `_repair_prompt` already copes with — and
+    refusal carries no raw message to quote, which `repair_prompt` already copes with — and
     a Pydantic complaint names the offending value inside its own text, so the repair still
     says what was wrong with what.
     """
@@ -444,7 +447,7 @@ def structured_output[Output: BaseModel](
     # And a *systematic* violation doubles the call count for every candidate rather than
     # for one, which on a metered tier is a review costing twice what it should. Neither is
     # worth refusing the attempt over; both are worth knowing before raising the ceiling.
-    repair = _repair_prompt(prompt, parsing_error, raw)
+    repair = repair_prompt(prompt, parsing_error, raw)
     if repair is not None:
         _log.warning(
             "%s did not match the schema for %s; asking once more with the violation named",
@@ -774,16 +777,16 @@ def finding_from_output(
 class LangChainArchitectureJudge:
     """One controlled structured call; the model never supplies ArchCompass identity."""
 
-    def __init__(
-        self,
-        model: BaseChatModel,
-        *,
-        model_identity: str,
-        prompt_identity: str = JUDGE_PROMPT_IDENTITY,
-    ) -> None:
+    #: What this judge stamps every finding it produces with, and the only place that says
+    #: so. A class attribute rather than a constructor argument because
+    #: `SelectedLangChainJudge.in_force` has to report it while it is still choosing which
+    #: judge to build, and an overridable default would let a caller stamp a finding with a
+    #: prompt this judge does not send.
+    identity: ClassVar[str] = JUDGE_PROMPT_IDENTITY
+
+    def __init__(self, model: BaseChatModel, *, model_identity: str) -> None:
         self._model = model
         self._model_identity = model_identity
-        self._prompt_identity = prompt_identity
 
     def judge(
         self,
@@ -809,7 +812,7 @@ class LangChainArchitectureJudge:
             candidate,
             policies,
             model_identity=self._model_identity,
-            prompt_identity=self._prompt_identity,
+            prompt_identity=self.identity,
         )
 
 
@@ -872,15 +875,14 @@ class LangChainQuestionGenerator:
     up rather than in advance of them.
     """
 
-    def __init__(
-        self, model: BaseChatModel, *, prompt_identity: str = "questions:v2"
-    ) -> None:
+    # This used to declare a `questions:v2` prompt identity and offer it as a property.
+    # Nothing ever read it: a question is not stored under an identity, is not compared
+    # against a previous review's, and is not cached, so the value named a prompt whose
+    # movement nothing could have noticed. A fifth identity in a codebase whose defects have
+    # twice been two identities disagreeing is worse than none, because the next reader has
+    # to work out which of the five are load-bearing before they can trust any of them.
+    def __init__(self, model: BaseChatModel) -> None:
         self._model = model
-        self._prompt_identity = prompt_identity
-
-    @property
-    def prompt_identity(self) -> str:
-        return self._prompt_identity
 
     def generate(
         self,

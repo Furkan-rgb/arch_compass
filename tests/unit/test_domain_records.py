@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -29,6 +29,18 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.domain._support import utc_now
+
+
+@dataclass(frozen=True)
+class _Judging:
+    """What `SelectedLangChainJudge.in_force` reports, with only the two stamps in it.
+
+    The calculator reads a record rather than two callables so that the model it compares
+    against and the prompt it compares against are one reading of the selection.
+    """
+
+    model_identity: str
+    prompt_identity: str
 
 
 def test_case_revision_is_immutable_and_records_an_answer() -> None:
@@ -188,8 +200,7 @@ def test_revision_calculator_rejudges_for_policy_model_and_prompt_changes(
     )
     calculator = DeterministicRevisionCalculator(
         corpus_fingerprint=lambda _: "new-corpus",
-        model_identity=lambda: "new-model",
-        prompt_identity=lambda: "new-prompt",
+        judgement=lambda: _Judging("new-model", "new-prompt"),
     )
 
     delta = calculator.calculate((candidate,), case, previous, repository)

@@ -7,6 +7,7 @@ to keep on its own, without a gutter, a colour or anything to click.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -375,6 +376,34 @@ def test_the_footer_says_where_every_part_of_it_came_from() -> None:
     # Shortened where the line is scanned, whole where it is looked up.
     assert "commit `8f31c2a91b`" in text
     assert "commit `8f31c2a91b4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f`" in text
+
+
+def test_the_footer_names_the_endpoints_that_answered_and_only_where_one_did() -> None:
+    """"Judged by" names a model; a gateway serves one model from several endpoints.
+
+    `google/gemini-3.5-flash-lite` has seven, they are not the same silicon or the same
+    sampler, and which one answered is the gateway's decision rather than a selection
+    anybody made — so it is a separate line rather than more of the "judged by" one. Each
+    finding stores its own comma-joined set, so a review's line is the union of them, said
+    once however many findings answered from the same place.
+
+    The second half is the part that has to keep holding for the rest of the corpus: with
+    nothing recorded there is no line at all. A "— " there would read as a hosted route that
+    failed to be recorded, and what is true of a local Ollama, of the deterministic
+    stand-in, and of all 148 findings stored before the field existed is that there was no
+    endpoint to name.
+    """
+
+    routed = report(
+        findings=(
+            replace(MATERIAL, served_by="Google AI Studio,Vertex"),
+            replace(HELD, served_by="Vertex"),
+            CLEARED,
+        )
+    )
+
+    assert "- **Served by** `Google AI Studio`, `Vertex`" in routed
+    assert "Served by" not in report()
 
 
 def test_the_context_it_was_judged_against_is_printed_not_referenced() -> None:

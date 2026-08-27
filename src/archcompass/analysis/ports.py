@@ -35,6 +35,30 @@ class AtlasSource(Protocol):
         """
         ...
 
+    def canonical_root(self, root: Path) -> str:
+        """What this analyzer will call the repository at `root` — the same string as
+        `analyze(root).version.root_path`, answerable before the analysis has run.
+
+        It exists because a scope selection is filed under that string and has to be read
+        back *before* the analysis, to be applied to it. Both readers used to spell the
+        canonicalization out by hand — `str(root.expanduser().resolve(strict=False))`, twice,
+        beside a comment promising it matched what the analyzer does. It did. Two identical
+        guesses maintained in two files are the shape this repository has already been bitten
+        by twice: `a30648e` and `366b7e5` both fixed a stamp compared against an independently
+        predicted copy of itself, and the second came back the moment a new implementation
+        arrived and predicted differently.
+
+        So the question is asked of the object that answers it. An analyzer that canonicalizes
+        differently is now one that says so here too, rather than one whose atlases are filed
+        under a key nobody else can construct — and a caller cannot spell the guess at all,
+        because there is no expression left to spell.
+
+        Raises `PathValidationError` for a root that is not a readable directory, in the
+        analyzer's own words, which is what the callers wanted from `strict=False` and got by
+        deferring the error to `analyze` a line later.
+        """
+        ...
+
 
 #: Which rule admitted a conformance verdict. `strict` is the backend's own subtyping
 #: question; `structural` is the relaxed rule — every member present, return types checked,

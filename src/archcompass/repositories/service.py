@@ -69,11 +69,13 @@ class RepositoryIndexService:
         """
 
         applied = (
-            # Keyed the way the atlas is keyed, and resolved the same way the analyzer
-            # resolves it, so a selection recorded under one spelling of a directory is
-            # found from the other. `strict=False` because a root that does not exist is
-            # the analyzer's error to report, in its own words, a line below.
-            self._recorded_for(str(repository.expanduser().resolve(strict=False)))
+            # Keyed the way the atlas is keyed, by asking the analyzer what it will call
+            # this directory rather than working it out again here. The two answers agreed
+            # while both were `expanduser().resolve()`; they agreed because somebody kept
+            # them agreeing, which is the arrangement this repository has already watched
+            # fail twice elsewhere. A root that does not exist is still the analyzer's error
+            # to report, in its own words — now raised from this line rather than the next.
+            self._recorded_for(self._analyzer.canonical_root(repository))
             if excluded_paths is None
             else validate_excluded_paths(excluded_paths)
         )

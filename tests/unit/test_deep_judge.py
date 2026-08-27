@@ -264,7 +264,7 @@ def test_the_same_question_asked_a_third_time_ends_the_gathering() -> None:
 def test_a_judgement_refused_twice_costs_a_candidate_and_not_the_review() -> None:
     """The one refusal that used to escape, out of the one place a breaker cannot reach.
 
-    `_OneRepair` raises on the second malformed answer, and that raise comes from inside the
+    `OneRepair` raises on the second malformed answer, and that raise comes from inside the
     model node — past the agent, past `judge`, and out through the graph, which fails the
     whole review after every other candidate has already been judged and paid for. Observed
     on `gemini-3.5-flash-lite`, which twice put a recommended response on a verdict that may
@@ -317,9 +317,9 @@ def test_a_malformed_judgement_is_corrected_once_and_then_refused() -> None:
     contract and its own violation of it will not honour it on the fourth attempt.
     """
 
-    from archcompass.reasoning.adapters.deep_judge import _OneRepair
+    from archcompass.reasoning.adapters.deep_judge import OneRepair
 
-    repair = _OneRepair()
+    repair = OneRepair()
 
     first = repair(ValueError("a held finding must name the fact its verdict turns on"))
 

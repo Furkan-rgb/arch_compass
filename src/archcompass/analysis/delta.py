@@ -12,6 +12,7 @@ manifest records which corpus each candidate was retrieved against.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol
 
 from archcompass.domain import (
     AddressedCandidate,
@@ -25,17 +26,44 @@ from archcompass.domain import (
 )
 
 
+class JudgementInForce(Protocol):
+    """What would judge this review, as the two global causes need to read it.
+
+    Structural, and declared here rather than imported, because `analysis` reaches no
+    reasoning adapter: what satisfies it is `SelectedLangChainJudge.in_force`, and pyright
+    checks the fit at the one call site in `bootstrap`.
+
+    One record rather than two callables so that the model and the prompt this run is
+    compared against are the same reading of the selection. Read separately, `MODEL` is
+    decided against one reading and `PROMPT` against another, so a workspace that switched
+    model between the two can be told that its prompt moved while its model did not — a pair
+    that was no one selection, and `changed=N, causes:['prompt']` against a commit nobody
+    touched, which is the measurement this whole line of work started from.
+
+    Both guards are in the test tree rather than here: `test_reasoning_adapters.py` runs this
+    calculator against a selection that moves between calls, and
+    `test_no_function_reads_the_model_selection_more_than_once` asks it of every function in
+    `src/`. The second one is the one that matters, because the lesson of the four previous
+    fixes of this defect is that the next reader to arrive is the one nobody writes a
+    behavioural test for.
+    """
+
+    @property
+    def model_identity(self) -> str: ...
+
+    @property
+    def prompt_identity(self) -> str: ...
+
+
 class DeterministicRevisionCalculator:
     def __init__(
         self,
         *,
         corpus_fingerprint: Callable[[RepositoryRef], str] | None = None,
-        model_identity: Callable[[], str] | None = None,
-        prompt_identity: Callable[[], str] | None = None,
+        judgement: Callable[[], JudgementInForce] | None = None,
     ) -> None:
         self._corpus_fingerprint = corpus_fingerprint
-        self._model_identity = model_identity
-        self._prompt_identity = prompt_identity
+        self._judgement = judgement
 
     def calculate(
         self,
@@ -61,15 +89,27 @@ class DeterministicRevisionCalculator:
         global_causes: list[ChangeCause] = []
         if previous.case != case:
             global_causes.append(ChangeCause.CASE)
-        if (
-            self._model_identity is not None
-            and previous.model_identity != self._model_identity()
-        ):
+        # Both sides of these two have to be produced by the same decision, and only one side
+        # is produced here. `judgement` is `SelectedLangChainJudge.in_force` — the thing that
+        # chooses the judge, reporting what that judge stamps — because a value derived
+        # separately is a value that can be derived differently: this compared against
+        # `judge:v3` while every finding it read was stamped `judge:deep-v2`, so the prompt
+        # reported as moved on every candidate of every review, and
+        # `ChangedAndNewCandidateSelector` re-judged all of them. Three revisions of one
+        # untouched commit, seven candidates each, and not one verdict carried forward.
+        #
+        # It lasted about a day. The two constants parted on 2026-08-26 and every review the
+        # workspace that found it holds was judged in the hours after that. The duration is
+        # the point rather than a mitigation: two derivations of one fact do not have to
+        # disagree for long to spoil everything recorded while they do, and none of the damage
+        # above would have been different had it lasted a year. An earlier version of this
+        # comment said "months" — of a repository whose first commit is dated 2026-07-23. A
+        # duration is exactly the kind of claim a comment gets to invent, because nothing runs
+        # it; prefer a date somebody can check against `git log`.
+        in_force = None if self._judgement is None else self._judgement()
+        if in_force is not None and previous.model_identity != in_force.model_identity:
             global_causes.append(ChangeCause.MODEL)
-        if (
-            self._prompt_identity is not None
-            and previous.prompt_identity != self._prompt_identity()
-        ):
+        if in_force is not None and previous.prompt_identity != in_force.prompt_identity:
             global_causes.append(ChangeCause.PROMPT)
         # Which corpus a verdict was retrieved against is a fact about that verdict rather
         # than about the review holding it, and the manifest records it per candidate. Read

@@ -558,10 +558,16 @@ class AtlasInvestigatorSource:
             )
         try:
             analysed = analysis_atlas(atlas)
-        except ValidationError:
+        except (ValidationError, KeyError):
             # An atlas an earlier parser wrote, whose records this build can no longer
             # read. Named rather than raised: the review is mid-flight and its verdicts are
             # sound, and the honest outcome is a hinge that says nobody could check it.
+            #
+            # `KeyError` is the same condition arriving one layer earlier: an atlas that does
+            # not name the parser that built it. It joins `ValidationError` rather than
+            # getting a message of its own because a reader cannot act on the difference —
+            # both mean this structure was written by a build that is gone, and both are
+            # answered by indexing the repository again.
             return OfferedInvestigator(
                 withheld=(
                     "This review's stored structure was written by an earlier version of "

@@ -207,6 +207,17 @@ class FindingResponse(APIModel):
     recommended_response: str | None
     reused_from_review_id: str | None
     model_identity: str
+    #: Which of the gateway's endpoints served this judgement, as the response named it.
+    #: `Finding.served_by` carries the whole argument for the field; what belongs here is
+    #: why it has a default when its neighbours do not.
+    #:
+    #: Absent is the normal case for most of the corpus and for two of the three providers,
+    #: so a reader that has never heard of the field has to keep working. A default is how
+    #: the schema says that: FastAPI leaves a defaulted field out of `required`, the
+    #: generated TypeScript makes it optional, and the hand-written specimen on the landing
+    #: page goes on compiling without claiming an endpoint served it. `case_revision` on
+    #: `AnswerResponse` is the same shape for the same reason. The server always sends it.
+    served_by: str = ""
     prompt_identity: str
     retrieval_identity: str
     investigation_identity: str
@@ -584,6 +595,7 @@ class ReviewResponse(APIModel):
                     recommended_response=item.recommended_response,
                     reused_from_review_id=item.reused_from_review_id,
                     model_identity=item.model_identity,
+                    served_by=item.served_by,
                     prompt_identity=item.prompt_identity,
                     retrieval_identity=item.retrieval_identity,
                     investigation_identity=item.investigation_identity,

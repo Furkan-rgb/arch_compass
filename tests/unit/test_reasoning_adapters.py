@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Sequence
-from dataclasses import replace
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
+from itertools import cycle
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Final
@@ -11,6 +12,7 @@ from typing import Any, Final
 import pytest
 from pydantic import ValidationError
 
+from archcompass.analysis.delta import DeterministicRevisionCalculator
 from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
 from archcompass.domain import (
     Answer,
@@ -18,6 +20,7 @@ from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     CaseFacet,
+    ChangeCause,
     Evidence,
     Finding,
     Participant,
@@ -25,6 +28,7 @@ from archcompass.domain import (
     PolicyBearing,
     PolicyScope,
     PolicyStrength,
+    RecordedInvestigation,
     RepositoryAtlas,
     RepositoryRef,
     RetrievalProvenance,
@@ -37,7 +41,10 @@ from archcompass.domain import (
 from archcompass.domain._support import utc_now
 from archcompass.domain.case import Question
 from archcompass.domain.errors import ModelOutputValidationError, ProviderError
+from archcompass.ports.capabilities import ReviewedSubject
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
+from archcompass.reasoning.adapters import selected as selected_module
+from archcompass.reasoning.adapters.deep_judge import DeepArchitectureJudge
 from archcompass.reasoning.adapters.factory import build_embeddings
 from archcompass.reasoning.adapters.langchain import (
     CLARIFICATION_CONTRACT,
@@ -53,8 +60,20 @@ from archcompass.reasoning.adapters.langchain import (
     judgement_prompt,
     question_prompt,
 )
-from archcompass.reasoning.adapters.selected import SelectedLangChainChatModel
-from archcompass.reasoning.records import JUDGE_PROMPT_IDENTITY, model_identity
+from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
+from archcompass.reasoning.adapters.review_tools import ReviewToolbox
+from archcompass.reasoning.adapters.selected import (
+    SelectedLangChainChatModel,
+    SelectedLangChainJudge,
+)
+from archcompass.reasoning.cache import CachingArchitectureJudge
+from archcompass.reasoning.ports import OfferedInvestigator
+from archcompass.reasoning.records import (
+    DEEP_JUDGE_PROMPT_IDENTITY,
+    DETERMINISTIC_JUDGE_PROMPT_IDENTITY,
+    JUDGE_PROMPT_IDENTITY,
+    model_identity,
+)
 
 #: One citation, so a construction testing some *other* invariant satisfies the one every
 #: verdict carries. The tests that are about the citation itself say so in their own names.
@@ -731,6 +750,373 @@ def test_a_judgement_is_stamped_with_the_identity_the_delta_will_compare_it_agai
     assert model_identity(_CONFIG) != model_identity(
         _CONFIG.model_copy(update={"thinking": True})
     )
+
+
+
+#: A cleared verdict with the one citation every finding owes. Shared by the identity tests
+#: below, which are about what stamps the finding rather than about what it concluded.
+_CLEARED: Final = {
+    "verdict": "cleared",
+    "reasoning": "The boundary earns its keep.",
+    "policy_bearings": [{"policy_id": "policy-a", "reasoning": "It applies."}],
+}
+
+#: The stand-in provider, selected the way a workspace with no key selects it.
+_FAKE_CONFIG = ReasoningModelConfig(
+    provider="fake", model=DETERMINISTIC_MODEL, timeout_seconds=1.0
+)
+
+
+class Chosen:
+    """A workspace's model selection, as `SelectedLangChainChatModel` reads one."""
+
+    def __init__(self, config: ReasoningModelConfig) -> None:
+        self._config = config
+
+    def current(self) -> ReasoningModelConfig | None:
+        return self._config
+
+    def record_failure(self, detail: str) -> None:
+        raise AssertionError(f"nothing here reaches a provider: {detail}")
+
+
+class NothingToLookAt:
+    """An atlas no toolbox can be built over — the empty case `for_review` already has.
+
+    It is what lets the subject-carrying path be exercised offline. `DeepArchitectureJudge`
+    is handed a real `ReviewToolbox` and a real subject, finds no tools offered, and takes
+    its dossier-only branch: one structured call, which the double answers. The judge is
+    still the deep one, and the stamp still has to say so — which is the half of the
+    decision nothing checked.
+    """
+
+    def for_review(
+        self, repository: RepositoryRef, atlas: RepositoryAtlas
+    ) -> OfferedInvestigator:
+        del repository, atlas
+        return OfferedInvestigator(withheld="This repository has not been indexed.")
+
+
+class UnusedCache:
+    """A `FindingCache` for a test that only asks `CachingArchitectureJudge` for its key."""
+
+    def get(self, key: str) -> Finding | None:
+        raise AssertionError("this test never judges, so nothing is looked up")
+
+    def put(self, key: str, finding: Finding) -> Finding:
+        raise AssertionError("this test never judges, so nothing is stored")
+
+    def record_sources(self, review: Review) -> None:
+        raise AssertionError("this test records no review")
+
+
+def _reviewed(tmp_path: Path) -> tuple[RepositoryRef, RepositoryAtlas]:
+    repository = RepositoryRef("repo", tmp_path, "branch", "content")
+    return repository, RepositoryAtlas("atlas", repository)
+
+
+def _selected_judge(
+    config: ReasoningModelConfig, *, toolbox: bool, monkeypatch: pytest.MonkeyPatch
+) -> SelectedLangChainJudge:
+    monkeypatch.setattr(
+        selected_module,
+        "build_chat_model",
+        lambda _config: StructuredModel(dict(_CLEARED)),
+    )
+    return SelectedLangChainJudge(
+        SelectedLangChainChatModel(Chosen(config)),  # type: ignore[arg-type]
+        ReviewToolbox(NothingToLookAt(), ()) if toolbox else None,  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize(
+    ("config", "toolbox", "reads_the_repository", "expected"),
+    [
+        pytest.param(
+            _CONFIG, True, True, DEEP_JUDGE_PROMPT_IDENTITY, id="deep-judge-with-a-subject"
+        ),
+        pytest.param(
+            _CONFIG, True, False, DEEP_JUDGE_PROMPT_IDENTITY, id="deep-judge-without-one"
+        ),
+        pytest.param(_CONFIG, False, False, JUDGE_PROMPT_IDENTITY, id="judge-with-no-toolbox"),
+        pytest.param(
+            _FAKE_CONFIG,
+            True,
+            True,
+            DETERMINISTIC_JUDGE_PROMPT_IDENTITY,
+            id="deterministic-stand-in",
+        ),
+    ],
+)
+def test_the_selected_judge_stamps_the_identity_it_reports(
+    config: ReasoningModelConfig,
+    toolbox: bool,
+    reads_the_repository: bool,
+    expected: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The test `records.py` asked for, over every judge the dispatch can build.
+
+    One side of a comparison is asserted against the other: what the adapter writes onto a
+    finding, against what `SelectedLangChainJudge.in_force` tells the revision calculator and
+    the finding cache to expect. The existing stamp test covers the plain
+    judge alone, and the plain judge is the path production never takes — which is how the
+    two came to disagree in the one configuration that ships.
+
+    Every row is offline. The transport is a double that answers one structured call, and
+    the toolbox is built over an atlas that offers no tools, so the deep judge takes its
+    dossier-only branch rather than starting an agent.
+    """
+
+    candidate, case, policies = _input()
+    repository, atlas = _reviewed(tmp_path)
+    judge = _selected_judge(config, toolbox=toolbox, monkeypatch=monkeypatch)
+
+    finding = judge.judge(
+        candidate,
+        case,
+        policies,
+        subject=(
+            ReviewedSubject(repository=repository, atlas=atlas)
+            if reads_the_repository
+            else None
+        ),
+    )
+
+    assert finding.prompt_identity == judge.in_force().prompt_identity
+    assert finding.prompt_identity == expected
+
+
+def test_an_untouched_candidate_is_not_re_judged_for_a_prompt_that_never_moved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two halves of the comparison, wired the way `bootstrap` wires them.
+
+    This is the defect end to end rather than in one of its two places. The judge stamped
+    `judge:deep-v2` on every finding it produced and `bootstrap` computed `judge:v3` for the
+    revision calculator to compare against, so `ChangeCause.PROMPT` was reported for every
+    candidate of every review, `ChangedAndNewCandidateSelector` re-judged all of them, and no
+    finding in the workspace ever carried a `reused_from_review_id`. Measured there: three
+    consecutive revisions of one unchanged commit, `changed=7, unchanged=0` each time, and a
+    verdict that swung cleared → material → cleared → material across them.
+
+    So the finding here is produced by the judge and then read back by the calculator, with
+    the review composed the way `report.py` composes one — the joined set of its findings'
+    stamps. Asserting the constants against each other would not have caught it: both were
+    correct, and it was the wiring between them that named the wrong one.
+    """
+
+    candidate, case, policies = _input()
+    repository, atlas = _reviewed(tmp_path)
+    judge = _selected_judge(_CONFIG, toolbox=True, monkeypatch=monkeypatch)
+    finding = judge.judge(
+        candidate,
+        case,
+        policies,
+        subject=ReviewedSubject(repository=repository, atlas=atlas),
+    )
+    now = utc_now()
+    previous = Review(
+        "review-1",
+        1,
+        repository,
+        atlas,
+        case,
+        (finding,),
+        (),
+        ReviewStatus.COMPLETED,
+        ReviewDelta(new=(candidate,)),
+        now,
+        now,
+        model_identity=",".join(sorted({finding.model_identity})),
+        prompt_identity=",".join(sorted({finding.prompt_identity})),
+    )
+    calculator = DeterministicRevisionCalculator(judgement=judge.in_force)
+
+    delta = calculator.calculate((candidate,), case, previous, repository)
+
+    assert delta.unchanged == (candidate,)
+    assert delta.changed == ()
+
+
+def test_moving_the_deep_judges_prompt_moves_the_cache_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stale hit that was waiting for the next prompt revision.
+
+    The key read a constant chosen beside the cache while the judge stamped its own, and the
+    two were different strings. Nothing missed, because the key was consistent with itself —
+    but it was consistent with the wrong prompt, so bumping the deep judge from `deep-v2` to
+    `deep-v3` would have moved the stamp on every finding and left the key exactly where it
+    was, and the first review after the bump would have been served verdicts reached under
+    the prompt that had just been replaced.
+
+    The second half of this is what makes the first half mean something: moving the *other*
+    judge's identity must not move this key, because that is not the prompt this judge sends.
+    """
+
+    candidate, case, policies = _input()
+    judge = _selected_judge(_CONFIG, toolbox=True, monkeypatch=monkeypatch)
+    caching = CachingArchitectureJudge(
+        judge, UnusedCache(), in_force=judge.in_force  # type: ignore[arg-type]
+    )
+
+    before = caching.key(candidate, case, policies)
+    monkeypatch.setattr(DeepArchitectureJudge, "identity", "judge:deep-v3")
+    after = caching.key(candidate, case, policies)
+    monkeypatch.setattr(LangChainArchitectureJudge, "identity", "judge:v4")
+
+    assert before != after
+    assert caching.key(candidate, case, policies) == after
+
+
+@dataclass(frozen=True)
+class _Reading:
+    """One reading of the model selection, with only what a key and a delta read on it.
+
+    Structural, like the two `JudgementInForce` protocols it stands in for: what a reader
+    needs off this record is two strings, and a stub that carried a judge class and a
+    transport would be asserting things about the selection machinery rather than about the
+    reader under test.
+    """
+
+    model_identity: str
+    prompt_identity: str
+
+
+class _MovingSelection:
+    """A selection that changes between one call and the next, which is the real hazard.
+
+    Not artificial. A workspace switches its model through `PUT /api/models/selection` while
+    the process runs, and `SelectedLangChainJudge.in_force` is asked per call precisely so
+    that the switch takes effect — which is what makes two calls inside one operation able to
+    straddle it. This alternates on every call so that any reader taking two readings gets
+    two different ones, and a reader taking one gets `first`.
+    """
+
+    def __init__(self, first: _Reading, second: _Reading) -> None:
+        self._readings = cycle((first, second))
+
+    def __call__(self) -> _Reading:
+        return next(self._readings)
+
+
+class UnusedJudge:
+    """An `ArchitectureJudge` for a test that only asks `CachingArchitectureJudge` for a key."""
+
+    def judge(
+        self,
+        candidate: Candidate,
+        case: ArchitectureCase,
+        policies: RetrievedPolicySet,
+        investigation: RecordedInvestigation | None = None,
+        *,
+        subject: ReviewedSubject | None = None,
+    ) -> Finding:
+        raise AssertionError("this test only builds a key, so nothing is judged")
+
+
+def test_the_cache_key_is_one_reading_of_the_selection_and_never_a_mix() -> None:
+    """The torn read the comment in `cache.py` argues against, as a failure a test can see.
+
+    The key names the model and the prompt a verdict was reached under. Those two facts are
+    read off `in_force`, and until this test the only thing holding them to *one* reading was
+    a comment: a verifier reverted the single `in_force()` to a call each and all 448 unit
+    tests still passed, because every stub in the suite answers the same thing twice.
+
+    So the stub here answers differently. Against a selection that moves between the two
+    calls, a reader that calls twice keys the finding under the old model's name and the new
+    model's prompt — a pair no selection ever had. That key belongs to no reading, so it is
+    reachable by nothing and matched by nothing: every judgement made while a reviewer was
+    switching models is a cache entry that can never be hit, and the same candidate is
+    re-judged on the next run. Asserting only that the two coherent keys differ would not see
+    that; asserting that the observed key is *not* one of the two mixtures is what does.
+    """
+
+    candidate, case, policies = _input()
+    first = _Reading("openrouter:model-a", "judge:a")
+    second = _Reading("ollama:model-b", "judge:b")
+
+    def key_under(in_force: Callable[[], _Reading]) -> str:
+        caching = CachingArchitectureJudge(
+            UnusedJudge(), UnusedCache(), in_force=in_force  # type: ignore[arg-type]
+        )
+        return caching.key(candidate, case, policies)
+
+    observed = key_under(_MovingSelection(first, second))
+    coherent = {key_under(lambda: first), key_under(lambda: second)}
+    mixed = {
+        key_under(lambda: _Reading(first.model_identity, second.prompt_identity)),
+        key_under(lambda: _Reading(second.model_identity, first.prompt_identity)),
+    }
+
+    # The four keys are distinct, or the assertions below would pass on a hash that ignored
+    # one of the two terms. That is a real regression to guard: the prompt was absent from
+    # this key in every form until recently.
+    assert len(coherent | mixed) == 4
+    assert observed in coherent
+    assert observed not in mixed
+
+
+def test_the_revision_delta_compares_against_one_reading_of_the_selection() -> None:
+    """The same torn read at the second reader, where its cost is the original defect.
+
+    `DeterministicRevisionCalculator` reads the model and the prompt off `in_force` to decide
+    whether either has moved since the previous review. Split across two readings of a
+    selection that changed between them, it compares the stored model against the new
+    model — equal, so no `MODEL` — and the stored prompt against the *new* model's judge —
+    different, so `PROMPT` on every candidate. That is `changed=7, causes:['prompt']` against
+    an untouched commit, which is the measurement this whole line of work started from.
+
+    The second half is the control. A prompt that genuinely moved must still be reported, or
+    this test would pass just as well against a calculator that had stopped comparing.
+    """
+
+    candidate, _case, _policies = _input()
+    case = ArchitectureCase.create()
+    repository = RepositoryRef("repo", Path("/repo"), "branch", "content")
+    finding = Finding(
+        candidate,
+        Verdict.CLEARED,
+        "No conflict.",
+        (),
+        (),
+        model_identity="openrouter:model-a",
+        prompt_identity="judge:a",
+    )
+    now = utc_now()
+    previous = Review(
+        "review-1",
+        1,
+        repository,
+        RepositoryAtlas("atlas", repository),
+        case,
+        (finding,),
+        (),
+        ReviewStatus.COMPLETED,
+        ReviewDelta(new=(candidate,)),
+        now,
+        now,
+        model_identity=finding.model_identity,
+        prompt_identity=finding.prompt_identity,
+    )
+    unchanged_reading = _Reading(finding.model_identity, finding.prompt_identity)
+    moved_reading = _Reading("ollama:model-b", "judge:b")
+
+    def delta_under(in_force: Callable[[], _Reading]) -> ReviewDelta:
+        calculator = DeterministicRevisionCalculator(judgement=in_force)  # type: ignore[arg-type]
+        return calculator.calculate((candidate,), case, previous, repository)
+
+    steady = delta_under(_MovingSelection(unchanged_reading, moved_reading))
+    assert steady.unchanged == (candidate,)
+    assert steady.changed == ()
+
+    moved = delta_under(lambda: moved_reading)
+    assert moved.unchanged == ()
+    assert [change.causes for change in moved.changed] == [
+        (ChangeCause.MODEL, ChangeCause.PROMPT)
+    ]
 
 
 def test_a_held_verdict_must_name_the_fact_it_turns_on() -> None:

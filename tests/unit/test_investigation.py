@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from archcompass.analysis.adapters.query_service import DeterministicAtlasQueryService
 from archcompass.analysis.adapters.source_reader import SafeSourceReader
 from archcompass.analysis.analyzer import (
@@ -256,7 +258,17 @@ def test_a_result_larger_than_the_ceiling_says_that_it_was_cut(tmp_path: Path) -
     reference = RepositoryRef("repo", tmp_path.resolve(), "branch", "content")
     investigator = AtlasInvestigator(
         _Oversized(),  # pyright: ignore[reportArgumentType]
-        analysis_atlas(RepositoryAtlas("atlas", reference)),
+        # Stamped with the parser that built it, because an atlas that does not say is one
+        # `analysis_atlas` refuses to read at all. It used to be given a placeholder no live
+        # parser version could equal, which turned an unreadable atlas into a permanent
+        # staleness complaint pointing at a re-index that would not have helped.
+        analysis_atlas(
+            RepositoryAtlas(
+                "atlas",
+                reference,
+                parser_configuration=(("parser", "test-parser"), ("analysis", "test-config")),
+            )
+        ),
         reference,
     )
 
@@ -494,3 +506,61 @@ def test_a_lookup_answered_elsewhere_is_clamped_like_any_other(tmp_path: Path) -
 
     assert len(investigator.transcript[0].result) <= MAX_RESULT_CHARACTERS
     assert "truncated" in investigator.transcript[0].result
+
+
+@pytest.mark.parametrize(
+    ("configuration", "missing"),
+    [
+        ((("analysis", "test-config"),), "parser"),
+        ((("parser", "test-parser"),), "analysis"),
+        ((), "parser"),
+    ],
+)
+def test_an_atlas_that_will_not_say_what_built_it_withholds_rather_than_guesses(
+    tmp_path: Path, configuration: tuple[tuple[str, str], ...], missing: str
+) -> None:
+    """A missing stamp has to stop the read, because the substitute for it is undetectable.
+
+    `_parse_atlas` used to fill either half in with `"unknown"`. That is not a parser version
+    and not an analysis hash: it is a string no live constant can equal, so every later
+    freshness check reports the atlas stale and every re-index writes a fresh atlas the
+    reader never sees, because the review already holds the unreadable one. The reader is
+    told to do the one thing that cannot help, for ever, and nothing anywhere says why.
+
+    Raised instead, and the one caller that can survive it — a hinge mid-review, whose
+    verdicts are sound — turns it into the sentence a reader can act on. Both halves are
+    asserted because both were defaulted, and a guard over one of them leaves the other
+    free to go back to guessing.
+    """
+
+    from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyzer
+
+    source: AtlasSource = PythonAstRepositoryAnalyzer()
+    root = _repository(tmp_path)
+    reference = RepositoryRef("repo", root, "branch", "content")
+    analysed = DataclassRepositoryAnalyzer(source, _NoScopes()).analyze(reference)
+    unstamped = RepositoryAtlas(
+        # A distinct id per case, because `analysis_atlas` memoizes on exactly this string.
+        # Sharing one id makes the second case a cache hit on whatever the first produced,
+        # so a regression that lets the first parse would hide the other two behind it.
+        id=f"atlas_unstamped_{missing}_{len(configuration)}",
+        repository=analysed.repository,
+        nodes=analysed.nodes,
+        edges=analysed.edges,
+        metrics=analysed.metrics,
+        facts=analysed.facts,
+        signals=analysed.signals,
+        parser_configuration=configuration,
+    )
+
+    with pytest.raises(KeyError) as raised:
+        analysis_atlas(unstamped)
+    assert raised.value.args == (missing,)
+
+    offered = AtlasInvestigatorSource(
+        DeterministicAtlasQueryService(SafeSourceReader())
+    ).for_review(reference, unstamped)
+
+    assert offered.investigator is None
+    assert "cannot be read" in offered.withheld
+    assert "Index the repository again" in offered.withheld

@@ -16,11 +16,21 @@ What is deliberately not here: any notion of Google, Anthropic, OpenAI or Cerebr
 upstream serves a request is OpenRouter's routing decision, configured on the request as a
 `provider` block and reported back on the response. ArchCompass chooses a model and the
 capabilities it needs; it does not choose a company.
+
+It does now *write down* which company answered. Not choosing a route and not knowing which
+route was taken are two different positions, and only the first one was ever argued for
+here: `google/gemini-3.5-flash-lite` is served by seven endpoints that are not the same
+silicon, the same quantisation or the same sampler, and until `observed_route` the record of
+a judgement could not say which of them ran it. See `observed_route` for how it is kept and
+`Finding.served_by` for where it lands.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any, Final, cast
 
 import httpx
@@ -126,26 +136,166 @@ def _raise_inline_error(response: httpx.Response) -> None:
     )
 
 
+@dataclass(slots=True)
+class ServedRoute:
+    """Which of a model's endpoints answered, across one span of requests.
+
+    A list rather than one name, because a judgement is a conversation rather than a call:
+    `DeepArchitectureJudge` may reach the provider twenty-six times for a single candidate,
+    and OpenRouter routes each of those requests on its own. Keeping only the last would say
+    one endpoint served a judgement that two of them served, and telling those two cases
+    apart is the entire reason this is recorded.
+    """
+
+    endpoints: list[str] = field(default_factory=list[str])
+
+    @property
+    def served_by(self) -> str:
+        """Every endpoint that answered, first seen first, as one storable string.
+
+        Comma-joined for the reason `Review.model_identity` is comma-joined: a provenance
+        field is read and shown far more often than it is parsed, so the shape it is stored
+        in should be the shape it is read in.
+
+        Empty is a real answer and not a missing one. It is what a local Ollama and the
+        deterministic stand-in produce, because neither has an endpoint to name.
+        """
+
+        return ",".join(self.endpoints)
+
+    def observed(self, endpoint: str) -> None:
+        """Note an endpoint, once, in the order it first answered.
+
+        Deduplicated rather than counted: how many of a judgement's requests one endpoint
+        served is not a question the record is being kept to answer, and a judgement that
+        made twenty-six calls to one endpoint would otherwise store that name twenty-six
+        times in a field a person reads.
+        """
+
+        if endpoint and endpoint not in self.endpoints:
+            self.endpoints.append(endpoint)
+
+
+#: The record `_observe_route` writes into, for whatever span of calls is being observed.
+#:
+#: A `ContextVar` rather than a thread-local or an attribute on the transport, because
+#: neither of those can say *which judgement* a response belongs to. The transport is one
+#: object shared by every candidate in a review — the graph fans out one branch per candidate
+#: and forty-six of them is an ordinary number for a real repository — so an attribute on it
+#: would hand whichever endpoint answered last to whatever asked next. A thread-local would
+#: hold for a judgement's own requests and lose anything LangGraph chose to run elsewhere.
+#:
+#: LangGraph copies the calling context into every task it schedules and runs a lone task on
+#: the calling thread, so a record set here is visible to the requests made under it and to
+#: no other branch. The variable holds a *mutable* record for that reason: a copied context
+#: gives a task its own binding, and what has to travel back out is the writing, not the
+#: binding.
+#:
+#: The failure mode if a request is ever made somewhere this cannot be seen is `None` here
+#: and an empty `served_by` on the finding — nothing recorded rather than something wrong,
+#: which is the only acceptable direction for a provenance field to fail in.
+_OBSERVED_ROUTE: ContextVar[ServedRoute | None] = ContextVar(
+    "archcompass_observed_route", default=None
+)
+
+
+@contextmanager
+def observed_route() -> Generator[ServedRoute]:
+    """Record which endpoints answer while this block runs.
+
+    Nothing is recorded outside one of these, deliberately. A record with no owner would be
+    a global "last endpoint seen", and that value is wrong exactly when a review is busy,
+    which is the only time anybody looks at it.
+
+    A block that reaches something other than OpenRouter yields a record that stays empty and
+    is stored empty. That is the honest answer for a provider with one endpoint.
+    """
+
+    record = ServedRoute()
+    token = _OBSERVED_ROUTE.set(record)
+    try:
+        yield record
+    finally:
+        _OBSERVED_ROUTE.reset(token)
+
+
+def _observe_route(response: httpx.Response) -> None:
+    """Keep the one thing on a completion that says where it was really served.
+
+    OpenRouter names the endpoint that answered in a top-level `provider` field on every
+    completion. Nothing downstream of here ever sees it: `langchain-openai` builds an
+    `AIMessage`'s `response_metadata` from a fixed set of keys and this is not one of them.
+    Measured against a body carrying `"provider": "Google AI Studio"`, the metadata that
+    arrived held `model_provider: "openai"`, the model id, a usage block and a finish reason
+    — and nothing at all about the route. The response body is the only place the field
+    exists, and this client is the only place this application holds the body.
+
+    The same three guards as `_raise_inline_error`, for the same reasons: only a 2xx, only
+    JSON, never a stream, because reading a streamed body here would consume it before the
+    SDK could. `Response.read()` caches, so the two hooks do not take the body from one
+    another.
+
+    Recording is not pinning. `request_body` explains why no `provider` block is sent and
+    nothing here starts sending one — this answers the question after the fact instead of
+    forbidding the answer beforehand, which is what the hard filter did before it 404'd a
+    whole experiment.
+    """
+
+    record = _OBSERVED_ROUTE.get()
+    if record is None or response.status_code // 100 != 2:
+        return
+    content_type = response.headers.get("content-type", "")
+    if "json" not in content_type or "event-stream" in content_type:
+        return
+    response.read()
+    try:
+        document = cast(object, response.json())
+    except ValueError:
+        return
+    if not isinstance(document, dict):
+        return
+    endpoint = cast(Mapping[str, object], document).get("provider")
+    if isinstance(endpoint, str):
+        record.observed(endpoint)
+
+
+#: What this transport does beyond sending, in the order it does it.
+#:
+#: Observing comes first so that a body OpenRouter served and then reported an error inside
+#: still records which endpoint served it — `_raise_inline_error` raises out of the hook
+#: chain, and the route is worth most in exactly the case where something went wrong.
+#:
+#: A named tuple rather than a literal inside `http_client` because the test that proves a
+#: response's route is kept has to install the same hooks over a mock transport. Reaching for
+#: this list is what makes a hook added later covered by that test rather than quietly
+#: outside it.
+_RESPONSE_HOOKS: Final = (_observe_route, _raise_inline_error)
+
+
 def http_client(timeout: float) -> httpx.Client:
     """The transport OpenRouter is reached through.
 
-    Its only job beyond the timeout is `_raise_inline_error`, which is why it exists at all
+    Its only jobs beyond the timeout are `_RESPONSE_HOOKS`, which is why it exists at all
     rather than the SDK's own client being good enough.
     """
 
     return httpx.Client(
         timeout=timeout,
-        event_hooks={"response": [_raise_inline_error]},
+        event_hooks={"response": list(_RESPONSE_HOOKS)},
     )
 
 
 def request_body(max_output_tokens: int, thinking: ThinkingMode = None) -> dict[str, Any]:
     """The parameters that go on the wire beside the messages, and why so few of them.
 
-    Only what the request cannot be made without. Every parameter here is matched against
-    the endpoints that could serve it, so one sent out of habit is availability spent for
-    nothing — and OpenRouter reports the shortfall as a 404 rather than as a complaint about
-    the parameter, which is why the cost of an idle one is a wall rather than a warning.
+    Only what the request cannot be made without, plus the one thing a judge's decoding
+    should not be left to a default. OpenRouter matches every parameter here against the
+    endpoints that could serve the request — but as a *preference*, now that no
+    `provider.require_parameters` accompanies it: an endpoint that does not declare a
+    parameter is ranked below one that does, and an endpoint that ends up serving the request
+    anyway drops the parameter rather than refusing it. So an idle parameter costs a worse
+    route, where it used to cost the request. That is a reason to send few, and it stopped
+    being a reason to send none the day the hard filter came out.
 
     `max_tokens` rather than `ChatOpenAI(max_completion_tokens=…)`, and through `extra_body`
     rather than through the field. That field normalises to `max_completion_tokens` on the
@@ -158,6 +308,45 @@ def request_body(max_output_tokens: int, thinking: ThinkingMode = None) -> dict[
     `reasoning` is sent only when a depth was asked for. OpenRouter spells it as an effort
     on both of the two shapes its endpoints declare, and this is the portable one; absent, a
     model reasons however it reasons, which is what `None` has always meant here.
+
+    `temperature` is 0, because a judge should decode greedily and nothing on this path was
+    asking it to. It was here once and was removed, and that removal has to be read with its
+    date on it: it happened while `provider.require_parameters` was still in this body, which
+    is what made every parameter a hard filter. Three of `google/gemini-3.5-flash-lite`'s
+    seven endpoints declare `temperature`, so under the filter sending it cut the route set
+    to three; none of `openai/gpt-5.6-luna-pro`'s five declare it, so under the filter it cut
+    the route set to zero and every request 404'd before a candidate was read. The filter is
+    gone. Neither of those costs can be built out of this parameter any more, and the second
+    one — the wall — was never a property of the parameter at all.
+
+    The other half of that removal does not survive either, and it is the half worth being
+    careful about. It said `temperature` had been pinned "for a determinism this path does
+    not have", measured over three runs of one candidate that came back `material`, `cleared`
+    and `held`. That measurement is real, and it has since been reproduced over four runs on
+    byte-identical input — same commit, same candidate bytes, same case, same sixteen
+    policies. What it demonstrates is that greedy decoding does not make an agent loop
+    reproducible, which is true and which nothing sendable here could change: the structured
+    answer is a sampled tool call at the end of a sampled reasoning trace, and those four runs
+    had already diverged at their opening tool call. No sampling parameter converges a
+    conversation that has gone to four different places. What one does is take a source of
+    variance out of every token this judge emits, which is right for a judge whether or not it
+    is sufficient — and "insufficient" was read as "worthless" once already.
+
+    One thing it may not buy, stated rather than assumed. `docs/frontend-plan.md` records that
+    `gemini-3.5-flash-lite` and `gemini-3.6-flash` fix their own sampling and discarded
+    `temperature` with a warning on every call. That was observed against Google's native API
+    rather than through OpenRouter and has not been re-verified here, so this may be a no-op
+    for exactly the model this workspace runs while remaining right for every other model on
+    this path. `Finding.served_by` is what makes it answerable instead of arguable: the record
+    now says which of the seven endpoints served a judgement, so the next divergence can be
+    read as sampling or as routing rather than debated.
+
+    What is deliberately still not sent. `top_p` at temperature 0 selects from a distribution
+    that has already collapsed onto one token, which is the definition of a parameter sent out
+    of habit. `seed` is the parameter to reach for if the record shows this family really does
+    ignore `temperature` — but fewer endpoints declare it than declare `temperature`, it
+    cannot make a tool loop reproducible either, and there is now a record that can say
+    whether it is needed before its cost is spent.
 
     What is deliberately gone, and what that costs. `provider.require_parameters` used to be
     here to turn OpenRouter's soft routing preference into a hard filter, on the reasoning
@@ -180,7 +369,7 @@ def request_body(max_output_tokens: int, thinking: ThinkingMode = None) -> dict[
     intersecting a second one with them.
     """
 
-    body: dict[str, Any] = {"max_tokens": max_output_tokens}
+    body: dict[str, Any] = {"max_tokens": max_output_tokens, "temperature": 0}
     if isinstance(thinking, str):
         body["reasoning"] = {"effort": thinking}
     return body

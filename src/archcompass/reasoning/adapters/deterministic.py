@@ -21,6 +21,8 @@ and that `selected.py` is now about one thing.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from archcompass.domain import (
     ArchitectureCase,
     Candidate,
@@ -37,7 +39,10 @@ from archcompass.ports.capabilities import ReviewedSubject, ReviewSynopsis
 from archcompass.ports.policy_retrieval import (
     RetrievedPolicySet,
 )
-from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
+from archcompass.reasoning.adapters.providers import (
+    DETERMINISTIC_DESCRIPTOR,
+    DETERMINISTIC_MODEL,
+)
 from archcompass.reasoning.adapters.review_tools import ReviewToolbox
 from archcompass.reasoning.adapters.tool_loop import recorded_investigation
 from archcompass.reasoning.ports import ConversationAnswer, ConversationMessage
@@ -47,11 +52,17 @@ from archcompass.reasoning.records import DETERMINISTIC_JUDGE_PROMPT_IDENTITY
 #: a `ReviewSynopsis`, a `ConversationAnswer` and an investigation record, and those four
 #: are compared against each other by the delta calculator.
 #:
-#: Derived rather than written out. The branches this replaced each said `f"fake:{config.model}"`,
-#: and spelling the model here instead would agree with `DETERMINISTIC_MODEL` only for as long
-#: as nobody bumps it — after which every stamp says the old name and the delta calculator
-#: reports a moved model for every candidate of every review.
-DETERMINISTIC_MODEL_IDENTITY = f"fake:{DETERMINISTIC_MODEL}"
+#: Derived rather than written out, in both halves. The branches this replaced each said
+#: `f"fake:{config.model}"`, and spelling either half here instead would agree with what the
+#: provider registers only for as long as nobody edits it — after which every stamp says the
+#: old name and the delta calculator reports a moved model for every candidate of every
+#: review. The provider half was written out until the pass that removed the last copy of
+#: `provider == "fake"` from the tree; it is the descriptor's own name now, and the descriptor
+#: is the one place in `src/` where that name is a value rather than prose. Prose about it is
+#: everywhere — this comment is prose about it — and
+#: `test_the_stand_in_provider_is_written_out_in_exactly_one_place` draws the line in the same
+#: place. Where exactly it falls is that test's to say, not this comment's.
+DETERMINISTIC_MODEL_IDENTITY = f"{DETERMINISTIC_DESCRIPTOR.name}:{DETERMINISTIC_MODEL}"
 
 
 class DeterministicJudge:
@@ -61,7 +72,18 @@ class DeterministicJudge:
     it, which is what makes the interrupt, the resume and the rejudgement reachable without
     a model. Answers are the only thing left to hold on — the goal went first, then the
     hand-authored constraints and decisions, and what remains is the channel a review fills.
+
+    The two identities below are class attributes because the thing that has to read them —
+    `SelectedLangChainJudge.in_force` — is choosing between judges and has no instance yet.
+    Reading them off the judge is the point: `bootstrap` used to carry its own
+    `provider == "fake" -> DETERMINISTIC_MODEL_IDENTITY` rule, so the composition root and
+    this class each held half of one decision and either could be edited alone.
     """
+
+    #: The prompt this sends, which is none: it reaches no provider.
+    identity: ClassVar[str] = DETERMINISTIC_JUDGE_PROMPT_IDENTITY
+    #: The model this reports itself as, on every finding it stamps below.
+    model_identity: ClassVar[str] = DETERMINISTIC_MODEL_IDENTITY
 
     def judge(
         self,
@@ -97,8 +119,8 @@ class DeterministicJudge:
             (),
             candidate.evidence,
             hinge=hinge,
-            model_identity=DETERMINISTIC_MODEL_IDENTITY,
-            prompt_identity=DETERMINISTIC_JUDGE_PROMPT_IDENTITY,
+            model_identity=self.model_identity,
+            prompt_identity=self.identity,
             retrieval_identity=policies.provenance.identity,
         )
 

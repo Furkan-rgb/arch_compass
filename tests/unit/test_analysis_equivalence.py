@@ -11,6 +11,25 @@ and already reviews, so a difference here is a difference somebody would have se
 Regenerate deliberately, never reflexively: run with `ARCHCOMPASS_REWRITE_GOLDEN=1` only
 when the output is *meant* to change — a new parser version, a new signal — and read the
 diff before committing it. A golden file rewritten to make a test pass is a test deleted.
+
+And the rewrite refuses to record a changed atlas under an unchanged `PARSER_VERSION`.
+That constant is the product's only statement that a stored atlas was built by a parser that
+no longer exists: `AtlasFreshnessService` compares it against the stamp on the atlas, and
+where the two agree the atlas is served as current. Nothing forced it to move. Twice it did
+not — `6d27325` gave every configuration and package node its real size and left the version
+at v5, so a stored atlas went on reporting them as nothing; `9f2a461` restored every
+`IMPLEMENTS` edge a failed type-checker sweep had silently dropped and left it at v6, which
+on this repository is thirty-six candidates out of fifty-four. Both changed what the analyzer
+produces from the same bytes, which is the whole of what the constant claims.
+
+There was already a detector for exactly that — this file — and the developer's answer to it
+was `ARCHCOMPASS_REWRITE_GOLDEN=1`, which asked nothing. So the refusal lives at the rewrite
+rather than in a rule somebody has to remember, and it is the argument
+`SQLiteDatabase._verify_unchanged` already makes about an applied migration: a golden is the
+history of one parser version, rewriting it in place changes nothing and announces nothing,
+and the only way past the refusal is to bump the constant and say why beside it. Hand-editing
+a golden gets around it, exactly as hand-editing the migration row does; both are a person
+deciding to, rather than a person forgetting to.
 """
 
 from __future__ import annotations
@@ -72,6 +91,38 @@ def _analysed(root: Path) -> dict[str, object]:
     return document
 
 
+def _unbumped(
+    recorded: dict[str, object] | None, produced: dict[str, object]
+) -> str | None:
+    """Why this atlas may not be recorded, or `None` because it may.
+
+    The one condition: the atlas moved and the parser version did not. A first recording has
+    nothing to disagree with, and an atlas that did not move is the golden it is replacing.
+
+    Separated from the rewrite so it can be given the two documents directly and asserted on,
+    because the rewrite itself only runs under an environment variable nobody sets in CI — a
+    refusal that is never exercised is a refusal nobody can trust.
+    """
+
+    if recorded is None or recorded == produced:
+        return None
+    was = recorded.get("version", {})
+    now = produced.get("version", {})
+    if not isinstance(was, dict) or not isinstance(now, dict):  # pragma: no cover
+        return None
+    if was.get("parser_version") != now.get("parser_version"):
+        return None
+    return (
+        f"This atlas differs from the one recorded under parser version "
+        f"{was.get('parser_version')!r}, and that version has not moved. Every stored atlas "
+        "carrying that stamp is now an atlas this analyzer would not produce, and "
+        "`AtlasFreshnessService` will go on serving all of them as current, because the only "
+        "thing it compares is the stamp. Bump `PARSER_VERSION` in "
+        "`analysis/adapters/ast_analyzer.py`, and add the paragraph above it saying what the "
+        "new version emits that the old one cannot — then run this again."
+    )
+
+
 @pytest.mark.parametrize("example", [*EXAMPLES, MIXED])
 def test_the_atlas_is_unchanged(example: str) -> None:
     root = _repository(example)
@@ -82,6 +133,10 @@ def test_the_atlas_is_unchanged(example: str) -> None:
     golden = GOLDEN / f"{example}.json"
 
     if os.environ.get("ARCHCOMPASS_REWRITE_GOLDEN", "").strip() == "1":
+        recorded = json.loads(golden.read_text()) if golden.is_file() else None
+        refusal = _unbumped(recorded, produced)
+        if refusal is not None:
+            pytest.fail(f"Refusing to rewrite {golden.name}. {refusal}")
         GOLDEN.mkdir(parents=True, exist_ok=True)
         golden.write_text(json.dumps(produced, indent=2, sort_keys=True) + "\n")
         pytest.skip(f"rewrote {golden.name} — read the diff before committing it")
@@ -126,3 +181,44 @@ def test_the_mixed_fixture_actually_contains_what_it_is_for() -> None:
     sized = {profile.node_id: profile.local.physical_lines for profile in atlas.metrics}
     configuration = next(node for node in atlas.nodes if node.path == "pyproject.toml")
     assert sized[configuration.atlas_id] > 0
+
+
+def _atlas(parser_version: str, node_count: int) -> dict[str, object]:
+    """The two things the refusal reads, and nothing else it does not."""
+
+    return {
+        "version": {"parser_version": parser_version, "analysis_config_hash": "hash"},
+        "nodes": [{"atlas_id": f"node_{index}"} for index in range(node_count)],
+    }
+
+
+def test_a_changed_atlas_may_not_be_recorded_under_an_unchanged_parser_version() -> None:
+    """The refusal the rewrite is built on, exercised where the rewrite cannot be.
+
+    This is the check that would have stopped both of the misses named at the top of this
+    file. Asserted on the sentence as well as on the fact, because a refusal that does not
+    say which constant to move is a refusal somebody works around.
+    """
+
+    refusal = _unbumped(_atlas("python-ast-3.12-v8", 3), _atlas("python-ast-3.12-v8", 4))
+
+    assert refusal is not None
+    assert "PARSER_VERSION" in refusal
+    assert "python-ast-3.12-v8" in refusal
+
+
+def test_a_changed_atlas_under_a_new_parser_version_is_exactly_what_a_rewrite_is_for() -> None:
+    assert _unbumped(_atlas("python-ast-3.12-v8", 3), _atlas("python-ast-3.12-v9", 4)) is None
+
+
+def test_an_unchanged_atlas_and_a_first_recording_are_both_allowed() -> None:
+    """Neither is a claim about a parser version that stored atlases still carry.
+
+    An atlas that did not move is the golden it would overwrite. A golden that does not exist
+    yet has no history to contradict — which is how `mixed.json` came to be recorded at all.
+    """
+
+    same = _atlas("python-ast-3.12-v8", 3)
+
+    assert _unbumped(same, _atlas("python-ast-3.12-v8", 3)) is None
+    assert _unbumped(None, same) is None

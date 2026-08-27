@@ -23,8 +23,12 @@ import re
 from pathlib import Path
 
 from archcompass.policies.retrieval import DENSE_RETRIEVER_RELEASE_TOP_K, FUSION_STRATEGY
+from archcompass.reasoning.adapters.deep_judge import DeepArchitectureJudge
+from archcompass.reasoning.adapters.deterministic import (
+    DETERMINISTIC_MODEL_IDENTITY,
+    DeterministicJudge,
+)
 from archcompass.reasoning.adapters.tool_loop import INVESTIGATION_PROMPT_IDENTITY
-from archcompass.reasoning.records import JUDGE_PROMPT_IDENTITY
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend" / "src"
 
@@ -95,10 +99,15 @@ def test_the_landing_specimen_is_attributed_to_a_build_that_exists() -> None:
 
     identities = re.findall(r'model_identity: "([^"]+)"', case_file)
     assert identities, "the specimen attributes nothing, which is its own defect"
-    # Two producers write this field. A finding's is `provider:model:thinking=…`
-    # (`reasoning/records.py:model_identity`); a retrieval provenance's is the embedding
-    # store's namespace, `provider:model:dimensions[:task-prompted]`
-    # (`reasoning/adapters/factory.py:embedding_identity`).
+    # Three producers write this field, and the two regexes below claimed to be exhaustive
+    # while only covering two of them. A finding judged by a real provider is
+    # `provider:model:thinking=…` (`reasoning/records.py:model_identity`); a retrieval
+    # provenance is the embedding store's namespace,
+    # `provider:model:dimensions[:task-prompted]` (`reasoning/adapters/factory.py`); and the
+    # stand-in writes one flat string with neither a thinking mode nor a dimension in it,
+    # because it has no provider to have either. `fake:deterministic-architecture-v4` matched
+    # neither pattern, so a specimen depicting an offline review — the one every developer
+    # without a key sees — would have been rejected as a shape the product does not write.
     judged = re.compile(r"^[a-z]+:.+:thinking=.+$")
     embedded = re.compile(r"^[a-z]+:.+:\d+(:task-prompted)?$")
     for identity in identities:
@@ -107,14 +116,33 @@ def test_the_landing_specimen_is_attributed_to_a_build_that_exists() -> None:
             f"the landing page attributes a judgement to {provider!r}, "
             "which is not a provider this build registers"
         )
-        assert judged.match(identity) or embedded.match(identity), (
-            f"{identity!r} is neither shape the product writes into model_identity"
-        )
+        assert (
+            judged.match(identity)
+            or embedded.match(identity)
+            or identity == DETERMINISTIC_MODEL_IDENTITY
+        ), f"{identity!r} is none of the three shapes the product writes into model_identity"
 
+    # Asked of the judges rather than written out, because the point of the assertion is that
+    # it tracks what the build produces without anybody remembering to widen it. There is a
+    # prompt identity per judge — `reasoning/records.py` argues why they are not one constant
+    # — and `SelectedLangChainJudge.in_force` is what chooses between them.
+    #
+    # `LangChainArchitectureJudge` is deliberately not here. `bootstrap` builds
+    # `review_toolbox` unconditionally, so `in_force` can only ever name the deep judge or the
+    # stand-in, and `judge:v3` is reachable from a test and from nothing a deployment runs.
+    # Admitting it widened this set to three and *weakened* it: a specimen attributed to a
+    # prompt no build sends would have passed, which is the exact drift the test exists for.
+    offered = {
+        DeepArchitectureJudge.identity,
+        DeterministicJudge.identity,
+        # Not a judge. A judgement's lookups are a record of their own, stamped by the tool
+        # loop that made them, and the specimen shows one.
+        INVESTIGATION_PROMPT_IDENTITY,
+    }
     for prompt in set(re.findall(r'prompt_identity: "([^"]+)"', case_file)):
-        assert prompt in {JUDGE_PROMPT_IDENTITY, INVESTIGATION_PROMPT_IDENTITY}, (
-            f"the specimen cites prompt {prompt!r}; this build uses "
-            f"{JUDGE_PROMPT_IDENTITY!r} and {INVESTIGATION_PROMPT_IDENTITY!r}"
+        assert prompt in offered, (
+            f"the specimen cites prompt {prompt!r}; this build sends "
+            f"{', '.join(sorted(repr(item) for item in offered))}"
         )
 
     shipped = f"2-{FUSION_STRATEGY}-k{DENSE_RETRIEVER_RELEASE_TOP_K}"

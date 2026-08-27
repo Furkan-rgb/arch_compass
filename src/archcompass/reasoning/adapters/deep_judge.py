@@ -23,7 +23,7 @@ no verdict at all; here it means the tools are taken away and the same conversat
 to finish. Measured on a local model, that turned 2 judgements in 10 into 10 in 10, and on
 every run where it fired the verdict matched what a hosted model reached unaided.
 
-`_OneRepair` is the one correction a malformed answer gets. `ToolStrategy`'s own error
+`OneRepair` is the one correction a malformed answer gets. `ToolStrategy`'s own error
 handling retries until something else stops it — measured at eight calls against a model
 that could not satisfy the schema — so the bound has to be held here. A second malformed
 answer ends the gathering rather than the review, and terminalisation covers it like any
@@ -44,7 +44,7 @@ import json
 import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware
@@ -71,6 +71,7 @@ from archcompass.reasoning.adapters.langchain import (
     structured_output,
 )
 from archcompass.reasoning.adapters.review_tools import ReviewToolbox
+from archcompass.reasoning.records import DEEP_JUDGE_PROMPT_IDENTITY
 from archcompass.retrying import call_with_retry
 
 _log = logging.getLogger(__name__)
@@ -104,15 +105,6 @@ MAX_JUDGEMENT_SECONDS = 120.0
 #: for the same grep seventeen times in a row, which none of the count-based breakers above
 #: would have caught for another thirty calls.
 MAX_IDENTICAL_TOOL_CALLS = 2
-
-#: What a judgement was produced by, on the prompt side. Bumped whenever the model is shown
-#: something different, because a stored finding carries this and `DeterministicRevisionCalculator`
-#: asks whether the stamp still matches what this process would produce.
-#:
-#: `v2` adds `review_tools.FILESYSTEM_ROOT_NOTE`, which is not part of the judgement contract
-#: but is part of what the model reads — and it changed behaviour, which is the whole test of
-#: whether an identity should move. Everything judged under `v1` re-judges once.
-JUDGEMENT_PROMPT_IDENTITY = "judge:deep-v2"
 
 
 class _Gathering(AgentMiddleware[Any, Any]):
@@ -170,7 +162,7 @@ class _Gathering(AgentMiddleware[Any, Any]):
             self.detail = str(error)
             return AIMessage("")
         except StructuredOutputError as error:
-            # The one `_OneRepair` refused to correct a second time. It is raised from inside
+            # The one `OneRepair` refused to correct a second time. It is raised from inside
             # the model node, which is exactly here, and letting it past this point ends the
             # whole review over one candidate — after every other one has been judged and
             # paid for. Ended like any other breaker instead: the caller terminalises, which
@@ -194,10 +186,7 @@ class _Gathering(AgentMiddleware[Any, Any]):
             # next turn instead, where `_expired` sees the termination this just set.
             self.termination = Termination.REPEATED_TOOL_CALL
             return ToolMessage(
-                content=(
-                    f"You have already asked {name} exactly this, twice, and the repository "
-                    "has not changed since. Decide from what you have."
-                ),
+                content=already_asked(name),
                 tool_call_id=str(call.get("id", "")),
                 name=name,
             )
@@ -215,6 +204,42 @@ class _Gathering(AgentMiddleware[Any, Any]):
         return result
 
 
+def closing_turn(why: Termination | None) -> str:
+    """The reserved final call's one turn, chosen by what ended the gathering.
+
+    Module level for the same reason as `already_asked`, and with one property that is
+    worth more here: `Termination` is an enum, so `prompt_inventory` digests this over every
+    member of it. A new termination that needs its own closing is therefore covered the day
+    it is added, rather than the day somebody remembers to add it to a list.
+    """
+
+    if why is Termination.MALFORMED_JUDGEMENT:
+        return (
+            "Your last answer was refused, and this is the last time you will be asked. "
+            "Using only what is already above, state your judgement now in the required "
+            "structured form: the verdict you argued for, and every other field following "
+            "from it."
+        )
+    return (
+        "You have no lookups left. Using only what is already above, state your judgement "
+        "now in the required structured form."
+    )
+
+
+def already_asked(name: str) -> str:
+    """What a judgement is told when it asks one tool the same question a third time.
+
+    Module level rather than inline in the middleware that sends it, because it is prose the
+    model reads and `prompt_inventory` has to be able to digest it without holding a second
+    copy. A second copy is what `judge-prompt-check` exists to make impossible.
+    """
+
+    return (
+        f"You have already asked {name} exactly this, twice, and the repository has not "
+        "changed since. Decide from what you have."
+    )
+
+
 def _signature(name: str, arguments: Mapping[str, object]) -> str:
     """One tool call as a string that is equal exactly when the question is the same.
 
@@ -226,8 +251,12 @@ def _signature(name: str, arguments: Mapping[str, object]) -> str:
     return f"{name}\0{json.dumps(arguments, sort_keys=True, default=str)}"
 
 
-class _OneRepair:
+class OneRepair:
     """A correction for the first malformed judgement, and nothing for the second.
+
+    Public because `prompt_inventory` asks it for its correction: the words below are sent
+    to a model, so they are part of what `judge:deep-v2` claims to have been minted
+    against, and a name marked private would be claiming nothing outside reads them.
 
     Stateful because it has to be. `ToolStrategy(handle_errors=...)` calls this on every
     failure and retries whatever it returns, so a plain function is an unbounded loop wearing
@@ -350,18 +379,23 @@ class DeepArchitectureJudge:
     dossier does not carry can go and get it instead of becoming a question for a person.
     """
 
+    #: What this judge stamps every finding it produces with, and the only place that says
+    #: so. A class attribute rather than a constructor argument because
+    #: `SelectedLangChainJudge.in_force` has to report it while it is still choosing which
+    #: judge to build — it names this class and reads the identity off it, so the value the
+    #: delta compares against cannot be written anywhere but here.
+    identity: ClassVar[str] = DEEP_JUDGE_PROMPT_IDENTITY
+
     def __init__(
         self,
         model: BaseChatModel,
         toolbox: ReviewToolbox,
         *,
         model_identity: str,
-        prompt_identity: str = JUDGEMENT_PROMPT_IDENTITY,
     ) -> None:
         self._model = model
         self._toolbox = toolbox
         self._model_identity = model_identity
-        self._prompt_identity = prompt_identity
 
     def judge(
         self,
@@ -395,7 +429,7 @@ class DeepArchitectureJudge:
                 policies,
             )
         subject.model_identity = self._model_identity
-        subject.prompt_identity = self._prompt_identity
+        subject.prompt_identity = self.identity
         offered = self._toolbox.for_review(subject.repository, subject.atlas)
         if not offered.tools:
             # Nothing could be looked at — no atlas to ask, or one an older parser wrote.
@@ -421,12 +455,20 @@ class DeepArchitectureJudge:
             # part about having tools belongs here. Stating the whole contract twice made
             # the two copies compete for weight rather than reinforcing each other.
             system_prompt=JUDGEMENT_TOOL_CONTRACT,
-            response_format=ToolStrategy(FindingOutput, handle_errors=_OneRepair()),
+            response_format=ToolStrategy(FindingOutput, handle_errors=OneRepair()),
             middleware=[
                 *offered.middleware,
                 gathering,
                 # A second guard on the same axis, one above the breaker, so a run that gets
                 # past `_Gathering` for any reason still cannot go round for ever.
+                #
+                # `exit_behavior="end"` appends the vendor's own `AIMessage` — "Model call
+                # limits exceeded: run limit (n/m)" — to the conversation, and `_terminalise`
+                # sends that conversation back, so on the runs this ends the model does read a
+                # sentence nobody here wrote. It is `langchain`'s prose and `prompt_inventory`
+                # excludes it from the digest for the same reason it excludes `deepagents`'
+                # tool descriptions; the exclusion is argued there. Changing this to `"error"`
+                # would take the sentence away and cost the review the finding instead.
                 ModelCallLimitMiddleware(
                     run_limit=MAX_JUDGEMENT_GATHERING_MODEL_CALLS + 1, exit_behavior="end"
                 ),
@@ -465,18 +507,7 @@ class DeepArchitectureJudge:
 
         subject.terminalised = True
         held = cast("Sequence[BaseMessage]", final.get("messages") or ())
-        closing = (
-            "Your last answer was refused, and this is the last time you will be asked. "
-            "Using only what is already above, state your judgement now in the required "
-            "structured form: the verdict you argued for, and every other field following "
-            "from it."
-            if why is Termination.MALFORMED_JUDGEMENT
-            else (
-                "You have no lookups left. Using only what is already above, state your "
-                "judgement now in the required structured form."
-            )
-        )
-        messages: list[BaseMessage] = [*held, HumanMessage(closing)]
+        messages: list[BaseMessage] = [*held, HumanMessage(closing_turn(why))]
         return structured_output(
             self._model,
             FindingOutput,
@@ -493,5 +524,5 @@ class DeepArchitectureJudge:
             candidate,
             policies,
             model_identity=self._model_identity,
-            prompt_identity=self._prompt_identity,
+            prompt_identity=self.identity,
         )
