@@ -220,19 +220,26 @@ def test_the_review_records_which_model_and_which_embedding_produced_it(
 ) -> None:
     """Two selections, recorded separately, because they are separately replaceable.
 
-    The reasoning model is stamped on the review; the embedding model is stamped on each
+    The reasoning model is stamped on each finding; the embedding model is stamped on each
     retrieval record. Swapping one must not read as having swapped the other, which is only
     demonstrable when both are real — and here they are not even the same vendor.
     """
 
     final = lifecycle.final
 
-    assert final["model_identity"].startswith("openrouter:")
-    assert REASONING_MODEL in final["model_identity"]
+    # Per finding, because a review no longer claims one judgement identity of its own. It
+    # claimed the comma-joined set of these, and the revision delta compared that set against
+    # a single identity — see `domain/review.py` where the fields used to be.
+    judged_by = {item["model_identity"] for item in final["findings"]}
+    asked_by = {item["prompt_identity"] for item in final["findings"]}
+    assert judged_by, "the completed review carried no findings to be attributed"
+    for identity in judged_by:
+        assert identity.startswith("openrouter:")
+        assert REASONING_MODEL in identity
     # The deterministic substitute has its own prompt identity, so this also proves the run
     # did not quietly fall back to it.
-    assert final["prompt_identity"]
-    assert "deterministic" not in final["prompt_identity"]
+    assert all(asked_by)
+    assert not any("deterministic" in identity for identity in asked_by)
 
     embedding_identities = {
         provenance["model_identity"] for provenance in final["retrieval_manifest"]
@@ -252,7 +259,7 @@ def test_the_review_records_which_model_and_which_embedding_produced_it(
             )
         )
     }
-    assert EMBEDDING_PROVIDER not in final["model_identity"]
+    assert not any(EMBEDDING_PROVIDER in identity for identity in judged_by)
 
     for provenance in final["retrieval_manifest"]:
         assert dict(provenance["metadata"])["dimensions"] == str(EMBEDDING_DIMENSIONS)

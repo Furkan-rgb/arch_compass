@@ -1,4 +1,4 @@
-"""Headless use of the same clean-break review graph."""
+"""Headless use of the same review graph, for a CI run."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class CiFinding:
 
 
 @dataclass(frozen=True, slots=True)
-class CleanBreakCiRun:
+class CiRun:
     review: Review
     findings: tuple[CiFinding, ...]
     blocking_candidate_ids: tuple[str, ...]
@@ -39,7 +39,7 @@ class CleanBreakCiRun:
     exit_code: int
 
 
-class CleanBreakCiRunService:
+class CiRunService:
     def __init__(
         self,
         *,
@@ -59,7 +59,7 @@ class CleanBreakCiRunService:
         base_branch: str = DEFAULT_BRANCH_NAME,
         branch_name: str | None = None,
         fail_on: FailOn = FailOn.NEW_MATERIAL,
-    ) -> CleanBreakCiRun:
+    ) -> CiRun:
         version = self._repositories.index(repository_root, branch_name=branch_name)
         if version.repo_id is None or version.branch_id is None:
             raise ValueError("CI indexing did not establish repository lineage")
@@ -106,7 +106,7 @@ class CleanBreakCiRunService:
                     blocks,
                 )
             )
-        return CleanBreakCiRun(
+        return CiRun(
             review,
             tuple(entries),
             tuple(blocking),

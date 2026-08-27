@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { api, type ReviewRun } from "../../api";
 import { humanise, plural, relativeTime } from "../../lib/format";
 import { Button, CopyButton } from "../../ui/button";
 import { CheckIcon } from "../../ui/icons";
+import { Mark } from "../../ui/mark";
 import { Mono } from "../../ui/meta";
 import { Label } from "../../ui/panel";
 import { useToast } from "../../ui/toast";
@@ -39,31 +40,83 @@ export const STAGE_LABELS: Record<string, string> = {
 export const stageLabel = (stage: string) => STAGE_LABELS[stage] ?? humanise(stage);
 
 /**
- * The stages that are one candidate's turn through the loop.
+ * The six things the start page already told the reader a review does, and the graph nodes
+ * that belong to each.
  *
- * They are one step of the review however many times the graph enters them. Listed
- * separately they were the whole progress list: fifteen candidates arrived as thirty rows
- * of `Judging candidates` and `Review candidate` alternating, which reads as a stuck run
- * rather than a working one, and buried the eight steps that are genuinely different from
- * each other.
+ * The progress list used to be built from `state.stages` — the nodes that had already
+ * happened — so it had no length. At minute one it was a single row with a spinner on it,
+ * and it grew; there was no denominator, and `estimateLeft` says nothing until two
+ * candidates have been judged, which is most of the way in. So for the majority of a
+ * multi-minute run the page offered "Started 4 minutes ago" beside one spinning line, which
+ * is the same reading `judgingLabel` was rewritten to avoid: a number that sits still long
+ * enough to be read as a stuck run.
+ *
+ * A phase is a promise the product has already made in copy, so saying it here predicts no
+ * branch. Every one of the six is entered on every run — `generate_questions` is an
+ * unconditional edge out of the candidate loop and only its *output* is conditional — so
+ * "step 3 of 6" is a denominator rather than a guess. The graph's own node names stay where
+ * they belong, as the detail on whichever row is running.
+ *
+ * The candidate loop keeps the grouping it already had and the argument for it: retrieval
+ * and judgement are one candidate's turn however many times the graph enters them, and
+ * listing every turn made fifteen candidates thirty rows of two labels alternating. That is
+ * why `retrieve_policy_set` sits under Judgement and not under Policies — a phase that the
+ * run re-enters once per candidate cannot be a step the list ticks off, and `judgingLabel`
+ * is what says which half of the turn is running.
  */
-const JUDGING_STAGES = new Set([
-  "retrieve_policy_set",
-  "review_candidate",
-  "judge_candidate",
-]);
+export const REVIEW_PHASES = [
+  { title: "Repository", stages: ["load_context", "analyze_repository"] },
+  {
+    title: "Candidates",
+    stages: [
+      "detect_candidates",
+      "calculate_delta",
+      "select_initial_candidates",
+      "select_candidates_for_rejudgement",
+    ],
+  },
+  { title: "Policies", stages: ["load_policy_corpus"] },
+  {
+    title: "Judgement",
+    stages: ["retrieve_policy_set", "judge_candidate", "review_candidate"],
+  },
+  {
+    title: "Clarification",
+    stages: ["generate_questions", "await_answers", "__interrupt__", "revise_case"],
+  },
+  {
+    title: "Review",
+    stages: [
+      "write_waiting_synopsis",
+      "write_final_synopsis",
+      "compose_waiting_review",
+      "compose_final_review",
+      "record_waiting_review",
+      "record_review",
+      "seal_case",
+    ],
+  },
+] as const;
 
-type Step = { key: string; stage: string; judging: boolean };
+/** Which phase a graph node belongs to, or `-1` for a node this client has not been told about. */
+const phaseOf = (stage: string) =>
+  REVIEW_PHASES.findIndex((phase) => (phase.stages as readonly string[]).includes(stage));
 
-/** The stage log as steps: consecutive turns through the candidate loop become one. */
-export function progressSteps(stages: readonly string[]): Step[] {
-  const steps: Step[] = [];
-  stages.forEach((stage, index) => {
-    const judging = JUDGING_STAGES.has(stage);
-    if (judging && steps[steps.length - 1]?.judging) return;
-    steps.push({ key: `${stage}-${index}`, stage, judging });
-  });
-  return steps;
+/**
+ * Which phase the run is in now — read from the current stage, not from the high-water mark
+ * of everything it has been through.
+ *
+ * A second round genuinely goes backwards: answers are recorded, candidates are chosen again,
+ * and the run re-enters judgement. A high-water mark would leave Judgement ticked while the
+ * run was judging, which is the defect this whole list exists to avoid. Where the current
+ * stage is a node this build has never heard of, the last one that was recognised stands in,
+ * so a workspace one release ahead degrades to a stale row rather than to row one.
+ */
+function currentPhase(state: ReviewRun, stages: readonly string[]): number {
+  const here = phaseOf(state.stage);
+  if (here >= 0) return here;
+  const seen = stages.map(phaseOf).filter((index) => index >= 0);
+  return seen.length ? seen[seen.length - 1] : 0;
 }
 
 /**
@@ -78,13 +131,23 @@ export function progressSteps(stages: readonly string[]): Step[] {
  * line read "Judging candidate 1 of 50" from the moment the round selected — a claim about a
  * candidate nothing had looked at yet, on a number that then sat still long enough to read
  * as a stuck run. It says what is actually happening now, and the number under it moves.
+ *
+ * A phase the run is behind says what it did, and one that judged nothing says nothing at
+ * all. The list is the six phases every run enters rather than the stages one actually went
+ * through, so *Conclude with remaining uncertainty* — which routes a stopped round straight
+ * to `seal_case` without selecting a single candidate — draws a ticked Judgement row anyway.
+ * Read as "no counts, so fall back to the plain label", that row said "Judging candidates"
+ * about a run that judged none, on the same screen as a progress panel correctly reading
+ * "Writing this review's case revision". Nothing to count and nothing left to run is nothing
+ * to say; the ticked row is the whole fact. The fallback is kept where it is still true — a
+ * run *in* judgement whose counts have not arrived is judging candidates.
  */
-function judgingLabel(state: ReviewRun, done: boolean): string {
+function judgingLabel(state: ReviewRun, done: boolean): string | null {
   const total = state.candidates_to_judge ?? 0;
   const judged = state.candidates_judged ?? 0;
   const retrieved = state.candidates_retrieved ?? 0;
+  if (done) return total ? `Judged ${plural(total, "candidate")}` : null;
   if (!total) return "Judging candidates";
-  if (done) return `Judged ${plural(total, "candidate")}`;
   // Judging is the later half, so any judgement at all means retrieval is no longer what a
   // reader is waiting on — and a resumed run reports no retrievals but may report verdicts.
   if (judged || !retrieved) {
@@ -171,35 +234,127 @@ export function RunProgress({
 }) {
   const settled = state.status !== "running";
   const failed = state.status === "failed";
+  const stopped = state.status === "cancelled";
   const stages = state.stages.length ? state.stages : ["load_context"];
   const now = useTicking(!settled);
   const left = settled ? null : estimateLeft(state, now);
+  const current = currentPhase(state, stages);
+  /**
+   * One line of orientation, built from whatever it can actually say.
+   *
+   * The step count is deliberately absent once the run has settled: the marks beside the six
+   * rows already say where it ended, and "step 6 of 6" beside a run that failed at step three
+   * would be the same false tick this list was rewritten to remove.
+   */
+  const meta = [
+    state.started_at ? `Started ${relativeTime(state.started_at, now)}` : null,
+    settled ? null : `step ${current + 1} of ${REVIEW_PHASES.length}`,
+    left,
+  ].filter((part): part is string => Boolean(part));
+
+  /**
+   * Stopping asks first, because stopping is the one press on this page that cannot be
+   * undone.
+   *
+   * "Stop this run" was a single unconfirmed click that threw away minutes of paid model
+   * work, and the only statement of what that cost was the panel's own copy *afterwards*:
+   * "Nothing was recorded as a verdict." A sentence in the past tense on a page that has
+   * already lost the run. Meanwhile `PolicyCard` asks twice before deleting a policy, which
+   * is recoverable by re-authoring it. Same gesture, same components, same wording as the
+   * page's own settled copy, so the two cannot disagree.
+   */
+  const [confirming, setConfirming] = useState(false);
+  const keepId = useId();
+  // Focus follows the question. Opening the confirm without moving focus leaves a keyboard
+  // reader standing on a button that has just been replaced, and it lands on the safe half
+  // of the pair rather than on `Confirm`.
+  useEffect(() => {
+    if (confirming) document.getElementById(keepId)?.focus();
+  }, [confirming, keepId]);
 
   return (
     <div className="grid gap-4">
       {/* A run measured in minutes had no clock on it at all, so "is this moving" could only
-          be answered by watching the stage list and remembering what it said. */}
-      {state.started_at ? (
-        <p className="text-xs text-ink-3">
-          Started {relativeTime(state.started_at, now)}
-          {left ? <> · {left}</> : null}
-        </p>
-      ) : null}
+          be answered by watching the stage list and remembering what it said. The step count
+          is the other half of the same question and it is the half that is answerable from
+          the first paint: the estimate needs two judged candidates before it says anything,
+          and judging is the fourth of six phases. */}
+      {meta.length ? <p className="text-xs text-ink-3">{meta.join(" · ")}</p> : null}
 
       <ol className="grid gap-2.5" aria-label="Review progress">
-        {progressSteps(stages).map((step, index, steps) => {
-          const last = index === steps.length - 1;
-          const done = !last || settled;
+        {REVIEW_PHASES.map((phase, index) => {
+          /**
+           * Only a run that actually got through a phase counts it as got through.
+           *
+           * This used to be `!last || settled`, where `settled` is every status that is not
+           * `running` — so a run that broke inside `retrieve_policy_set` drew a tick beside
+           * the stage it died in, directly under a header reading "The run stopped at the
+           * stage below". The one row a reader opens this page to find was the row claiming
+           * it had succeeded.
+           *
+           * `awaiting_answers` is a finished phase rather than a running one: the questions
+           * are written and the thing the review is waiting on is the reader. `failed` and
+           * `stopped` come from `ui/mark.tsx`'s sign register, which is the register reserved
+           * for what is graded — the model's verdicts and *a review's own state*, which is
+           * exactly what this is. No hue: the mark carries it at the ink the row already has.
+           */
+          const done =
+            state.status === "completed" ||
+            index < current ||
+            (index === current && state.status === "awaiting_answers");
+          const here = index === current && !done;
+          const pending = index > current && !done;
+          // The candidate loop is the one phase with a depth, and it says which half of a
+          // candidate's turn is running — retrieval first and longest, then the verdict.
+          const detail = phase.title === "Judgement" && !pending ? judgingLabel(state, done) : null;
           return (
-            <li key={step.key} className="flex items-center gap-2.5 text-sm">
+            <li key={phase.title} className="flex items-center gap-2.5 text-sm">
               <span
                 aria-hidden="true"
                 className="grid size-5 shrink-0 place-items-center rounded-full border border-rule bg-surface-2 text-ink-3"
               >
-                {done ? <CheckIcon /> : <Spinner label="" />}
+                {done ? (
+                  <CheckIcon />
+                ) : here && failed ? (
+                  <Mark shape="failed" className="size-3.5" />
+                ) : here && stopped ? (
+                  <Mark shape="stopped" className="size-3.5" />
+                ) : here && !settled ? (
+                  <Spinner label="" />
+                ) : (
+                  <Mark shape="hollow" className="size-3.5" />
+                )}
               </span>
-              <span className={done ? "text-ink-2" : "font-medium text-ink"}>
-                {step.judging ? judgingLabel(state, done) : stageLabel(step.stage)}
+              {/* The row that carries the answer keeps full ink. A phase a run died in is not
+                  a phase a reader is finished with, and a phase it has not reached yet is not
+                  one it is being asked to read. */}
+              <span className={done ? "text-ink-2" : pending ? "text-ink-3" : "font-medium text-ink"}>
+                {phase.title}
+              </span>
+              {detail ? (
+                <>
+                  <span aria-hidden="true" className="text-ink-3">
+                    ·
+                  </span>
+                  <span className="min-w-0 truncate text-ink-3">{detail}</span>
+                </>
+              ) : null}
+              {/* The mark is inside an `aria-hidden` wrapper and the ink weight is a colour,
+                  so a listener heard a flat list of names — "Policies" indistinguishable from
+                  "Judgement · Judging candidate 3 of 12", on the page whose whole use is
+                  knowing which is which. This is the word the policy editor's section
+                  checklist already adds beside the same kind of mark, and it comes from the
+                  same branch that picks the glyph, so the two cannot disagree. */}
+              <span className="sr-only">
+                {done
+                  ? " done"
+                  : here && failed
+                    ? " failed here"
+                    : here && stopped
+                      ? " stopped here"
+                      : here
+                        ? " in progress"
+                        : " not started"}
               </span>
             </li>
           );
@@ -223,19 +378,49 @@ export function RunProgress({
           <CopyButton value={state.run_id} label="Copy the run id" />
         </div>
         {onCancel && !settled ? (
-          <Button variant="secondary" size="sm" disabled={cancelling} onClick={onCancel}>
-            {cancelling ? (
-              <>
-                <Spinner label="" /> Stopping…
-              </>
-            ) : (
-              "Stop this run"
-            )}
-          </Button>
+          confirming ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs leading-5 text-ink-3">
+                Stop and discard what it has judged?
+              </span>
+              <Button variant="danger" size="sm" disabled={cancelling} onClick={onCancel}>
+                {cancelling ? (
+                  <>
+                    <Spinner label="" /> Stopping…
+                  </>
+                ) : (
+                  "Confirm"
+                )}
+              </Button>
+              <Button
+                id={keepId}
+                variant="ghost"
+                size="sm"
+                disabled={cancelling}
+                onClick={() => setConfirming(false)}
+              >
+                Keep running
+              </Button>
+            </div>
+          ) : (
+            <Button variant="secondary" size="sm" onClick={() => setConfirming(true)}>
+              Stop this run
+            </Button>
+          )
         ) : null}
       </div>
 
-      <LiveRegion>{failed ? "The review failed." : `${stageLabel(state.stage)}.`}</LiveRegion>
+      {/* A cancelled run said nothing distinct here: `stageLabel(state.stage)` announced
+          whichever stage it happened to die in, which is the one sentence that does not say
+          what happened. It carries the same words the page's header uses, so a listener and a
+          reader are told the same thing. */}
+      <LiveRegion>
+        {failed
+          ? "The review failed."
+          : stopped
+            ? "The review was stopped. Nothing was recorded as a verdict."
+            : `${stageLabel(state.stage)}.`}
+      </LiveRegion>
     </div>
   );
 }

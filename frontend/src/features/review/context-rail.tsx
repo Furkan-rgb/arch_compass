@@ -10,6 +10,7 @@ import { Input } from "../../ui/field";
 import { ChevronDown } from "../../ui/icons";
 import { MetaList, MetaRow, Mono } from "../../ui/meta";
 import { Label } from "../../ui/panel";
+import { Prose } from "../../ui/prose";
 import { Tabs, TabPanel } from "../../ui/tabs";
 import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
 import { PolicyRef } from "./finding-detail";
@@ -56,12 +57,28 @@ export function ContextRail({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <div className="border-b border-rule px-3 pt-2.5">
-        <p className="mb-2 text-xs text-ink-3">
-          {finding
-            ? `For ${finding.candidate.participants[0]?.qualified_name ?? "the selected candidate"}`
-            : "For this review"}
-        </p>
+      {/* No `border-b` here. `Tabs` draws the rule that separates a tab strip from the panel
+          under it, and the selected tab's underline is `-mb-px` so it sits *on* that rule —
+          a second hairline directly beneath composited to about 19% black over two device
+          pixels and put a grey line under the accent. */}
+      <div className="px-3 pt-2.5">
+        {/* Which candidate the whole drawer is scoped to, and the only fact in this header
+            that is not already on screen: the title repeats the button just pressed and the
+            subtitle lists the tab labels below it. So it is set in the Measured voice rather
+            than as the third-quietest line on the sheet — the same name is mono everywhere
+            else in the product, and a qualified name is one token to the line breaker, which
+            in a 416px drawer either widens the scroller or is cut. `Mono` carries
+            `wrap-anywhere`; the `title` is the whole string for a name that still wraps. */}
+        {finding ? (
+          <Mono
+            className="mb-2 block text-[13px] text-ink"
+            title={finding.candidate.participants[0]?.qualified_name ?? undefined}
+          >
+            {finding.candidate.participants[0]?.qualified_name ?? "The selected candidate"}
+          </Mono>
+        ) : (
+          <p className="mb-2 text-xs text-ink-3">For this review</p>
+        )}
         <Tabs
           label="Judgement context"
           active={tab}
@@ -103,18 +120,31 @@ export function ContextRail({
                     {/* The way to the policy's own words. A reader in this tab is asking why
                         a candidate was called what it was called, and the answer to the next
                         question — what does the policy actually say — was a page and a
-                        by-hand title search away. */}
-                    <PolicyRef id={bearing.policy_id} className="mt-1 block" />
-                    <p className="mt-1.5 text-xs leading-5 text-ink-2">{bearing.reasoning}</p>
+                        by-hand title search away.
+
+                        The spacing is on a wrapper rather than on the link. `PolicyRef` grows
+                        its own touch box with a padding-and-negative-margin pair, and `cn` is
+                        tailwind-merge: a `mt-1` passed here would sit *beside* that `-my-3`
+                        rather than replacing it, and the link would gain an asymmetric box. */}
+                    <div className="mt-1">
+                      <PolicyRef id={bearing.policy_id} />
+                    </div>
+                    {/* The same field the Policies fold renders at 14px, so it takes the
+                        same treatment: rendering the quoted name in one of the two places
+                        and not the other would leave the identical sentence looking broken
+                        wherever the reader happened to open it. */}
+                    <p className="mt-1.5 text-xs leading-5 text-ink-2">
+                      <Prose>{bearing.reasoning}</Prose>
+                    </p>
                   </li>
                 ))}
               </ul>
-              {/* Retrieved against bore-on: the count the status ribbon used to print at
+              {/* Found against applied: the count the status ribbon used to print at
                   review scale, said where it can be compared with what it counts. */}
               {provenance ? (
                 <p className="mt-2.5 font-mono text-[10.5px] leading-relaxed text-ink-3">
-                  {provenance.selected_policy_ids.length} policies retrieved for this candidate;{" "}
-                  {finding.policies.length} bore on the judgement.
+                  {provenance.selected_policy_ids.length} policies found for this candidate;{" "}
+                  {finding.policies.length} applied.
                 </p>
               ) : null}
             </>
@@ -455,7 +485,11 @@ function CaseContext({ review, finding }: { review: Review; finding: Finding | n
 
       {rest.length ? (
         <details className="group">
-          <summary className="flex min-h-11 list-none items-center gap-2 rounded-md px-1 py-2 transition hover:bg-surface-2 focus-visible:-outline-offset-2">
+          {/* `hover:bg-sunken`, not `hover:bg-surface-2`: `#ffffff` to `#fafafa` is five
+              values, which is a division a reader is not asked to notice and nowhere near a
+              state that has to appear under a pointer. The elevation ramp gives a hover
+              `--sunken` in both themes. */}
+          <summary className="flex min-h-11 list-none items-center gap-2 rounded-md px-1 py-2 transition hover:bg-sunken focus-visible:-outline-offset-2">
             <Label className="min-w-0 flex-1 text-left">
               Asked about other candidates · {rest.length}
             </Label>
@@ -483,7 +517,9 @@ function CaseContext({ review, finding }: { review: Review; finding: Finding | n
 function AnswerCard({ answer }: { answer: Review["case"]["answers"][number] }) {
   return (
     <li className="rounded-md border border-rule bg-surface-2 px-2.5 py-2">
-      <div className="text-xs font-semibold leading-5 text-ink">{answer.question.text}</div>
+      <div className="text-xs font-semibold leading-5 text-ink">
+        <Prose>{answer.question.text}</Prose>
+      </div>
       <div className="mt-1 text-xs leading-5 text-ink-2">
         {answer.status === "skipped" ? (
           <span className="text-ink-3">Explicitly skipped</span>

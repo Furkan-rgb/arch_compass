@@ -94,7 +94,12 @@ describe("the repositories page", () => {
     const card = screen.getByText("payments-platform").closest("article")!;
     expect(within(card).getByText("3 snapshots")).toBeInTheDocument();
     expect(within(card).getByText("aa11bb22")).toBeInTheDocument();
-    expect(within(card).getByText("128 nodes")).toBeInTheDocument();
+    // The three atlas measurements are gone from the card. They were on screen twice at once
+    // — here as tags and again as 24px statistics in the panel beside them — and none of
+    // them is a number anybody can act on. What the card carries is what a person deciding
+    // whether to run a review weighs, so the count lives in the panel's one sentence.
+    expect(within(card).queryByText(/128 nodes/)).not.toBeInTheDocument();
+    expect(screen.getByText(/128 nodes · 214 relations · 3 signals/)).toBeInTheDocument();
   });
 
   /**
@@ -123,7 +128,10 @@ describe("the repositories page", () => {
     render(wrap(<RepositoriesPage />));
 
     const card = (await screen.findByText("billing-service")).closest("article")!;
-    fireEvent.click(within(card).getByText("billing-service"));
+    // `Open atlas`, not the card. The whole body used to be one button, so the card's
+    // accessible name was every word in it read as one string and its `<h2>` stopped being a
+    // heading. The named control in the action row is the one press that selects.
+    fireEvent.click(within(card).getByRole("button", { name: "Open atlas" }));
 
     await waitFor(() =>
       expect(screen.getByTestId("address")).toHaveTextContent(
@@ -352,9 +360,13 @@ describe("the repositories page", () => {
     render(wrap(<RepositoriesPage />));
 
     expect(await screen.findByText(/workspace unreachable/)).toBeInTheDocument();
-    // The header and the clone form are still there, which is the whole complaint about a
-    // page that replaces itself with its own error message.
+    // The header and the way to clone are still there, which is the whole complaint about a
+    // page that replaces itself with its own error message. The form itself is behind the
+    // header's own control now — it was the first surface on the page on every visit,
+    // standing between the description and the list the page exists for — so what has to
+    // survive the failure is the control, and the form it opens.
     expect(screen.getByRole("heading", { name: "Repositories" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clone a repository" }));
     expect(screen.getByLabelText("Repository address")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));

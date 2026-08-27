@@ -69,7 +69,6 @@ from archcompass.policies.adapters.embeddings import (
 from archcompass.policies.corpus import DataclassPolicyCorpus
 from archcompass.policies.retrieval import corpus_fingerprint
 from archcompass.policies.service import PolicyService
-from archcompass.reasoning.adapters.deterministic import DETERMINISTIC_MODEL_IDENTITY
 from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
 from archcompass.reasoning.adapters.openrouter import DESCRIPTOR as OPENROUTER_DESCRIPTOR
 from archcompass.reasoning.adapters.providers import (
@@ -92,12 +91,7 @@ from archcompass.reasoning.conversation import CoreReviewConversationService
 from archcompass.reasoning.embedding_models import EmbeddingModelService
 from archcompass.reasoning.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.reasoning.ports import ProviderDescriptor
-from archcompass.reasoning.records import (
-    DETERMINISTIC_JUDGE_PROMPT_IDENTITY,
-    JUDGE_PROMPT_IDENTITY,
-    EmbeddingModelSelection,
-    model_identity,
-)
+from archcompass.reasoning.records import EmbeddingModelSelection
 from archcompass.records import ThinkingMode
 from archcompass.repositories.adapters import GitCommandLineClient, HttpsTarballFetcher
 from archcompass.repositories.checkout import RepositoryCheckoutService
@@ -110,7 +104,7 @@ from archcompass.repositories.sources import SourceArchiveService
 from archcompass.repositories.storage import SourceStorage
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
 from archcompass.workflow.cases import ArchitectureCaseService, PersistentCaseReviser
-from archcompass.workflow.ci import CleanBreakCiRunService
+from archcompass.workflow.ci import CiRunService
 from archcompass.workflow.decisions import StandingDecisionService
 from archcompass.workflow.nodes import ChangedAndNewCandidateSelector
 from archcompass.workflow.report import DeterministicReviewComposer
@@ -273,7 +267,7 @@ class Runtime:
     embedding_model_service: EmbeddingModelService
     core_review_repository: SQLiteCoreReviewRepository
     review_workflow_service: ReviewWorkflowService
-    core_ci_service: CleanBreakCiRunService
+    core_ci_service: CiRunService
     standing_decision_service: StandingDecisionService
 
 
@@ -487,10 +481,35 @@ def build_runtime(
     # without one: every lookup it made was answered, and nothing checked that the lines it
     # read were the lines the review was judged from.
     review_toolbox = ReviewToolbox(AtlasInvestigatorSource(queries, freshness), bundled_corpus())
+
+    # The judge, built once, and the only thing in this module that knows anything about the
+    # model selection beyond having passed it in. `selection()` answers with one record — the
+    # selection, the model identity a finding it produces carries, which judge runs, what
+    # that judge stamps as its prompt, and whether it reaches a provider — and that method is
+    # handed whole to the revision calculator, to the finding cache, to the retriever's mode
+    # below, and to the three capabilities that only need the last of those answers.
+    #
+    # This is where three callbacks used to be. `selected_model_identity()` re-read the
+    # selection and mapped `fake` to the stand-in's constant, duplicating a rule
+    # `DeterministicJudge` already owns; `selected_prompt_identity()` re-read it and returned
+    # `judge:v3` for every real provider while this judge — which has a toolbox, so it builds
+    # the deep one — stamped every finding `judge:deep-v2`; `deterministic_retrieval_mode()`
+    # re-read it a third time. The delta compared a stamp against a value nothing stamped,
+    # concluded the prompt had moved, and re-judged every candidate of every review for ever.
+    # See `reasoning/records.py` for what that measured out at, and `selected.py` for why the
+    # cure is one record rather than one shared constant — which is what the two previous
+    # fixes of this same defect were.
+    #
+    # It is built here, above the conversation service, only so that the answerer can be
+    # handed it. Nothing about the judge needs to come first.
+    selected_judge = SelectedLangChainJudge(selected_chat, review_toolbox)
+
     review_conversation_service = CoreReviewConversationService(
         reviews=core_reviews,
         conversations=core_conversations,
-        answerer=SelectedLangChainReviewAnswerer(selected_chat, review_toolbox),
+        answerer=SelectedLangChainReviewAnswerer(
+            selected_chat, selected_judge.selection, review_toolbox
+        ),
     )
     checkpoint_connection = sqlite3.connect(
         canonical_workspace / WORKSPACE_STATE_DIRECTORY / "review-checkpoints.db",
@@ -508,30 +527,21 @@ def build_runtime(
     checkpointer.setup()
     policy_corpus = DataclassPolicyCorpus(policy_service)
 
-    def selected_model_identity() -> str:
-        selected = model_catalog_service.current()
-        if selected is None:
-            return ""
-        if selected.provider == "fake":
-            return DETERMINISTIC_MODEL_IDENTITY
-        return model_identity(selected)
-
-    def selected_prompt_identity() -> str:
-        selected = model_catalog_service.current()
-        return (
-            DETERMINISTIC_JUDGE_PROMPT_IDENTITY
-            if selected is not None and selected.provider == "fake"
-            else JUDGE_PROMPT_IDENTITY
-        )
-
+    # The one of the three that survives, and it derives nothing any more: it reads
+    # `selection().deterministic` rather than testing the provider itself, so the retriever
+    # cannot decide that a selection is the stand-in while the judge decides it is not. What
+    # is left here is the part that is genuinely the retriever's own — an unselected workspace
+    # is a refusal for embeddings, where for the delta it is an empty identity that matches no
+    # stored stamp. The judge cannot answer that for it: only this caller knows that having no
+    # model at all is fatal to what it is about to do.
     def deterministic_retrieval_mode() -> bool:
-        selected = model_catalog_service.current()
-        if selected is None:
+        selection = selected_judge.selection()
+        if selection.model is None:
             raise NoReasoningModelSelectedError(
                 "No reasoning model is selected. Choose one with the model chip before "
                 "starting a review."
             )
-        return selected.provider == "fake"
+        return selection.deterministic
 
     graph = build_review_graph(
         ReviewWorkflowCapabilities(
@@ -544,8 +554,7 @@ def build_runtime(
                 corpus_fingerprint=lambda repository_ref: corpus_fingerprint(
                     policy_corpus.policies_for(repository_ref)
                 ),
-                model_identity=selected_model_identity,
-                prompt_identity=selected_prompt_identity,
+                selection=selected_judge.selection,
             ),
             initial_candidates=ChangedAndNewCandidateSelector(),
             corpus=policy_corpus,
@@ -555,14 +564,17 @@ def build_runtime(
                 deterministic_mode=deterministic_retrieval_mode,
             ),
             judge=CachingArchitectureJudge(
-                SelectedLangChainJudge(selected_chat, review_toolbox),
+                selected_judge,
                 core_finding_cache,
-                model_identity=selected_model_identity,
-                prompt_identity=selected_prompt_identity,
+                selection=selected_judge.selection,
             ),
-            questions=SelectedLangChainQuestionGenerator(selected_chat),
+            questions=SelectedLangChainQuestionGenerator(
+                selected_chat, selected_judge.selection
+            ),
             cases=PersistentCaseReviser(core_cases),
-            synopsist=SelectedLangChainReviewSynopsist(selected_chat),
+            synopsist=SelectedLangChainReviewSynopsist(
+                selected_chat, selected_judge.selection
+            ),
             composer=DeterministicReviewComposer(),
             recorder=CachingReviewRecorder(core_reviews, core_finding_cache),
         ),
@@ -585,7 +597,7 @@ def build_runtime(
     standing_decision_service = StandingDecisionService(
         decisions=core_decisions, reviews=core_reviews
     )
-    core_ci_service = CleanBreakCiRunService(
+    core_ci_service = CiRunService(
         repositories=repository_service,
         workflow=review_workflow_service,
         decisions=standing_decision_service,

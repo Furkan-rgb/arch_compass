@@ -24,6 +24,13 @@ class AtlasFreshnessService:
         # Under the same scope the atlas was built with, or the comparison is between the
         # digest of one set of files and the digest of another, and a repository reviewed
         # without its tests would be reported stale every time it was opened.
+        #
+        # The key is `version.root_path` and nothing else: it is the string the analyzer
+        # canonicalized, the string `RepositoryIndexService` files the selection under,
+        # and — now that the in-run atlas carries it rather than reproducing it from the
+        # path a caller passed — the string every atlas reaching here holds, stored or
+        # parsed. A lookup by any other spelling of the directory finds nothing, applies no
+        # exclusions, and makes a correctly scoped atlas permanently stale.
         excluded_paths = self._scope_selections.get(atlas.version.root_path) or ()
         try:
             current = self._identities.current_identity(root, excluded_paths=excluded_paths)

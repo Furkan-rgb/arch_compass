@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Component, type ReactNode, Suspense, lazy, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { cn } from "../../lib/cn";
@@ -16,7 +16,9 @@ import {
   SunIcon,
 } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
+import { Label } from "../../ui/panel";
 import { Reveal } from "../../ui/reveal";
+import { Skeleton } from "../../ui/states";
 import { ANCHOR, ATLAS_VIEWBOX, AtlasMap } from "./atlas";
 import { Field } from "./field";
 import { SpecimenCallout, SpecimenPicker, useSpecimen } from "./specimen";
@@ -154,8 +156,14 @@ function LandingNav() {
                 against the menu button. It is the third copy of the same call to action at
                 that width — the hero states it a screen-length below, and the drawer this
                 menu opens ends with it — so the one that costs the header its shape is the
-                one to drop. */}
-            <ButtonLink to="/start" size="sm" className="hidden sm:inline-flex">
+                one to drop.
+
+                And not the accent either, on the same argument one step further. The accent's
+                whole budget is "look here", spent once; two identical red fills with identical
+                labels in one viewport — a 30px chip in the strongest corner and the 48px
+                button the hero builds up to — spend it twice and split the eye between them.
+                The hero's is the one that earned it, so this is the one that gives it up. */}
+            <ButtonLink to="/start" size="sm" variant="secondary" className="hidden sm:inline-flex">
               Review a repository
             </ButtonLink>
             <Button
@@ -209,7 +217,7 @@ function LandingNav() {
 }
 
 function Hero() {
-  const { index, select, bearing, holdProps, showcasing, toggleShowcase } = useSpecimen();
+  const { index, select, bearing, holdProps, stopped, toggleShowcase, figureRef } = useSpecimen();
 
   return (
     // The figure is taken out of the flow above `xl` so it can bleed off the right edge, so
@@ -232,11 +240,27 @@ function Hero() {
         className="pointer-events-none absolute inset-0 grid-lines opacity-50 [mask-image:radial-gradient(74%_62%_at_34%_0%,black,transparent)]"
       />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
-        <Reveal className="lg:max-w-[27rem] xl:max-w-[35rem]">
+        {/* `animate-rise`, not `Reveal`, and this is the one place on the page where that is
+            the right way round.
+
+            A scroll reveal is for content the reader scrolls *to*. Used on the first screen it
+            holds the headline, the lede, the primary action and the figure at `opacity: 0`
+            until React has mounted, the effect has run, IntersectionObserver has reported and
+            a 600ms transition has finished — so the one thing a first visitor should get
+            instantly was the thing this page most delayed. `--animate-rise` is the token the
+            design system's motion table already names as "the landing page's first paint",
+            and until now the landing page was its one non-consumer. `Reveal` stays on
+            everything below the fold, which is what it was written for. */}
+        <div className="animate-rise lg:max-w-[27rem] xl:max-w-[35rem]">
           <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">
             Weighed, not enforced
           </Mono>
-          <h1 className="mt-3.5 max-w-[15ch] font-display text-[clamp(37px,5.6vw,62px)] font-semibold leading-[1.04] tracking-[-0.036em] text-ink lg:text-[40px] xl:text-[clamp(37px,5.6vw,62px)]">
+          {/* `text-balance` and a looser cap rather than a tight one. `15ch` is a hard
+              character count, and at a 62px display setting it broke the sentence one word
+              early at every width — three lines of 556, 318 and 609px, a middle line 43%
+              shorter than its neighbours. `19ch` stops the line running the full column and
+              lets the balancer distribute the three evenly, with no per-width tuning. */}
+          <h1 className="mt-3.5 max-w-[19ch] text-balance font-display text-[clamp(37px,5.6vw,62px)] font-semibold leading-[1.04] tracking-[-0.036em] text-ink lg:text-[40px] xl:text-[clamp(37px,5.6vw,62px)]">
             Write your guidance once. Every review weighs it.
           </h1>
           <p className="mt-5 max-w-[52ch] text-[17px] leading-[1.62] text-ink-2">
@@ -251,32 +275,43 @@ function Hero() {
             </ButtonLink>
             {/* Not a second button. One page has one primary action, and the thing this
                 offers is a shorter walk than starting a review — the section below, not the
-                review list, which on a first visit is empty. */}
+                review list, which on a first visit is empty.
+
+                The underline is on the words and the 44px box is on the anchor, which are two
+                different jobs and were one element. `min-h-11 items-center` centres the text
+                in a 44px box, so a `border-b` on that box drew the rule at the box's bottom
+                edge — fourteen pixels under the baseline, at exactly the height of the primary
+                button's bottom edge beside it. The one mark saying "this is a link" read as a
+                stray divider. The same split is made on the band's link below.
+
+                `border-ink-3` rather than `border-rule-strong`, because this border is the
+                affordance and not a separator: 5.86:1 instead of 1.41:1 against the canvas,
+                and in dark on a phone the hairline ramp was close to no affordance at all. */}
             <a
               href="#finding"
-              className="inline-flex min-h-11 items-center border-b border-rule-strong text-[15px] font-semibold text-ink transition hover:border-ink"
+              className="group inline-flex min-h-11 items-center text-[15px] font-semibold text-ink"
             >
-              See how a finding is made
+              <span className="border-b border-ink-3 transition group-hover:border-ink">
+                See how a finding is made
+              </span>
             </a>
           </div>
           <Mono className="mt-4 block text-[12px] text-ink-3">
             Runs locally · your models · Apache-2.0
           </Mono>
-          {/* The legend for the three lit nodes on the map, and the way to move between them.
-              It stands where an invented count of a review nobody has run used to stand. */}
-          <SpecimenPicker
-            index={index}
-            onSelect={select}
-            showcasing={showcasing}
-            onToggleShowcase={toggleShowcase}
-            hold={holdProps}
-            className="mt-8 border-t border-rule-strong pt-2.5"
-          />
-        </Reveal>
+        </div>
 
-        <Reveal
-          delay={120}
-          className="mt-12 lg:absolute lg:left-[47%] lg:right-[-4%] lg:top-4 lg:mt-0 lg:max-w-[56rem] xl:left-[50%] xl:right-[-6%]"
+        {/* The bleed is `xl` only now. `right` is measured from the `max-w-6xl` padding box,
+            and between 1024 and 1151 that box *is* the viewport — so `-4%` was not bleeding
+            past the page margin, it was running off the screen, and BILLING lost its right
+            border with its labels eleven pixels from the edge. Above 1152 there is margin to
+            bleed into and `xl:right-[-6%]` still takes it.
+
+            `figureRef` is what tells the showcase the figure has been seen; the pass is six
+            seconds long and used to spend them while this was a screen below the fold. */}
+        <div
+          ref={figureRef}
+          className="animate-rise mt-12 lg:absolute lg:left-[47%] lg:right-0 lg:top-4 lg:mt-0 lg:max-w-[56rem] xl:left-[50%] xl:right-[-6%]"
         >
           <Mono className="block text-[11px] uppercase tracking-[0.13em] text-ink-3">
             The atlas — parsed, never imported and never run
@@ -300,7 +335,33 @@ function Hero() {
               className="mt-6 w-full max-w-[24rem] lg:absolute lg:mt-0 lg:w-[19rem] lg:max-w-none xl:w-[22rem]"
             />
           </div>
-        </Reveal>
+        </div>
+
+        {/* The legend for the three lit nodes on the map, and the way to move between them.
+            It stands where an invented count of a review nobody has run used to stand.
+
+            After the figure in the DOM, not inside the copy column, and that is the whole of
+            what this ordering buys. Above `lg` the figure is `absolute` and out of the flow,
+            so the picker still lands directly under the trust line in the copy column and
+            nothing looks different. Below `lg` the two stack — and there the picker was a
+            legend rendered about 800px above the thing it is a legend for, so a reader met
+            "Material · Held · Cleared" before anything it could label existed on screen, and
+            pressing a verdict changed only things that were off it.
+
+            The rule and the group are separate elements for the same reason the header's
+            ghost buttons carry `-my-1.5`: the buttons' own `px-2.5` is inside the group, so a
+            `border-t` on the group would have started 10px left of the first word. The rule
+            keeps the column's width; the group hands its padding back. */}
+        <div className="animate-rise mt-8 border-t border-rule-strong pt-2.5 lg:max-w-[27rem] xl:max-w-[35rem]">
+          <SpecimenPicker
+            index={index}
+            onSelect={select}
+            stopped={stopped}
+            onToggleShowcase={toggleShowcase}
+            hold={holdProps}
+            className="-mx-2.5"
+          />
+        </div>
       </div>
     </section>
   );
@@ -321,7 +382,22 @@ function IntentBand() {
     // the same colour is a line asserting a change that did not happen. And the field is not
     // clipped to the band — it is one sheet reaching up into the hero and down past the
     // band, masked at both ends, so a ribbon fades out rather than being cut off by an edge.
-    <section id="intent" className="relative py-20 text-band-ink sm:py-[132px]">
+    //
+    // `on-band` is the class the system already has for a ground that does not invert, and
+    // this band is the other place it belongs — the shell's header has carried it for the same
+    // reason. Inside it `--ink` and the hairline ramp resolve to the dark theme's own values,
+    // so anything that reads them rather than the four band tokens is corrected without
+    // having to know it is on a band. The global focus ring is `2px solid var(--ink)`, and in
+    // light that is `#0a0a0a` on a `#0a0a0a` ground: a keyboard reader lost focus entirely at
+    // the one control in this section, at 1.00:1.
+    //
+    // `scroll-mt-20` here and on the three other anchored sections, because the header is
+    // sticky and 68px tall and nothing reserved room for it — following "A finding" from the
+    // drawer landed with the section's eyebrow tucked under the bar. It is 80px against a
+    // 68px bar so the eyebrow clears it rather than touching it. Four elements kept in sync
+    // is the cost; `scroll-padding-top` on `html` would say it once for every anchor,
+    // including ones added later, and that line belongs in `styles.css`.
+    <section id="intent" className="on-band relative scroll-mt-20 py-20 text-band-ink sm:py-[132px]">
       {/* The ground, as its own layer rather than as the section's background. A background
           belongs to the section's own box and paints over every negative-z child of it, and
           the field has to sit on top of this ground in light — where the band really is a
@@ -335,7 +411,15 @@ function IntentBand() {
         className="pointer-events-none absolute inset-x-0 -z-10 max-md:opacity-[0.34]"
       />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
-        <Reveal className="max-w-[58ch]">
+        {/* `38.5rem` and not `58ch`. A `ch` follows the font size of the element it is set on,
+            and this one is set on a column rather than on a block of text: inside it are an
+            11px mono eyebrow, a heading at `clamp(29px,3.8vw,46px)` and three paragraphs at
+            16.5px. So `58ch` resolved against the 16px it inherited from the root — 617.12px,
+            a width belonging to none of the four — and the paragraphs it was meant to be
+            measuring have their own 58ch at 636.4px, nineteen pixels wider. A stack of four
+            sizes cannot be described in a unit that follows one of them. 616px is what it drew,
+            to within a pixel, said in a unit that does not move when any of the four does. */}
+        <Reveal className="max-w-[38.5rem]">
           <Mono className="text-[11px] uppercase tracking-[0.13em] text-band-ink-2">
             Unwritten intent
           </Mono>
@@ -360,12 +444,23 @@ function IntentBand() {
           {/* Not a fill. A solid button here was the loudest thing on the page and it pointed
               at an anchor a screen below — the page has one primary action, "Review a
               repository", and this is a walk down to the next section. Same shape as the
-              hero's second call to action, so the two read as the same kind of offer. */}
+              hero's second call to action, so the two read as the same kind of offer.
+
+              Which means the same split: the rule goes under the words and the 48px box stays
+              on the anchor. Here it was worse than in the hero — `min-h-12` put the hairline
+              twenty pixels below the baseline. The arrow stays outside the underlined span,
+              because it is a direction rather than part of the label.
+
+              `focus-visible:outline-band-ink` as well as the `on-band` above, and both are
+              deliberate: the class fixes every token the band's own controls read, and this
+              names the ring's colour at the one place a reader would notice it missing. */}
           <a
             href="#how"
-            className="mt-8 inline-flex min-h-12 items-center border-b border-band-rule text-[15px] font-semibold text-band-ink transition hover:border-band-ink"
+            className="group mt-8 inline-flex min-h-12 items-center text-[15px] font-semibold text-band-ink focus-visible:outline-band-ink"
           >
-            See how it's read
+            <span className="border-b border-band-rule transition group-hover:border-band-ink">
+              See how it's read
+            </span>
             <ArrowRight className="ml-2 size-4" />
           </a>
         </Reveal>
@@ -376,7 +471,7 @@ function IntentBand() {
 
 function HowItWorks() {
   return (
-    <section id="how" className="py-16 sm:py-[88px]">
+    <section id="how" className="scroll-mt-20 py-16 sm:py-[88px]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
           <SectionIntro
@@ -407,21 +502,37 @@ function HowItWorks() {
               //
               // The bead comes later in the tree than the pseudo-element, so it still paints
               // over the segment and reads as a bead on a wire rather than a dot beside one.
+              //
+              // One token for the whole glyph. The wire was `--rule` and the tick crossing it
+              // at the same point was `--rule-strong`, so a figure whose entire job is to turn
+              // six paragraphs into one sequence had a bright bead on a bright stem joined by
+              // a line at 1.26:1 against the page — which is the six-separate-marks failure
+              // the per-item segment above was introduced to fix, one step further down.
               <li
                 key={title}
-                className="relative pr-5 before:absolute before:inset-x-0 before:top-[11px] before:h-px before:bg-rule"
+                className="relative pr-5 before:absolute before:inset-x-0 before:top-[11px] before:h-px before:bg-rule-strong"
               >
                 <div className="relative h-[23px] w-px bg-rule-strong">
                   <span className="absolute -left-[3.5px] top-[7px] size-2 rounded-full border-[1.5px] border-ink bg-canvas" />
                 </div>
-                <Mono className="mt-3 block text-[10px] tracking-[0.14em] text-ink-3">
+                {/* `0.13em`, the value the scale names, and the same value the attribution
+                    eight lines below already carried — one item in a six-item row set a
+                    hundredth of an em from its own sibling is visible at 10px and means
+                    nothing. */}
+                <Mono className="mt-3 block text-[10px] tracking-[0.13em] text-ink-3">
                   {String(index + 1).padStart(2, "0")}
                 </Mono>
                 <h3 className="mt-1 font-display text-[15px] font-semibold tracking-tight text-ink">
                   {title}
                 </h3>
                 <p className="mt-1.5 max-w-[24ch] text-[13px] leading-[1.55] text-ink-2">{body}</p>
-                <Mono className="mt-3 inline-block border-t border-rule pt-1.5 text-[9px] uppercase tracking-[0.13em] text-ink-3">
+                {/* Machine / Model / Person — the product's central idea, made visible under
+                    every step, and it was set at 9px: smaller than anything else on the page
+                    and off the bottom of a scale whose last row is 10px, which is where
+                    uppercase letterspaced text stops being readable. The size goes back on the
+                    scale and the weight comes off, because this is a label and the 13px body
+                    above it should still lead. */}
+                <Mono className="mt-3 inline-block border-t border-rule pt-1.5 text-[10px] font-medium uppercase tracking-[0.13em] text-ink-3">
                   {who}
                 </Mono>
               </li>
@@ -431,6 +542,109 @@ function HowItWorks() {
       </div>
     </section>
   );
+}
+
+/**
+ * What stands where the docket is about to be.
+ *
+ * It was a bare box — `min-h-[42rem]`, no shape, no words, and an `aria-busy` on a `div` with
+ * no live region, which says nothing to a screen reader at all. The height was a guess as
+ * well, and a short one: the docket opens on a header strip, three rows and a whole
+ * `FindingBody`, so the four sections below it dropped when the chunk landed.
+ *
+ * The shape answers both. The placeholder is built out of the same parts the docket has, so
+ * its height is composed rather than estimated, and a reader can see where the rows and the
+ * open one will be instead of watching an empty rectangle.
+ */
+function ExhibitSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="overflow-hidden rounded-lg border border-rule bg-surface"
+    >
+      <span className="sr-only">Loading the docket</span>
+      {/* The strip naming the repository and how much of the review is left. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-rule bg-surface-2 px-4 py-3 sm:px-5">
+        <Skeleton className="h-3.5 w-56" />
+        <Skeleton className="h-3 w-44" />
+      </div>
+      {/* Two rows at rest: an identity, the claim it states, and its pattern line. */}
+      {[0, 1].map((row) => (
+        <div key={row} className="grid gap-2 border-b border-rule px-4 py-4 sm:px-5">
+          <Skeleton className="h-3.5 w-2/5" />
+          <Skeleton className="h-3 w-4/5" />
+          <Skeleton className="h-3 w-1/4" />
+        </div>
+      ))}
+      {/* And the one that opens, which is most of the height: a claim, the judged paragraph,
+          a recommended response, the measurements and two evidence excerpts. */}
+      <div className="grid gap-2 px-4 py-4 sm:px-5">
+        <Skeleton className="h-3.5 w-1/3" />
+        <Skeleton className="h-3 w-3/4" />
+      </div>
+      <div className="grid gap-2.5 border-t border-rule px-4 py-5 sm:px-5">
+        <Skeleton className="h-2.5 w-24" />
+        <Skeleton className="h-3.5 w-full" />
+        <Skeleton className="h-3.5 w-full" />
+        <Skeleton className="h-3.5 w-11/12" />
+        <Skeleton className="h-3.5 w-2/3" />
+        <Skeleton className="mt-3 h-20 w-full" />
+        <Skeleton className="mt-3 h-2.5 w-28" />
+        <Skeleton className="h-3 w-3/5" />
+        <Skeleton className="h-3 w-2/5" />
+        <Skeleton className="mt-3 h-28 w-full" />
+        <Skeleton className="h-28 w-full" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The one error boundary this page has, and it is around this section rather than the page.
+ *
+ * `CaseFileDocket` is fetched on its own after the page, so a stale deploy hash, a dropped
+ * connection or an offline reader throws during render — and the nearest boundary was the one
+ * around `<App/>`, whose fallback is written for the workbench. A first-time visitor's entire
+ * marketing page was replaced by "This screen stopped part way through", assuring them that
+ * nothing recorded is lost and offering a review list that is empty on a first visit. Every
+ * argument the page had made was gone because one section four screens down could not fetch.
+ *
+ * So a failure costs this section and nothing else, and what stands in its place says the
+ * same thing the section does: this is the real surface, and running a review is how to see
+ * it.
+ */
+class ExhibitBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    // The console is the only recorder this frontend has, and a chunk that will not load is
+    // worth the line: it is a deploy that went out from under an open tab, not a reader's
+    // doing, and nothing else on the page will report it.
+    console.error("ArchCompass: the landing page's exhibit did not load", error);
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="rounded-lg border border-rule bg-surface px-4 py-6 sm:px-6">
+          <p className="max-w-[62ch] text-[15px] leading-[1.62] text-ink-2">
+            This section runs the workbench's own finding surface, and it did not load. It is
+            the real thing rather than a picture of it, so the way to see it is to run a review.
+          </p>
+          <ButtonLink to="/start" className="mt-4">
+            Review a repository
+            <ArrowRight className="size-4" />
+          </ButtonLink>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 /**
@@ -445,11 +659,16 @@ function HowItWorks() {
  *
  * It is loaded on its own, after the page. The chunk it pulls in is the finding surface and
  * the syntax highlighter behind it, and the first screen of a landing page should not wait
- * on either — this is four screens down.
+ * on either — this is four screens down. `ExhibitSkeleton` and `ExhibitBoundary` above are
+ * the two answers to that being a separate fetch: what it looks like while it is coming, and
+ * what is left standing if it never arrives.
  */
 function FindingSection() {
   return (
-    <section id="finding" className="border-y border-rule bg-surface-2 py-16 sm:py-[88px]">
+    <section
+      id="finding"
+      className="scroll-mt-20 border-y border-rule bg-surface-2 py-16 sm:py-[88px]"
+    >
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
           <SectionIntro
@@ -460,21 +679,14 @@ function FindingSection() {
         </Reveal>
 
         <Reveal className="mt-11">
-          <Suspense
-            fallback={
-              // Held at roughly the height the docket opens to, so the page under it does
-              // not jump when the chunk lands.
-              <div
-                className="min-h-[42rem] rounded-lg border border-rule bg-surface"
-                aria-busy="true"
-              />
-            }
-          >
-            <CaseFileDocket />
-          </Suspense>
+          <ExhibitBoundary>
+            <Suspense fallback={<ExhibitSkeleton />}>
+              <CaseFileDocket />
+            </Suspense>
+          </ExhibitBoundary>
         </Reveal>
 
-        <Mono className="mt-4 block text-[11px] text-ink-3">
+        <Mono className="mt-4 block text-ink-3">
           A written-out review · no repository is read by this page
         </Mono>
       </div>
@@ -484,7 +696,7 @@ function FindingSection() {
 
 function RefusalsSection() {
   return (
-    <section id="refusals" className="py-16 sm:py-[88px]">
+    <section id="refusals" className="scroll-mt-20 py-16 sm:py-[88px]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
           <SectionIntro
@@ -514,30 +726,70 @@ function FaqSection() {
   const [open, setOpen] = useState<number | null>(0);
   return (
     <section className="border-t border-rule py-16 sm:py-[88px]">
-      <div className="mx-auto max-w-3xl px-4 sm:px-6">
+      {/* `max-w-6xl`, the page's own column. At `max-w-3xl` this was the one section indented
+          193px further right than every other left edge on the page — the hero's eyebrow, the
+          headline, the buttons and the footer's wordmark all start at the same x and the FAQ
+          did not, so the page's edge jumped in and back out again for one section. The measure
+          the narrow column was standing in for is taken on the text instead, which is where
+          the rest of this file takes it. */}
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
           <SectionIntro eyebrow="FAQ" title="Questions engineers actually ask" />
         </Reveal>
         <div className="mt-8 divide-y divide-rule border-y border-rule">
           {FAQ.map(([question, answer], index) => {
             const expanded = open === index;
+            const panelId = `faq-panel-${index}`;
             return (
               <div key={question}>
                 <h3>
+                  {/* A control drawn as one. At rest this row was 16px semibold at full ink on
+                      the page's own canvas — typographically a section heading — with its one
+                      affordance parked at the far end of a `justify-between` row 715px wide, so
+                      at 390 the chevron sat vertically centred 160px to the right of a question
+                      that had wrapped to two lines. The mark follows the words now, and the row
+                      takes the hover ground the system names for one.
+
+                      No horizontal padding, and that is the choice rather than an omission: the
+                      hairlines here are the row's own edges, so a padded fill would either sit
+                      inset from them or, paid back with a negative margin, hang 12px past them
+                      on both sides. Flush, the band is exactly the row, and the question keeps
+                      the left edge every other line on the page starts at.
+
+                      The question stays at full `text-ink` — it is a heading as well as a
+                      control, and dimming it would cost the section its scan. */}
                   <button
                     type="button"
                     aria-expanded={expanded}
+                    aria-controls={panelId}
                     onClick={() => setOpen(expanded ? null : index)}
-                    className="flex min-h-11 w-full items-center justify-between gap-4 py-4 text-left"
+                    className="flex min-h-11 w-full items-center gap-3 py-4 text-left transition hover:bg-sunken"
                   >
-                    <span className="font-display text-base font-semibold text-ink">{question}</span>
+                    <span className="max-w-[52ch] font-display text-base font-semibold text-ink">
+                      {question}
+                    </span>
                     <ChevronDown
                       className={cn("size-4 shrink-0 text-ink-3 transition", expanded && "rotate-180")}
                     />
                   </button>
                 </h3>
+                {/* The one prose block on the page with no measure of its own: at 14px in a
+                    720px column it ran to about 100 characters a line, and these are the
+                    longest answers here. `62ch` is the cap the design system names and the one
+                    `SectionIntro` and the refusals already take; `leading-6` comes with it,
+                    because `leading-7` was open enough to be holding a line that wide together.
+
+                    `id`, because `aria-expanded` on its own tells a reader the state of
+                    something they have no way to reach. `exhibit.tsx` two sections up already
+                    does it properly, and two patterns for one interaction in one document is
+                    one too many. */}
                 {expanded ? (
-                  <p className="animate-expand pb-4 text-sm leading-7 text-ink-2">{answer}</p>
+                  <p
+                    id={panelId}
+                    className="animate-expand max-w-[62ch] pb-4 text-sm leading-6 text-ink-2"
+                  >
+                    {answer}
+                  </p>
                 ) : null}
               </div>
             );
@@ -556,7 +808,13 @@ function FinalCta() {
           <h2 className="mx-auto max-w-[19ch] font-display text-[clamp(28px,3.6vw,42px)] font-semibold leading-[1.1] tracking-[-0.03em] text-ink">
             Point it at a repository and see what your guidance says.
           </h2>
-          <p className="mx-auto mt-4 max-w-[48ch] text-base leading-[1.62] text-ink-2">
+          {/* 15px, not 16. The scale reserves 16px sans for one thing — the model's
+              reasoning, "its own size, used nowhere else" — because with no second face, size
+              and placement are the whole of the model's voice. This page was spending it on
+              body copy, four screens under the section that renders the real `FindingBody` to
+              teach a first-time reader what that size means. 15px is what the hero's second
+              call to action and the band's link already use. */}
+          <p className="mx-auto mt-4 max-w-[48ch] text-[15px] leading-[1.62] text-ink-2">
             It will map the structure, weigh what it finds against what you have written down, and
             tell you plainly what it could not decide without asking you first.
           </p>
@@ -581,17 +839,27 @@ function Footer() {
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6 md:flex-row md:items-start md:justify-between">
         <div className="max-w-sm">
           <Wordmark to="/" />
-          <p className="mt-3 text-sm leading-6 text-ink-3">
+          {/* `--ink-2`, the tier every other paragraph on this page is set in. This one
+              sentence was `--ink-3` — the meta tier, the one that explains the interface —
+              so the first prose a reader met in the footer was dressed as a footnote, while
+              the genuine footnote in the bar below wore the same ink and was right to. */}
+          <p className="mt-3 text-sm leading-6 text-ink-2">
             A context-aware, evidence-grounded architecture reviewer. Apache-2.0 licensed, and it
             runs in your own workspace.
           </p>
         </div>
+        {/* Three headings, and each list says which one names it.
+            The column labels were `div`s inside one `<nav>`, so a screen-reader user got nine
+            links in three unlabelled lists and no way to tell which group was which — the one
+            thing a column label exists to say. They are `Label` now as well as headings, which
+            takes three more hand-rolled copies of the block-label recipe off the page and puts
+            them back on the scale's own row. */}
         <nav aria-label="Footer" className="grid grid-cols-2 gap-8 text-sm sm:grid-cols-3">
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-ink-3">
+            <Label as="h2" id="footer-product">
               Product
-            </div>
-            <ul className="mt-2.5 grid gap-1.5">
+            </Label>
+            <ul aria-labelledby="footer-product" className="mt-2.5 grid gap-1.5">
               {[
                 ["/start", "Start a review"],
                 ["/reviews", "Reviews"],
@@ -606,10 +874,10 @@ function Footer() {
             </ul>
           </div>
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-ink-3">
+            <Label as="h2" id="footer-workspace">
               Workspace
-            </div>
-            <ul className="mt-2.5 grid gap-1.5">
+            </Label>
+            <ul aria-labelledby="footer-workspace" className="mt-2.5 grid gap-1.5">
               {[
                 ["/repositories", "Repositories"],
                 ["/cases", "Architecture cases"],
@@ -623,21 +891,29 @@ function Footer() {
               ))}
             </ul>
           </div>
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-ink-3">
+          {/* The full width below `sm`, where the grid is two columns and this is the third
+              item: it had half a row to itself with the cell beside it empty, which is what
+              forced the repository slug to break mid-word in a 178px column with 358px going
+              spare. */}
+          <div className="max-sm:col-span-2">
+            <Label as="h2" id="footer-project">
               Project
-            </div>
-            <ul className="mt-2.5 grid gap-1.5">
+            </Label>
+            <ul aria-labelledby="footer-project" className="mt-2.5 grid gap-1.5">
               <li>
+                {/* `items-start`, because the slug can still take two lines at the width where
+                    the footer becomes three columns — and centred against two lines the mark
+                    floated in the gap between them, aligned with neither. The offset puts it on
+                    the first line's cap height. */}
                 <a
                   href="https://github.com/Furkan-rgb/arch_compass"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 text-ink-2 hover:text-ink"
+                  className="inline-flex items-start gap-2 text-ink-2 hover:text-ink"
                 >
                   {/* The mark says which site; the repository name says which project.
                       "GitHub" on its own said neither. */}
-                  <GithubIcon className="size-3.5 shrink-0" />
+                  <GithubIcon className="mt-[3px] size-3.5 shrink-0" />
                   {/* One unbreakable word in a third of a footer. At the width where the
                       footer becomes three columns it is the widest thing in its column and
                       there is no break to take, so it decides the page's width. */}
@@ -651,9 +927,11 @@ function Footer() {
                   How it works
                 </a>
               </li>
-              <li>
-                <span className="text-ink-3">Apache-2.0</span>
-              </li>
+              {/* "Apache-2.0" used to be a third item here: a non-link in a list of links,
+                  told apart from its neighbours by one step of ink — a step this product has
+                  taught the reader to read as "meta", not as "inert". The brand paragraph at
+                  the top of this footer already says the project is Apache-2.0 licensed, so
+                  the list simply loses it. */}
             </ul>
           </div>
         </nav>
@@ -676,13 +954,24 @@ function SectionIntro({
   body?: string;
 }) {
   return (
-    <div className="max-w-[62ch]">
+    /* `41.25rem` and not `62ch`, for the reason the section above it carries in full: this is a
+       column holding an 11px eyebrow, a `clamp(26px,3.2vw,34px)` heading and a 15px paragraph,
+       and a `ch` on it resolved against the root's inherited 16px rather than against any of
+       them. 660px is the 659.68px it drew, to a third of a pixel. The paragraph inside keeps
+       its own `56ch` and should: that one is on the block whose size it is resolved against,
+       which is the whole distinction. */
+    <div className="max-w-[41.25rem]">
       <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">{eyebrow}</Mono>
       <h2 className="mt-2.5 font-display text-[clamp(26px,3.2vw,34px)] font-semibold leading-[1.12] tracking-[-0.028em] text-ink">
         {title}
       </h2>
+      {/* 15px for the same reason `FinalCta` gives, and this is the copy that made the case:
+          the intro this renders above `FindingSection` sat directly on top of a real
+          `FindingBody`, whose judged paragraph is 16px because it is the model speaking. Two
+          blocks at one size, one of them a marketing lede, is the signal failing on the page
+          whose job is to teach it. */}
       {body ? (
-        <p className="mt-3.5 max-w-[56ch] text-base leading-[1.62] text-ink-2">{body}</p>
+        <p className="mt-3.5 max-w-[56ch] text-[15px] leading-[1.62] text-ink-2">{body}</p>
       ) : null}
     </div>
   );

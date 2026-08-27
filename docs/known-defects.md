@@ -9,6 +9,13 @@ to find them again. Each one names the evidence it rests on and carries a status
 A fault that is fully fixed leaves this file, and so does one that turns out not to exist.
 Everything here was re-verified against the code on 2026-08-24, claim by claim. Two entries left on 2026-08-25 when the Google Batch subsystem was deleted: the positional response join went with it, and the concurrency knob it was the only reader of went with that.
 
+An entry may also be **wrong about its own size**, which is what happened to the phone entry
+below on 2026-08-27: the fault was real and the number describing it had been taken from a
+screen the product cannot produce. That is not grounds to delete an entry — the layout it
+describes still exists — but the measurement and the population it was taken over now have to
+be written down beside it, because a repair was very nearly made on the strength of the wrong
+one.
+
 ## OPEN — the one-review-one-sequence rule has no schema behind it
 
 Migration `003_one_revision_per_review.sql` rebuilt `core_review_snapshots` without the old
@@ -98,6 +105,198 @@ The peak is lower than when this was written and the entry's number predates the
 candidates from 21 MB of `__pregel_tasks` to 1.3 MB (`workflow/graph.py:199`). That bounds the
 fan-out, not the state each superstep writes, which is what this entry is about.
 
+## PARTLY FIXED — on a phone, a held finding's way out is reached after the whole argument
+
+Below `lg` the Judged band collapses to one column, and the rail comes after the argument in
+the DOM — which is deliberate and is what makes the stacked reading order right. The cost is
+that the **Answer it** control is reached by scrolling past the model's paragraph.
+
+**The number this entry carried was wrong by a factor of about two and a half, and it was wrong
+because it was taken from a screen nobody can be shown.** It said "roughly 1,500px", reasoning
+from the longest recorded reasoning: 2,139 characters, 57 line boxes in the 324px column a 390px
+viewport gives this block. Put on a held row in the live app that argument really does land the
+control 1,688px down. But it belongs to a *material* finding, and a material finding has no
+hinge and therefore no control here at all. `FindingOutput.the_verdict_carries_what_it_is_allowed_to`
+in `reasoning/adapters/langchain.py` refuses a hinge on any verdict but `held`;
+`finding-detail.tsx` draws nothing without one; and questions are generated per hinge rather
+than per verdict, so the `waitingOn` gate does not widen the population either. Of the 375
+recorded judgements in the workspace, all 69 held ones carry a hinge and not one of the 306
+cleared and material ones does.
+
+**Measured over the population that exists.** The held arguments run 156 to 971 characters.
+Swept over all 69 at 390x844 in the real app, each with its own recorded hinge and its blocks
+cut by the real `sentences()`, **Answer it** lands 275px to 956px below the top of the argument
+— median 624px, five of the 69 past the 844px viewport, eight past the 796px the sticky topbar
+leaves, none past 1,000px. The worst pairing the population admits at all, the longest held
+argument against the longest recorded hinge and a pairing that has never occurred, is 1,025px.
+The control itself sits 4px below the question it answers.
+
+**And it regressed, by 27px.** Two changes landed on this band and they pull in opposite
+directions. `sentences()` cutting the argument into blocks adds 8px of gap per cut: +84.8px of
+argument height on the longest held string, +119.2px on the longest string of any verdict.
+Moving the verdict's lede out of the rail and above the grid gives 58px back. Measured on the
+longest held argument by reversing each change in the live DOM: 929.5px before, 956.3px today.
+
+On the 2,139-character material argument the same two shapes read 1,626.6px and 1,687.8px. The
+1,688 is exact — it is what a one-line hinge under 57 line boxes of argument comes to — but it
+is the unreachable case, and the "roughly 1,530px before" it was being compared against does not
+reproduce against this markup at all: the shape this pass replaced measures 1,626.6px there.
+Whoever writes the next number should say which of the two populations it is over.
+
+**What is not wrong is the direction of the complaint, and what is wrong is which control it
+names.** Measured below the *end* of the argument on the same sweep: **Answer it** at 144–303px,
+**Judgement context** at 884–1,043px, the decision bar at 1,878–2,037px. The last two are on
+every verdict, so the control a phone buries in an open row is the decision, not the way out of
+a held one — **Answer it** is the first control a phone reaches. `tests/browser/test_mobile.py`
+measures that ordering and the 4px.
+
+**That was not enough to hold the shape this entry describes, and the sentence here claimed it
+was.** The three distances are signed, and an ordering is a relative claim: move the rail above
+`<ModelProse>` in `finding-detail.tsx`, rebuild the bundle, and the three read **−202.17px**,
+**+631.38px** and **+1,625.55px** — still ascending, so the test passed with the way out of a
+held finding drawn *above* the argument it is a margin note on, which is this entry's layout
+running backwards. Only the first term moves: the other two controls are drawn below the grid
+the rail and the argument share, so hoisting the rail inside that grid cannot lift them, and an
+ordering over the three can never notice it. Measured on the first held row of the browser
+suite's own review at 390x844, where the argument is 79.17px tall; the distance scales with the
+judgement, the sign does not.
+
+jsdom caught the move as a document-order failure (`finding-detail.test.tsx`, *"puts the rail
+after the argument"*), so the mechanism was never unguarded; the test named here as what holds
+the shape simply did not check it. It now asserts that **Answer it** is drawn below the bottom
+of the argument before it asserts anything about the order, which is the stacking this entry
+prices.
+
+Three repairs were considered when the number was thought to be 1,500px, and none is taken now
+that it is 624px.
+
+- An `order` class puts the paint order and the tab order in disagreement, which costs exactly
+  the readers who can least afford to scroll. `finding-detail.test.tsx` asserts that no element
+  in the band carries one.
+- Moving the hinge group out of the rail below `lg` buys the argument's own height — a median of
+  412px — and costs four things: the reader is asked before being told why; it displaces the
+  lede and the opening block that `pack`'s share ceiling exists to guarantee; a held row and a
+  cleared row stop being the same shape on a phone; and crossing 1024px unmounts the group, so
+  focus on the control is lost mid-resize. It also leaves the decision bar where it is, which is
+  the larger number.
+- A second control on the phone is a second affordance for one action, which
+  `review-workbench.test.tsx` already holds the line against.
+
+What is left open is the scroll itself, and it is priced rather than fixed: a reader on a phone
+still passes a median 624px of argument to reach the way out, and the argument is what the row
+was opened for. This is not the only way in either — while a review is held the clarification
+round is the **first item on the docket** and carries the page's one primary action, which a
+phone reader reaches without scrolling at all.
+
+## OPEN — the block cap's guarantee holds on nine strings of 375, and it says so now
+
+`sentences()` in `ui/prose.tsx` cuts the model's paragraph at its own sentence boundaries, and
+`pack` promises that an argument long enough to reach the cap never opens on its tallest block.
+That promise is real and it is **conditional**, and for three passes the condition was nowhere:
+`pack` runs only when a string holds *more* than `MOST_PARTS` sentences. Nine of the 375 recorded
+judgements do. On the other 366 every boundary is cut, the blocks are the model's own sentences,
+and no ceiling applies to any of them.
+
+**Applying the ceiling regardless is a no-op, which is why this is written down rather than
+fixed.** At `count === mostParts` the packing table has exactly one feasible partition — one
+sentence to a block — and the ceiling's own escape (`through > 1`) exempts the single-sentence
+first block that partition makes. Forcing `pack` to run on every string and diffing the parts
+changes **0 of the 375**. The only rule that could shorten the opening block of a two-sentence
+string would cut inside a sentence, and every part `sentences()` returns is a raw slice of what
+the model wrote — the one thing this surface may not do is edit a judgement.
+
+**What is left, measured rather than estimated.** All 375 strings rendered through the real
+`ModelProse` in a headless Chromium against the built stylesheet, at the 617.12px measure, with
+both Onest weights and IBM Plex Mono asserted through `document.fonts.check` before anything is
+read; a Range per character of each block's rendered text, clustered on the vertical centre of
+each rect at a 0.6px tolerance, one cluster to a line. That is 3,248 line boxes over 1,166
+blocks. Of those:
+
+- **Two strings open on a seven-line block**, both under the cap: a 673-character judgement in
+  two sentences that draws 7/2, and a 1,235-character one in six that draws 7/3/3/4/2/1. The
+  first is pinned as `UNDER_CAP_WALL` in `ui/prose.test-corpus.ts`.
+- **Four of the 1,166 blocks are a single sentence of seven lines or more.** The tallest block in
+  the corpus is a **1,132-character sentence at seventeen line boxes**, sitting second in a
+  four-sentence string that draws 3/17/3/2 — not an opening block, not over the cap, and out of
+  reach of any ceiling on an opening block.
+- Over the cap, all nine strings open on **three** lines and none opens on its tallest block,
+  which is the guarantee doing its work.
+
+**It is worse in a phone's column, which is where it should be judged.** The same sweep at
+`PHONE_COLUMN_PX` draws the 673-character judgement as **17/4** and the four-sentence one as
+**7/32/5/4**. A 32-line block is a wall by any reading. What it is not is a *packing* failure:
+that block is one sentence of 1,132 characters, and the string holds four sentences, so nothing
+`pack` could be asked to do would touch it.
+
+**Why that is still not the defect the cap was built for.** The complaint was a 2,139-character
+nineteen-sentence judgement drawn as one block — **28** line boxes at the 617.12px measure and
+**54** in the phone's column. Cut, it opens on **3** and **5**. The difference between "the model
+wrote one very long sentence" and "the product drew nineteen sentences as one paragraph" is the
+whole of what the cut bought: the first is the model's prose and the second was ours. Closing the
+remainder would mean cutting inside a sentence, which costs the guarantee that what is on screen
+is what the model wrote — and that guarantee is worth more than seventeen lines.
+
+`ui/prose.test.tsx` fails if the 366 stop being cut at every boundary, or if that worst recorded
+string stops being one sentence in its opening block — which is the fact that makes the hole
+unclosable rather than unclosed.
+
+## PARTLY FIXED — `max-w-[46ch]` is written four times on the finding surface and means four widths
+
+`features/review/finding-detail.tsx` declares `max-w-[46ch]` on four blocks. A `ch` is the
+advance of the digit zero in the element's **own** used font, so each one resolves against the
+type that block declares:
+
+| block | type | `46ch` resolves to |
+| --- | --- | --- |
+| `Footnote` | `text-[12px]` | 367.08px |
+| the "How it was detected" rationale | `text-[12.5px]` | 382.38px |
+| the policy list's empty state | `text-[13px]` | 397.67px |
+| the question's answer | `text-[14px]` | 428.26px |
+
+61.18px between the narrowest and the widest. This is the same fault `ui/markdown.tsx` was
+repaired for in the same pass — one `46ch` on seven renderers that meant five widths — and it
+went unseen here because every guard on this surface reads the model's argument and the lede,
+which are the two blocks somebody had already suspected.
+
+**The fifth is fixed.** It was `<ul className="grid max-w-[46ch] gap-2">` on the policy list,
+and it was the worst of the five rather than one more of them: a `ch` on a block that declares
+no font size resolves against whatever it inherited, which here is the root's 16px, so it drew
+**489.44px** while the note inside it was `text-[14px]` whose own 46ch is 428.26px. It also
+capped the wrong box — the card spends 30px on `px-3.5` and two hairlines, so the note was
+reading at 459.44px, 65.47 characters a line measured over all 514 recorded notes. The cap is now
+the grid track — `grid-cols-[repeat(auto-fill,minmax(0,26.75rem))]` — rather than a `max-w` on
+the `ul`, so it sits on the card it was always a property of and the fold lays two cards across
+the 1,126px it has instead of spending one column of 428px and two rows. The number and its
+derivation did not move: the note's own `46ch` at the 13px it is now set in, 397.67px,
+plus the 30px the card costs, rounded to a quarter-rem. The note draws at **398.00px** and stops
+within a third of a pixel of the empty state that replaces it, which is the third row above.
+
+**`46ch` is 46 advances of the zero, not 46 characters, and this section said characters until
+now.** The two are a third apart. 397.67px is `46 x 13 x 0.665`, the zero's advance; a character
+of Onest on a full line costs 6.57px at 13px, so the note at 398.00px reads at **60.58 characters
+a line** — the same `Range`-per-character sweep as the 65.47 above, over the same 514 notes,
+1,531 full lines, averaged over full lines only. Re-run at the old 459.44px and 14px that sweep
+gives 65.51 against the 65.47 recorded, so the two figures in this section are one method rather
+than a `ch` count standing beside a character count and contradicting it. No pixel moves: 46
+zeros is the measure and 60.58 characters is what it holds.
+
+**How the figures were produced.** `46 x size x advance`, where the advance is Onest's zero at
+the weight each block declares: 0.665em at 400, read off the `hmtx` table of the shipped
+`onest.woff2`. All four blocks inherit 400, so this set differs by size alone. Nothing above is
+typed in by hand — "resolves every `46ch` this surface declares, and none of them from an
+ancestor" in `features/review/finding-detail.test.tsx` reads the class lists out of the
+component's own source and computes them. It asserts a property rather than a count, so
+repairing one of these four passes and introducing a fifth *width* fails. The drawn widths are
+rectangles from a headless Chromium serving the built stylesheet, with both Onest weights
+asserted through `document.fonts.check` before anything was read.
+
+**Why the remaining four are recorded rather than fixed.** Closing it means deciding which edge
+these four blocks should share, and whether the answer is one shared `rem` (which is what
+`ui/markdown.tsx` chose) or four deliberate widths said in a unit that does not follow the type.
+That is a decision about the surface, not about a number. What the repaired fifth settles is
+narrower and is not that decision: a `ch` that cannot be resolved from the class list stating it
+is wrong whatever the surface decides, because no reader of that line can tell what it draws.
+
 ## PARTLY FIXED — `Label` still has twenty-two hand-rolled copies
 
 The drift is fixed — the five different tracking values are gone — but twenty-two
@@ -121,3 +320,32 @@ The duplicated helpers, the duplicated ignored-directory list and the two protoc
 the name `RepositoryAnalyzer` have all been reduced to one definition each, and
 `safe_workspace_output_path` has gone — see the symlink entry below for the one check that
 left with it.
+
+## OPEN — a thinking *level* pinned on Ollama fails before the request is built
+
+The mirror of the fault `openrouter._effort` fixed. `ThinkingMode` is one type over two
+provider shapes — a switch and a four-word dial — and each adapter now owes the shape it does
+not have. OpenRouter's branch owes the switch, and maps it onto the ends of the dial. Ollama's
+branch owes the dial, and does not: `build_chat_model` passes `config.thinking` straight into
+`ChatOllama(reasoning=…)`, which reaches `ollama.ChatRequest.think`, typed
+`Optional[Union[bool, Literal['low', 'medium', 'high']]]`.
+
+Measured on 2026-08-27 through a mock transport, four levels against `qwen3.8:27b`: `low`,
+`medium` and `high` go across as `think='low'`, `think='medium'`, `think='high'`. `minimal`
+raises `pydantic.ValidationError: 2 validation errors for ChatRequest` inside the ollama
+client, before any request is built. So `--thinking minimal --provider ollama` cannot run at
+all, and the other three run only by the coincidence that both vocabularies spell three of
+their words the same way.
+
+Not fixed here because the mapping is a product decision with nothing written down to
+implement. `minimal` on a switch is either `False` — which reads the floor as off, the
+opposite of the approximation OpenRouter makes — or `low`, which asks a model to think when
+the setting asked it not to. The OpenRouter mapping had a specification already:
+`ReasoningModelConfig.thinking` and `_thinking_mode` both stated it. This one has none.
+
+Bounded rather than dangerous: it is unreachable from the chooser, which offers each provider
+only the shape it has (`probe_ollama` reports `(True, False)` or `(None,)`; OpenRouter's
+`_judgeable` reports `(None, *THINKING_LEVELS)`), so only a `--thinking` pin reaches it — and
+it fails at model construction, loudly, before a token is spent. `test_provider_conformance.py`
+covers the three states `ReasoningModelConfig` specifies and deliberately does not pin this
+one, because a test of the current behaviour here would be a test that the defect is present.

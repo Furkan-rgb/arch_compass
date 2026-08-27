@@ -274,6 +274,15 @@ Also fixed: `gemini-3.5-flash-lite` and `gemini-3.6-flash` fix their own samplin
 `temperature` was discarded and warned about on every call. It is now sent only to models
 that honour it.
 
+> **The observation stands; the last sentence does not.** That warning was seen against
+> Google's native API, which this product no longer reaches — every hosted call goes through
+> OpenRouter, and nothing has re-checked whether the same models discard `temperature` when
+> it arrives that way. The per-model list is gone with the native client: `temperature` is 0
+> for every model on both paths, in `openrouter.request_body` and in the Ollama branch of
+> `build_chat_model`. `request_body` carries the argument for that and repeats this caveat,
+> because it may still be a no-op for exactly the model this workspace runs while being
+> right for every other model on the path. `Finding.served_by` is what will settle it.
+
 ## 16. Results
 
 | Check | Result |

@@ -381,8 +381,9 @@ into the review anyway; the rows repeated the reviews listed below them; and the
 page exists to show started below the fold.
 
 So the list goes and the fact stays. The newest revision of each lineage says how much of it
-wants a person — *3 things want you*, the words the review's own head uses, counted from the
-same `needsAttention` rule so the two totals cannot disagree — and the claims are read where
+wants a person — *3 open*, terse because the row is already carrying a status pill and a line
+of metadata, counted from the same `needsAttention` rule the review's own head counts from so
+the two totals cannot disagree — and the claims are read where
 they can be acted on. Only the newest revision says it: what review 3 raised was either
 carried into review 4, which counts it, or it went away. A row says nothing at all until the
 branch's standing decisions have arrived, and nothing if they could not be read, because a

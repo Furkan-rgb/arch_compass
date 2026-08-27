@@ -5,6 +5,7 @@ import { cn } from "../lib/cn";
 import { editorHref, useEditorScheme } from "../lib/editor";
 import type { Tone } from "../lib/format";
 import { CheckIcon, OpenExternalIcon } from "./icons";
+import { Label } from "./panel";
 
 /**
  * Identifiers, paths, commits, fingerprints, model identities. Monospace, always.
@@ -14,6 +15,12 @@ import { CheckIcon, OpenExternalIcon } from "./icons";
  * on a 390px screen has nowhere to break, so it painted past its cell and took the page
  * sideways with it. Where an ancestor asks for `truncate` instead, that wins: `truncate`
  * sets `white-space: nowrap`, which inherits, and nothing can wrap under it.
+ *
+ * 11px, which is the row the type scale gives this component's own job — *provenance, meta
+ * lines, identities, namespaces*. It defaulted to 12, the row reserved for footnotes and
+ * counts, and 44 of its 80 call sites wrote a smaller size back on by hand. A default nobody
+ * chose for the common case is the same drift the `Label` docstring exists to prevent, one
+ * component over. The sites that genuinely want 12px or more still say so.
  */
 export function Mono({
   children,
@@ -21,7 +28,7 @@ export function Mono({
   ...props
 }: { children: ReactNode; className?: string } & HTMLAttributes<HTMLSpanElement>) {
   return (
-    <span {...props} className={cn("font-mono text-[12px] text-ink-2 wrap-anywhere", className)}>
+    <span {...props} className={cn("font-mono text-[11px] text-ink-2 wrap-anywhere", className)}>
       {children}
     </span>
   );
@@ -81,7 +88,17 @@ export function PathRef({
         className={cn(
           // `truncate` and `max-w-full`: an absolute path is one word and is wider than a
           // phone, and a reference that widens its own column is worse than an elided one.
-          "block min-w-0 max-w-full truncate text-left font-mono text-[11px] font-medium text-ink",
+          //
+          // It elides from the *head*, which is the half that was wrong. `truncate` always
+          // cuts the right-hand end, and for an absolute path the right-hand end is the only
+          // part that distinguishes one checkout from another: two lineages under
+          // `…/cases/boundary-review/repository` and `…/cases/layering-review/repository`
+          // rendered as the same string on a phone, both ending at "…/examples/ca". Setting
+          // the box `rtl` moves the ellipsis to the start; the `<bdi>` inside keeps the
+          // string itself reading left to right, and `text-align: left` keeps the row's
+          // alignment. The accessible name and the `title` carry the whole path either way.
+          "[direction:rtl] [text-align:left]",
+          "block min-w-0 max-w-full truncate font-mono text-[11px] font-medium text-ink",
           "underline decoration-rule-strong underline-offset-2 transition hover:decoration-ink",
           // 11px type on a 16px line is a 16px-tall thing to hit with a thumb, and this is a
           // real control — it copies. The padding makes the touch box 44px; the matching
@@ -91,18 +108,26 @@ export function PathRef({
           "-my-3.5 py-3.5",
         )}
       >
-        {path}
-        {span ? <span className="text-ink-3">{span}</span> : null}
+        <bdi>
+          {path}
+          {span ? <span className="text-ink-3">{span}</span> : null}
+        </bdi>
       </button>
       {/* The tick is the whole confirmation, and it occupies no space until it is earned —
           a control that reserves room for a state it is usually not in makes every path on
           the page 14px narrower for the one moment it is. */}
       {copied ? <CheckIcon aria-hidden="true" className="shrink-0 text-[13px] text-ink" /> : null}
+      {/* The same trick the copy button above carries, and for the same reason: this is a real
+          control — it is the one that does the thing a reviewer actually wants — and at
+          `p-0.5` around a 13px glyph it was a 17px target sitting beside a sibling
+          deliberately grown to 44. The padding makes the box 44 tall; the negative margin
+          takes it straight back out of the layout, so nothing moves. The width comes on a
+          coarse pointer only, where a finger needs it. */}
       {href ? (
         <a
           href={href}
           title={`Open ${path} in your editor`}
-          className="shrink-0 rounded-xs p-0.5 text-[13px] text-ink-3 transition hover:text-ink"
+          className="-my-3.5 shrink-0 rounded-xs px-1.5 py-3.5 pointer-coarse:px-3 text-[13px] text-ink-3 transition hover:text-ink"
         >
           <OpenExternalIcon aria-hidden="true" />
           <span className="sr-only">Open in your editor</span>
@@ -124,7 +149,9 @@ export function MetaRow({
 }) {
   return (
     <div className={cn("grid grid-cols-[minmax(88px,auto)_minmax(0,1fr)] gap-3 py-2", className)}>
-      <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">{label}</dt>
+      {/* `Label`, not a fourth copy of its four properties. This one had drifted to
+          `tracking-[0.08em]`, and `as` is on that component precisely so a `dt` can have it. */}
+      <Label as="dt">{label}</Label>
       <dd className="min-w-0 text-sm leading-6 text-ink-2">{children}</dd>
     </div>
   );
@@ -193,9 +220,8 @@ export function Statistic({
       >
         {value}
       </div>
-      <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3">
-        {label}
-      </div>
+      {/* And a fifth, at `tracking-[0.1em]`. The name under a number is a block label. */}
+      <Label className="mt-1">{label}</Label>
       {detail ? <div className="mt-1 truncate text-xs text-ink-3">{detail}</div> : null}
     </div>
   );
@@ -208,8 +234,15 @@ export function MetaLine({ items, className }: { items: ReactNode[]; className?:
     <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3", className)}>
       {visible.map((item, index) => (
         <span key={index} className="inline-flex items-center gap-2">
+          {/* `text-ink-3`, not `text-ink-3/50`. Halving the tier composited to `#afafaf` in
+              light — 2.00:1 against a panel, below every step of the declared ink ramp, and
+              invisible to `tokens.test.ts`, which measures the three named inks and cannot
+              see an alpha applied in a class. `--ink-3` sits at `#5f5f5f` *because* the tier
+              was measured and moved; halving it at a call site put the separator back below
+              where the tier was before the correction. A middot at 12px is already the
+              quietest mark on the line without help. */}
           {index > 0 ? (
-            <span aria-hidden="true" className="text-ink-3/50">
+            <span aria-hidden="true" className="text-ink-3">
               ·
             </span>
           ) : null}

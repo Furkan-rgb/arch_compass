@@ -77,7 +77,30 @@
      One rule orders the ramp in both themes: light means elevation. In light that reads as
      white on grey, which is what this already was. In dark it reads as a film of white laid
      over the void — the same rule, running the only direction it can once the ground is
-     already at the bottom. */
+     already at the bottom.
+
+     THE ELEVATION CONTRACT. Four grounds, four jobs, and every component obeys the same four.
+     `--surface` used to paint a panel, that panel's header *and* the clickable row inside it,
+     all three at `#ffffff`, so nothing read as a container and nothing read as a target. The
+     jobs are now separated, and separated the same way in both themes:
+
+       the page              `--canvas`      #f5f5f5 / #000000
+       a panel               `--surface`     #ffffff / #0d0d0d
+       a panel's header,     `--surface-2`   #fafafa / #141414
+       and any static strip
+       set into a panel
+       a row at rest         — no ground of its own; it is the panel it sits in
+       a row on hover,       `--sunken`      #ebebeb / #1f1f1f
+       and any quiet inset
+
+     The last two rows are the part that is easy to get wrong. `--surface` → `--surface-2` is
+     five values in light: enough for a strip a reader is not asked to notice, and nowhere
+     near enough for a state that has to appear under a pointer. `--surface` → `--sunken` is
+     twenty values in light and eighteen in dark, which is why the hover is `--sunken` in both
+     and why a hover may never be `--surface-2`. Nothing steps *between* these four: a tone
+     mixed as an alpha of one of them — `bg-sunken/60`, `bg-surface/40` — composites to six
+     values in light and nineteen in dark, so it is a real step in one theme and nothing at
+     all in the other. If a value is wanted that is not on this ramp, name it here. */
   --canvas: #f5f5f5;
   --sunken: #ebebeb;
   --surface: #ffffff;
@@ -115,6 +138,20 @@
   --rule: rgb(0 0 0 / 10%);
   --rule-strong: rgb(0 0 0 / 15%);
 
+  /* The edge that says "this is a control", and the reason it is not `--rule-strong`.
+
+     A text field, a secondary button and a pressed toggle are all identified as operable by
+     one hairline and nothing else — in light `--control` and `--surface` are both `#ffffff`,
+     so there is no fill difference underneath to help. `--rule-strong` on that fill measures
+     1.41:1 in light and 1.38:1 in dark, well under the 3:1 WCAG asks of a boundary a reader
+     has to find, and the boundary *is* the affordance. This value clears it: `#949494` on
+     white is 3.03:1, and 40% white composited on the dark control film is 3.78:1.
+
+     It is a fifth grey on the rule ladder rather than a redefinition of the other two.
+     `--rule` and `--rule-strong` separate structure, which is a different job and reads
+     correctly at a whisper; a control has to be found. */
+  --rule-control: rgb(0 0 0 / 42%);
+
   /* The meta tier is the one that had to move, and it moved because it was never checked.
 
      `--ink-3` was `#737373` in both themes on the argument that it sat near the middle and
@@ -142,11 +179,20 @@
 
      What this costs is real and was chosen with it named — a docket column no longer separates
      held from cleared at the edge of vision, and the mark, the word and the left edge have to
-     carry that on their own. */
+     carry that on their own.
+
+     The two neutral washes are declared at the same percentage in both themes on purpose.
+     They were 5% and 3% in light against 8% and 5% in dark, which is the same defect the
+     ramp comment above describes one layer down: a wash that composites to a different step
+     in each theme is a tone that only works in one of them. `--held-soft` is 8% in both, and
+     `--cleared-soft` 3% — the dark wash came *down* rather than the light one going up,
+     because at 5% over `--sunken` it lifted the ground under a `cleared` badge far enough to
+     put 11px bold text at 4.44:1. Both values sit inside the 3–8% band the design system
+     states, and both keep chroma at zero. */
   --material: var(--accent);
   --material-soft: var(--accent-soft);
   --held: #0a0a0a;
-  --held-soft: rgb(0 0 0 / 5%);
+  --held-soft: rgb(0 0 0 / 8%);
   --cleared: var(--ink-3);
   --cleared-soft: rgb(0 0 0 / 3%);
 
@@ -184,18 +230,49 @@
 
      The accent rule is still honoured, and it is a rule about *hue*, not about abstinence:
      red means look here, and nothing else on screen may borrow it. So the code palette lives
-     on the cool half of the wheel, where the accent never goes — violet, blue, cyan — and the
+     on the cool half of the wheel, where the accent never goes — violet, blue, teal — and the
      nearest a code hue comes to it is the 85 degrees between violet and `--accent` in light,
-     81 in dark. A keyword cannot be misread as a material badge, because no badge is ever
+     78 in dark. A keyword cannot be misread as a material badge, because no badge is ever
      violet.
 
      This argument used to be made against a green `cleared` at 42 degrees from cyan, which
      was the tightest pair in the set. Held and cleared gave up their hues, so the set is
      wider now and the bar in `ui/tokens.test.ts` is unchanged at 35 degrees — it was never
-     sized to the comfortable case. */
+     sized to the comfortable case. It is also why the literal can now sit at 172° without
+     colliding with anything: `ui/tokens.test.ts` asserts that `--held` and `--cleared` carry
+     no chroma at all, so there is no green on this surface for a green string to be mistaken
+     for.
+
+     **Why the literal moved off cyan.** It was `#0b5f74` at 221°, and the complaint that
+     started this was that a block reads flat. Tokenising all 501 stored `read_file` lookups
+     (`core_review_snapshots.review_json -> investigation_manifest[].lookups[]`, gutter split
+     off, Python grammar) and attributing every non-space character to the class it lands in
+     says why: 26.76% of a block is `--code-lit` and only 3.22% is `--code-name` — the role
+     that answers the question this palette exists for. So a quarter of every excerpt was
+     drawn in the one hue with the least colour available to it. That is a gamut fact, not a
+     preference: sweeping the sRGB cube for the most chromatic colour clearing 5.5:1 on
+     `--sunken`, the arc from 170° to 220° tops out at C 0.079–0.093 in OKLCH, while the blue
+     at 250° reaches 0.195 and the violets 0.23–0.29. Cyan at a light theme's lightness is
+     structurally near-grey, which is exactly how the string block read.
+
+     172° is where the chroma is: `#006c56` measures C 0.092 against `#0b5f74`'s 0.079, and —
+     the part that matters more — it puts the literal 0.239 from `--code-name` in OKLab where
+     it was 0.173, and 0.196 from it in dark where it was 0.111. The hue span across the three
+     roles goes from 81° to 130° in light and 96° to 136° in dark.
+
+     **The literal is the quietest of the three in both themes, and that is deliberate.** It
+     is 5.37:1 in light and 6.37:1 in dark, under both of the others. 19.66 of its 26.76
+     points are triple-quoted strings — this repository writes essay-length docstrings — and a
+     docstring drawn louder than the code it documents makes the largest block of prose the
+     first thing the eye lands on. The earlier repair here was aimed at the same fault and did
+     not finish it: it moved the literal on lightness alone, from `#0e7490` and `#67e8f9`,
+     because in dark the eye went to the docstring first and in light to the keyword. It
+     landed on 6.07:1 in light, which is the *loudest* of the three, and 7.02:1 in dark, which
+     is the quietest — so the inversion it was written against survived it. These two values
+     put the literal last in both. */
   --code-keyword: #7e22ce; /* the language's own words: def, class, if, return */
-  --code-name: #1d4ed8; /*    what somebody named: a function, a class, a tag  */
-  --code-lit: #0e7490; /*     what is written out: a string, a number          */
+  --code-name: #1d4ed8; /*    where a name is introduced: a def, a class, a param */
+  --code-lit: #006c56; /*     what is written out: a string, a number          */
   /* The ink tier's light value, not the grey it used to share with it: a comment sits on
      `bg-sunken/70`, where `#737373` measured 4.20:1 and a docstring is the sentence that
      says what the abstraction is for. Dark already cleared 5:1 and is unchanged. */
@@ -265,6 +342,11 @@
     --rule: rgb(255 255 255 / 11%);
     --rule-strong: rgb(255 255 255 / 17%);
 
+    /* The edge that says "this is a control". 40% white composites to #787878 on the control
+       film, which is 3.78:1 against it — the bar a boundary a reader has to find is held to,
+       and one `--rule-strong` misses at 1.38:1. */
+    --rule-control: rgb(255 255 255 / 40%);
+
     --chrome: rgb(0 0 0 / 62%);
 
     /* The fill of something you operate: a text field, a button that is not the primary one.
@@ -287,7 +369,9 @@
     --held: #fafafa;
     --held-soft: rgb(255 255 255 / 8%);
     --cleared: var(--ink-3);
-    --cleared-soft: rgb(255 255 255 / 5%);
+    /* 3%, not 5%: at 5% over `--sunken` the wash lifts the ground far enough to put the
+       cleared badge's 11px bold word at 4.44:1. See the light declaration for the argument. */
+    --cleared-soft: rgb(255 255 255 / 3%);
 
     --mark: var(--accent);
 
@@ -301,25 +385,47 @@
 
     /* Lifted a long way from the light values: the same hue at the same lightness on a
        near-black ground is mud. The comment goes up with them — at `--ink-3` it was under
-       3.5:1 on `--sunken`, which is recessive past the point of being readable. */
-    --code-keyword: #d8b4fe;
-    --code-name: #93c5fd;
-    --code-lit: #67e8f9;
+       3.5:1 on `--sunken`, which is recessive past the point of being readable.
+
+       Lifted, but no longer as far as they were, and with chroma spent on the way down. The
+       three were `#d8b4fe`, `#93c5fd` and `#3fb8cc`: 9.32:1, 9.14:1 and 7.02:1 on `--sunken`,
+       at C 0.108, 0.096 and 0.108 in OKLCH — three pastels spanning 0.103 of lightness and
+       0.012 of chroma, all of them dimmer than the `--ink` that draws the 48.11% of a block the
+       tokeniser gives no class to at all. A hue quieter than the grey around it does not read
+       as a hue; it reads as fading, which is what "monotone" was describing. The same sRGB
+       sweep the light block cites says dark has the room light does not: at 7:1 on `--sunken`
+       the whole cool arc carries C 0.134–0.24, so the lift is paid for out of contrast that
+       was never needed. `--code-name` gains the most — 0.282 from `--ink` in OKLab where it
+       was 0.200 — because telling a declaration from the plain identifiers around it is the
+       whole job. Every value still clears the 4.5:1 that `ui/tokens.test.ts` now measures,
+       with 6.37:1 the lowest of the three. */
+    --code-keyword: #cf94ff;
+    --code-name: #7ea8ff;
+    --code-lit: #00b694;
     --code-comment: #8a8a8a;
 
-    --band: #000000;
+    /* One step above the void rather than the void itself. `#000000` here made the band and
+       the page the same colour, so the landing page's one atmospheric device — and the only
+       thing marking where the hero ends and the argument begins — did not exist in dark at
+       any width. This is the value the band already carries in light, which is the point: it
+       does not invert with the theme. */
+    --band: #0a0a0a;
     --band-rule: rgb(255 255 255 / 12%);
 
     /* A black blur on a black ground draws nothing at all. What separates a drawer from the
        page here is the rim along its top and a faint ring around it; the long soft shadow
-       stays only for the edge that overhangs something lighter than itself. */
+       stays only for the edge that overhangs something lighter than itself.
+
+       `--shadow-hero` no longer keeps one. The drawer overhangs a page; the landing page's
+       specimen card overhangs the void, and sampling down from its bottom edge in dark gave
+       0, 0, 0, 1, 1 — the one lift on the page contributing not a pixel, while the same
+       sample in light gave a readable forty-pixel gradient. So the throw is spent where this
+       ground can read it: the ring doubles to 12% and becomes the whole separation. */
     --shadow-rim: inset 0 1px 0 var(--rim);
     --shadow-float:
       inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
       0 24px 60px -20px rgb(0 0 0 / 85%);
-    --shadow-hero:
-      inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
-      0 30px 70px -26px rgb(0 0 0 / 85%);
+    --shadow-hero: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 12%);
   }
 }
 
@@ -341,6 +447,11 @@
      shadcn's white-at-10-and-15. */
   --rule: rgb(255 255 255 / 11%);
   --rule-strong: rgb(255 255 255 / 17%);
+
+  /* The edge that says "this is a control". 40% white composites to #787878 on the control
+     film, which is 3.78:1 against it — the bar a boundary a reader has to find is held to,
+     and one `--rule-strong` misses at 1.38:1. */
+  --rule-control: rgb(255 255 255 / 40%);
 
   --chrome: rgb(0 0 0 / 62%);
 
@@ -364,7 +475,9 @@
   --held: #fafafa;
   --held-soft: rgb(255 255 255 / 8%);
   --cleared: var(--ink-3);
-  --cleared-soft: rgb(255 255 255 / 5%);
+  /* 3%, not 5%: at 5% over `--sunken` the wash lifts the ground far enough to put the
+     cleared badge's 11px bold word at 4.44:1. See the light declaration for the argument. */
+  --cleared-soft: rgb(255 255 255 / 3%);
 
   --mark: var(--accent);
 
@@ -378,25 +491,47 @@
 
   /* Lifted a long way from the light values: the same hue at the same lightness on a
      near-black ground is mud. The comment goes up with them — at `--ink-3` it was under
-     3.5:1 on `--sunken`, which is recessive past the point of being readable. */
-  --code-keyword: #d8b4fe;
-  --code-name: #93c5fd;
-  --code-lit: #67e8f9;
+     3.5:1 on `--sunken`, which is recessive past the point of being readable.
+
+     Lifted, but no longer as far as they were, and with chroma spent on the way down. The
+     three were `#d8b4fe`, `#93c5fd` and `#3fb8cc`: 9.32:1, 9.14:1 and 7.02:1 on `--sunken`,
+     at C 0.108, 0.096 and 0.108 in OKLCH — three pastels spanning 0.103 of lightness and
+     0.012 of chroma, all of them dimmer than the `--ink` that draws the 48.11% of a block the
+     tokeniser gives no class to at all. A hue quieter than the grey around it does not read
+     as a hue; it reads as fading, which is what "monotone" was describing. The same sRGB
+     sweep the light block cites says dark has the room light does not: at 7:1 on `--sunken`
+     the whole cool arc carries C 0.134–0.24, so the lift is paid for out of contrast that
+     was never needed. `--code-name` gains the most — 0.282 from `--ink` in OKLab where it
+     was 0.200 — because telling a declaration from the plain identifiers around it is the
+     whole job. Every value still clears the 4.5:1 that `ui/tokens.test.ts` now measures,
+     with 6.37:1 the lowest of the three. */
+  --code-keyword: #cf94ff;
+  --code-name: #7ea8ff;
+  --code-lit: #00b694;
   --code-comment: #8a8a8a;
 
-  --band: #000000;
+  /* One step above the void rather than the void itself. `#000000` here made the band and
+     the page the same colour, so the landing page's one atmospheric device — and the only
+     thing marking where the hero ends and the argument begins — did not exist in dark at
+     any width. This is the value the band already carries in light, which is the point: it
+     does not invert with the theme. */
+  --band: #0a0a0a;
   --band-rule: rgb(255 255 255 / 12%);
 
   /* A black blur on a black ground draws nothing at all. What separates a drawer from the
      page here is the rim along its top and a faint ring around it; the long soft shadow
-     stays only for the edge that overhangs something lighter than itself. */
+     stays only for the edge that overhangs something lighter than itself.
+
+     `--shadow-hero` no longer keeps one. The drawer overhangs a page; the landing page's
+     specimen card overhangs the void, and sampling down from its bottom edge in dark gave
+     0, 0, 0, 1, 1 — the one lift on the page contributing not a pixel, while the same
+     sample in light gave a readable forty-pixel gradient. So the throw is spent where this
+     ground can read it: the ring doubles to 12% and becomes the whole separation. */
   --shadow-rim: inset 0 1px 0 var(--rim);
   --shadow-float:
     inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
     0 24px 60px -20px rgb(0 0 0 / 85%);
-  --shadow-hero:
-    inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
-    0 30px 70px -26px rgb(0 0 0 / 85%);
+  --shadow-hero: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 12%);
 }
 
 @theme inline {
@@ -411,6 +546,7 @@
 
   --color-rule: var(--rule);
   --color-rule-strong: var(--rule-strong);
+  --color-rule-control: var(--rule-control);
 
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
@@ -648,16 +784,45 @@
    held still: in dark this rule is a no-op, which is the point.
 
    `--accent-on-band` rather than `--accent` for the alarm, for the reason given where it is
-   declared. `--material` stays an alias so a second red still cannot appear. */
+   declared. `--material` stays an alias so a second red still cannot appear, and `--accent`
+   itself is lifted here too — see the note beside it. */
 .on-band {
   --held: #fafafa;
   --held-soft: rgb(255 255 255 / 8%);
   /* The dark theme's own `--ink-3`, spelled out rather than referenced: on a light page the
      token holds the light value, and the band does not invert with the page. */
   --cleared: #8f8f8f;
-  --cleared-soft: rgb(255 255 255 / 5%);
+  --cleared-soft: rgb(255 255 255 / 3%);
   --material: var(--accent-on-band);
   --material-soft: var(--accent-on-band-soft);
+
+  /* The accent itself, on the same terms, because the alarm is no longer the only thing on
+     the band wearing it: the run indicator is the accent's fifth job and it is painted from
+     `--accent` rather than from a verdict, on purpose. Without this line it would resolve to
+     the *page's* accent, and on a light page that is `#971b1a` on `#0a0a0a` — 2.35:1, a
+     smudge, while the same dot measures 6.91:1 in dark. Lifted here it is 6.91:1 in both,
+     which is slightly brighter than the `#8f8f8f` dot it replaced at 6.12:1.
+
+     The wash comes with it for the reason `--held-soft` and `--cleared-soft` do: a pair that
+     moves by halves is the next bug in this block, not a saving.
+
+     This does not reach `--mark`. `--mark: var(--accent)` is declared in `:root`, so it is
+     substituted there and inherits its resolved value into the band — which is also why
+     `--material` above has to name `--accent-on-band` outright instead of riding on this. */
+  --accent: var(--accent-on-band);
+  --accent-soft: var(--accent-on-band-soft);
+
+  /* The ink ramp had to come with them, and the omission had a live consequence. `StatusDot`
+     reads `--ink-3` directly for its `neutral` tone, which is the tone the model chip wears
+     while the workspace is still asking — so on a light page the "still asking" dot painted
+     the page's `#5f5f5f` on `#0a0a0a` at 3.10:1 while its `cleared` sibling, corrected two
+     lines above, sat at 5.5:1. The one tone this block missed was the dimmest on the band.
+     These are the dark theme's own numbers, held still, exactly as `--cleared` is; in dark
+     the whole block is a no-op, which is its design. */
+  --ink: #fafafa;
+  --ink-2: #a1a1a1;
+  --ink-3: #8f8f8f;
+  --rule: var(--band-rule);
 }
 
 .scrollbar-none {
@@ -705,6 +870,42 @@
   --edge-bottom: 1.75rem;
 }
 
+/* The same device on the other axis, for a strip that scrolls sideways: a tab bar, a row of
+   filter chips. It needs its own class rather than a modifier because a mask is one property
+   and a scroller travels in one direction — an element declaring both gradients would fade
+   all four edges of something that only has two.
+ *
+ * Whatever carries this must not also carry the rule underneath it. A tab strip's `border-b`
+ * is a line across the panel, and a horizontal mask fades its ends — which reads as a
+ * rendering fault rather than as a scroller, the exact thing the fade exists to prevent. So
+ * the rule goes on a wrapper and this goes on the scroller inside it. */
+.scroll-edge-x {
+  --edge-left: 0px;
+  --edge-right: 0px;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--edge-left),
+    #000 calc(100% - var(--edge-right)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--edge-left),
+    #000 calc(100% - var(--edge-right)),
+    transparent 100%
+  );
+}
+
+.scroll-edge-x[data-edge-left="true"] {
+  --edge-left: 1.5rem;
+}
+
+.scroll-edge-x[data-edge-right="true"] {
+  --edge-right: 1.5rem;
+}
+
 /* Scroll reveal. The element is hidden until `useReveal` marks it, so a reader who never
    scrolls past it never pays for the animation — and a reader who has asked for reduced
    motion is handed the finished state below. */
@@ -720,6 +921,17 @@
 .reveal[data-revealed="true"] {
   opacity: 1;
   transform: none;
+}
+
+/* Print renders the document without scrolling it, so no IntersectionObserver ever fires and
+   everything below the first viewport prints as blank ground. The reveal was designed as a
+   bonus and had quietly become load-bearing for the content existing at all — `useReveal` in
+   `lib/motion.ts` carries the other half of this, a deadline for the same reason. */
+@media print {
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .grid-lines {
@@ -766,9 +978,31 @@
    The highlighter is a tokeniser: it emits these class names and this is where they are
    given colour. Four roles, not forty — highlight.js ships around thirty token classes and
    colouring each one produces an excerpt harder to read than the editor it came from. The
-   question a reader is actually asking is which token is a name somebody chose, so the
-   classes are folded into the four groups that answer it and everything left over inherits
-   the block's ink rather than earning a colour of its own.
+   question a reader is actually asking is where a name in this repository's own vocabulary
+   was introduced, so the classes are folded into the four groups that answer it and
+   everything left over inherits the block's ink rather than earning a colour of its own.
+
+   Still four. The rule that keeps it four is that a class earns a colour by answering a
+   reader's question, not by existing, and the measurement below is what stops the count
+   drifting either way. Tokenising all 501 stored `read_file` lookups as Python and
+   attributing every non-space character to the class it lands in:
+
+     48.11%  no class at all — the tokeniser emits none
+     26.76%  --code-lit        (19.66 of it triple-quoted: this repository's docstrings)
+      8.61%  --code-keyword
+      8.02%  --code-comment
+      4.29%  hljs-params       — the one fall-through worth claiming; see below
+      3.22%  --code-name
+      0.99%  hljs-variable.language_ and hljs-subst
+
+   The first line is the ceiling on this whole file. Forty-two of those forty-eight points
+   are identifier characters — `archcompass`, `connection`, `row`, every module path segment
+   and every attribute name — and highlight.js tags none of them, so no selector can reach
+   them and roughly half of every block is `--ink` whatever is written here. That is why the
+   answer to a block reading flat is the *separation* of the four, argued where the four are
+   declared at the top of this file, and not a fifth, sixth and seventh selector: the whole
+   remaining supply is the 5.28 points on the two lines above, and only one of them answers a
+   question.
 --------------------------------------------------------------------------------------- */
 
 /* The language's own vocabulary. Bold as well as coloured, because these are the words that
@@ -783,15 +1017,36 @@
   font-weight: 600;
 }
 
-/* What somebody named. A function, a class, a tag, an attribute: the identifiers that carry
-   this repository's own vocabulary, and the reason an excerpt is on the page at all. */
+/* Where a name is introduced. A function, a class, a tag, an attribute, and the parameters a
+   signature binds: the identifiers that carry this repository's own vocabulary, and the
+   reason an excerpt is on the page at all.
+
+   `hljs-params` is here because the role was starving. It was 3.22% of a block against the
+   literal's 26.76%: the palette spent its largest area on the question a reader asks least
+   and its smallest on the one this file exists for. The parameter list is 4.29% more, and it
+   is the part of an excerpt a reviewer reads first — `def search(self, query: str, *, limit:
+   int)` says what the abstraction offers, which is the thing a judgement about an
+   abstraction turns on.
+
+   It also sharpens the rule rather than stretching it. The role is not "every occurrence of a
+   name", which is unreachable anyway — a reference like `self._matrix` is two identifiers the
+   tokeniser leaves bare. It is *where a name is bound*: the `def`, the `class`, the tag, the
+   key, and the parameters. That reading is why `self` is coloured in a signature and plain in
+   the body two lines below it, which is not an inconsistency but the same rule applied twice:
+   highlight.js wraps the parameter list in `hljs-params` and the receiver in
+   `hljs-variable.language_`, and only the first of those is a binding site.
+
+   `hljs-subst` — the expression inside an f-string — stays uncoloured on the same rule. It is
+   code inside a literal, so it is neither a binding nor a written-out value, and the
+   fall-through to the block's ink is the right answer rather than a gap. */
 .hljs-title,
 .hljs-title.class_,
 .hljs-title.function_,
 .hljs-section,
 .hljs-name,
 .hljs-attr,
-.hljs-attribute {
+.hljs-attribute,
+.hljs-params {
   color: var(--code-name);
 }
 
@@ -886,7 +1141,13 @@
   overscroll-behavior: contain;
   touch-action: none;
   cursor: grab;
-  background: var(--canvas);
+  /* `--sunken`, not `--canvas`. The map was painted in the ground of the page behind the
+     panel, so it read as a hole cut through the workbench rather than as a window set into
+     it, and a card clipped by the left edge bled straight into the page. A quiet inset is
+     what this is, and `--sunken` is the token for one. The cards move up with it — see
+     `.atlas-node__body` — because a card left on `--surface` would have been a five-value
+     step over the new ground in dark. */
+  background: var(--sunken);
 }
 
 /* Fullscreen gives the canvas the room the controls did not take.
@@ -894,14 +1155,24 @@
  * `height: 100%` alone resolved against an auto-height ancestor and therefore against its own
  * content, so a fullscreen panel holding a small graph drew a short canvas with the rest of
  * the screen left as bare panel — the map appearing to end a third of the way down. The row
- * has to be told to take the space before a percentage of it means anything. */
+ * has to be told to take the space before a percentage of it means anything.
+ *
+ * `grid-template-rows` is the half that was missing below 64rem, where the layout is a single
+ * column and the detail panel is a *second row* rather than a second column. Those two rows
+ * are implicit and auto, so under `align-content: normal` they split the free space evenly:
+ * the canvas took half the screen and the detail panel was handed the other half whether it
+ * had anything to put in it or not. Naming an explicit `1fr` row is what stops that, and
+ * above 64rem there is only one row for it to describe. Full screen is offered at 390px, so
+ * this is the case that matters most. */
 .atlas-panel--fullscreen .atlas-layout {
   flex: 1;
   min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .atlas-panel--fullscreen .atlas-canvas {
   height: 100%;
+  min-height: 0;
 }
 
 .atlas-canvas--panning {
@@ -914,7 +1185,7 @@
 }
 
 .atlas-canvas__background {
-  fill: var(--canvas);
+  fill: var(--sunken);
 }
 
 /* A grid, not a decoration: it is what makes a pan read as movement rather than as cards
@@ -944,19 +1215,29 @@
 }
 
 /* An enclosure is drawn the way this system draws every other one: a hairline, dashed to say
-   it is a region the map inferred rather than a border on something you could pick up. */
+   it is a region the map inferred rather than a border on something you could pick up.
+ *
+ * Non-scaling, and for the same reason `.atlas-node__ring` is: an enclosure says something
+ * about how the map was read, not about what the repository holds. At the zoom the automatic
+ * fit chooses, a 3/5 dash measured 1.9px on and 3.1px off — findable in light as a faint
+ * vertical line and not findable at all in dark. The stroke goes up a step with it, because
+ * a dash this sparse at `--rule` is under the ground it is drawn on. */
 .atlas-clusters rect {
   fill: none;
-  stroke: var(--rule);
-  stroke-dasharray: 3 5;
+  stroke: var(--rule-strong);
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
 }
 
+/* 14px, so the name still lands around 8.7px at the readable floor rather than 7.4. The
+   tracking comes down to the value the type scale names for a small label; 0.14em was one of
+   the five hand-rolled variants `design-system.test.ts` already lists. */
 .atlas-clusters text {
   fill: var(--ink-3);
   font-family: var(--font-code);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
 }
 
@@ -964,13 +1245,23 @@
   cursor: pointer;
 }
 
+/* A card is a thing you operate — it selects, it opens a detail panel — so it takes the fill
+   the system gives one. That is the same `#ffffff` it had in light and a 7% film of white in
+   dark, which is a real step over the `--sunken` ground the canvas now paints rather than the
+   five values `--surface` was over the void. The three edits land together or a hovered card
+   fills with the ground colour in light and reads as sinking in dark.
+ *
+ * The border is non-scaling for the reason the ring is: a verdict's border is drawn at 1.5
+ * against an unjudged card's 1, and at the default fit those became 0.92px and 0.62px — the
+ * one distinction between a judged card and an unjudged one, thinning to sub-pixel. */
 .atlas-node__body {
-  fill: var(--surface);
+  fill: var(--control);
+  vector-effect: non-scaling-stroke;
   transition: fill 150ms ease;
 }
 
 .atlas-node:hover .atlas-node__body {
-  fill: var(--sunken);
+  fill: var(--control-2);
 }
 
 /* The ring is an affordance rather than content — it says where the reader is, not what the
@@ -991,11 +1282,26 @@
   font-weight: 600;
 }
 
+/* 9px was below the bottom of the type scale, which starts at 10, and this is content a
+   reader is meant to read off the map rather than a label they already know — the namespace
+   above the name, and the word half of the verdict below it.
+ *
+ * The tracking pays for the size. A card is 190 units wide and the namespace runs to 22
+ * characters from x=40, so at IBM Plex Mono's 0.6em advance the row has about 145 units to
+ * spend: 10px at the documented 0.13em needs 158 and overflows the card, 10px at 0.06em
+ * needs 145. Tracking is what costs the width, so tracking is what gave way. The other half
+ * of this — deriving the fit's readable floor from the *smallest* text a card draws rather
+ * than from its 13px label — is `READABLE_ZOOM` in `features/atlas/geometry.ts`.
+ *
+ * `--ink-2` rather than `--ink-3`, because the ground moved under it. `--ink-3` is measured
+ * against the four ramp grounds and a card is no longer one of them: it is a film of white
+ * over `--sunken` now instead of a flat `--surface`, which lifts it to `#2f2f2f` in dark and
+ * takes the meta tier to 4.14:1 there. One step up puts it back over AA at rest. */
 .atlas-node__meta {
-  fill: var(--ink-3);
+  fill: var(--ink-2);
   font-family: var(--font-code);
-  font-size: 9px;
-  letter-spacing: 0.12em;
+  font-size: 10px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -1025,16 +1331,27 @@
 
 /* Every edge is a hairline. Which relationship it is, is carried by the dash rather than by a
    hue — the accent rule is a rule about meaning, and eight relationship kinds are not eight
-   things to look at. */
+   things to look at.
+ *
+ * The hairline is `--ink-3` and not `--rule-strong`, which is the one value in this block
+ * that had to move. A graph exists to show relationships, and at `--rule-strong` the resting
+ * edge composited to 1.41:1 in light and 1.48:1 in dark — under the 3:1 that a non-text
+ * graphic carrying meaning is held to, and the toolbar tells the reader in so many words to
+ * read direction off the arrowheads, which are painted from the same token. Only the selected
+ * card's own edges were ever legible; the mesh a reader scans to find a shape was not.
+ *
+ * So the neighbourhood step is now weight rather than colour: same grey, 1 against 1.75. That
+ * leaves `.atlas-edge--path` as the only edge wearing full `--ink`, which is what the comment
+ * below it argues for by name. */
 .atlas-edge {
   fill: none;
-  stroke: var(--rule-strong);
+  stroke: var(--ink-3);
   stroke-width: 1;
 }
 
 .atlas-edge--active {
   stroke: var(--ink-3);
-  stroke-width: 1.25;
+  stroke-width: 1.75;
 }
 
 /* One dash per kind, because five of the eight drew as the same hairline — so on the lens
@@ -1043,19 +1360,24 @@
    how much the relationship binds: a long dash is an is-a, a dot is a mention, and `imports`
    keeps the plain hairline as the baseline the others are read against. */
 .atlas-edge--contains {
-  stroke-dasharray: 2 4;
+  stroke-dasharray: 2 6;
 }
 
 .atlas-edge--references {
-  stroke-dasharray: 1 5;
+  stroke-dasharray: 1 8;
 }
 
 .atlas-edge--calls {
-  stroke-dasharray: 3 3;
+  stroke-dasharray: 5 5;
 }
 
+/* `tests` moved with the three above it, which the swatch finding did not ask for and the
+   ladder did. `calls` at 5/5 beside a `tests` at 5/4 is a dash of the same length and a gap
+   one pixel different — the identical defect one kind over, which is not a fix. At 9/4 the
+   two are told apart by dash length instead of by a pixel of gap, and it is still visibly
+   shorter than `inherits` at 12/4. */
 .atlas-edge--tests {
-  stroke-dasharray: 5 4;
+  stroke-dasharray: 9 4;
 }
 
 .atlas-edge--configures {
@@ -1078,8 +1400,10 @@
   stroke-dasharray: none;
 }
 
+/* The arrowhead is the direction, and the toolbar says so. It goes up with the edge it
+   terminates, or the line clears 3:1 and the thing it points with does not. */
 .atlas-arrow {
-  fill: var(--rule-strong);
+  fill: var(--ink-3);
 }
 
 /* A sample of the line the map draws for this relationship, so a filter chip says which
@@ -1088,30 +1412,37 @@
    are the same numbers as the `stroke-dasharray` above, which is what makes it a sample
    rather than a decoration. `currentColor` carries the chip's own state: full-strength ink
    when the relationship is drawn, and the quiet grey of an unpressed control when it is
-   not. */
+   not.
+ *
+ * 36px, not 20. A sample has to hold enough of the pattern for the pattern to be the thing
+ * being sampled: at 20px, `contains`, `calls` and `references` differed by one and two pixels
+ * inside the swatch and read as one row of dots — three of the five most common kinds on the
+ * map, claiming to sample a line they shared. The three were pulled apart on period and duty
+ * cycle rather than on a pixel, and `tests` moved with them; the numbers here are the same
+ * numbers as the `stroke-dasharray` above, which is what makes this a sample. */
 .atlas-edge-swatch {
   display: inline-block;
   flex: none;
-  width: 20px;
-  height: 1.5px;
+  width: 36px;
+  height: 2px;
   background: currentColor;
   opacity: 0.85;
 }
 
 .atlas-edge-swatch--contains {
-  background: repeating-linear-gradient(to right, currentColor 0 2px, transparent 2px 6px);
+  background: repeating-linear-gradient(to right, currentColor 0 2px, transparent 2px 8px);
 }
 
 .atlas-edge-swatch--references {
-  background: repeating-linear-gradient(to right, currentColor 0 1px, transparent 1px 6px);
+  background: repeating-linear-gradient(to right, currentColor 0 1px, transparent 1px 9px);
 }
 
 .atlas-edge-swatch--calls {
-  background: repeating-linear-gradient(to right, currentColor 0 3px, transparent 3px 6px);
+  background: repeating-linear-gradient(to right, currentColor 0 5px, transparent 5px 10px);
 }
 
 .atlas-edge-swatch--tests {
-  background: repeating-linear-gradient(to right, currentColor 0 5px, transparent 5px 9px);
+  background: repeating-linear-gradient(to right, currentColor 0 9px, transparent 9px 13px);
 }
 
 .atlas-edge-swatch--configures {
@@ -1200,8 +1531,11 @@
   position: absolute;
   right: 0.75rem;
   bottom: 0.75rem;
-  width: 9rem;
-  height: 6rem;
+  /* An overview costs the most where the map can least afford it. At a flat 9x6rem the
+     minimap covered about a tenth of a 390px canvas that was already showing three clipped
+     cards, and it is on by default. The clamp keeps the full size wherever there is room. */
+  width: clamp(5rem, 22%, 9rem);
+  height: clamp(3.5rem, 15%, 6rem);
   overflow: hidden;
   border: 1px solid var(--rule);
   border-radius: 6px;
@@ -1224,8 +1558,13 @@
   vector-effect: non-scaling-stroke;
 }
 
+/* `--ink-3`, not `--rule-strong`. The minimap answers "which part of the map am I looking
+   at", and the fit notice points the reader at it by name for exactly that — but at
+   `--rule-strong` every card except the selected one measured 1.41:1 in light and 1.61:1 in
+   dark, so the viewport outline had nothing to be positioned against. The ramp is now the
+   whole in `--ink-3` and where you are in `--ink`. */
 .atlas-minimap rect.atlas-minimap__card {
-  fill: var(--rule-strong);
+  fill: var(--ink-3);
 }
 
 .atlas-minimap rect.atlas-minimap__card.active {

@@ -21,6 +21,31 @@ const EMPTY: PolicyDraft = {
   strength: "guidance",
 };
 
+/**
+ * What each strength actually does, because it is the largest consequence anything on this
+ * form has and the field used to say four words about it.
+ *
+ * `required` is not emphasis. `policies/retrieval.py` puts a general policy in the mandatory
+ * lane when — and only when — its strength is `required`, which means every candidate of
+ * every review reads it, unconditionally. The other two reach a judgement only if dense
+ * retrieval ranks them against the candidate in front of it. An author choosing between the
+ * three was being asked to decide that with "How binding this is" as the whole explanation.
+ *
+ * The register is the scale's, not the sign's: this says what happens, not that anything is
+ * wrong. A required policy is the policy to read first, never an alarm — `lib/format.ts`
+ * argues that at length beside the marks, and the sentence has to agree with the glyph.
+ *
+ * These belong beside the three `STRENGTHS` descriptors in `lib/format.ts`, where
+ * `DescriptorBadge` would forward them into every `StrengthBadge`'s `title` for free — that
+ * table is the one place that decides what a strength means. They are here because this
+ * change does not own that file.
+ */
+const STRENGTH_REACH: Record<PolicyDraft["strength"], string> = {
+  required: "Retrieved for every candidate of every review, whether or not it ranks.",
+  preferred: "Retrieved when it ranks against the candidate.",
+  guidance: "Retrieved when it ranks against the candidate, and weighed last of the three.",
+};
+
 function draftFrom(policy: PolicyDocument | null): PolicyDraft {
   if (!policy) return EMPTY;
   return {
@@ -112,8 +137,37 @@ export function PolicyEditor({
 
   const sections = sectionStates(draft.body);
   const outstanding = missingSections(draft.body);
-  const incomplete =
-    !draft.title.trim() || !draft.description.trim() || !draft.body.trim() || outstanding.length > 0;
+
+  /**
+   * Everything standing between this draft and the corpus, in the order the form asks for it.
+   *
+   * `incomplete` has four causes and the sentence beside the button reported one of them. Fill
+   * in all nine sections and leave the description blank — an easy state, because the
+   * description is one line above a box that takes most of the panel — and the footer read
+   * *"Written to the workspace as a Markdown file the next review reads."* beside a button
+   * that would not press. Nothing anywhere on the form said which field was missing. The
+   * sentence and the button now read the same list, so they cannot disagree.
+   *
+   * The body gets one entry rather than nine when it is empty. An author who has cleared the
+   * scaffold does not need to be told which nine headings they no longer have.
+   */
+  const missing: string[] = [
+    draft.title.trim() ? null : "a title",
+    draft.description.trim() ? null : "a description",
+    ...(draft.body.trim() ? outstanding : ["the body"]),
+  ].filter((item): item is string => Boolean(item));
+  const incomplete = missing.length > 0;
+
+  /**
+   * Which fields the author has left, so a fault is reported where it happened as well as at
+   * the button — and not while they are still on their way to filling it in.
+   *
+   * On blur rather than on the first keystroke anywhere: marking Description invalid the
+   * moment somebody types the first letter of the Title is the form arguing with work that is
+   * plainly in progress.
+   */
+  const [left, setLeft] = useState<Record<string, boolean>>({});
+  const leaving = (field: string) => () => setLeft((current) => ({ ...current, [field]: true }));
 
   return (
     <Panel className="animate-expand" tone="marked">
@@ -128,7 +182,10 @@ export function PolicyEditor({
       />
       <PanelBody className="grid gap-4">
         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
-          <Field label="Title">
+          <Field
+            label="Title"
+            error={left.title && !draft.title.trim() ? "Required" : undefined}
+          >
             {(props) => (
               <Input
                 {...props}
@@ -137,12 +194,13 @@ export function PolicyEditor({
                 // had just appeared above it.
                 autoFocus
                 value={draft.title}
+                onBlur={leaving("title")}
                 onChange={(event) => setDraft({ ...draft, title: event.target.value })}
                 placeholder="Keep domain code framework-free"
               />
             )}
           </Field>
-          <Field label="Strength" hint="How binding this is">
+          <Field label="Strength" hint={STRENGTH_REACH[draft.strength]}>
             {(props) => (
               <Select
                 {...props}
@@ -159,11 +217,16 @@ export function PolicyEditor({
           </Field>
         </div>
 
-        <Field label="Description" hint="One sentence on what this policy protects.">
+        <Field
+          label="Description"
+          hint="One sentence on what this policy protects."
+          error={left.description && !draft.description.trim() ? "Required" : undefined}
+        >
           {(props) => (
             <Input
               {...props}
               value={draft.description}
+              onBlur={leaving("description")}
               onChange={(event) => setDraft({ ...draft, description: event.target.value })}
               placeholder="Preserve a portable domain model"
             />
@@ -261,8 +324,8 @@ export function PolicyEditor({
             {save.isPending ? <Spinner /> : policy ? "Save changes" : "Create policy"}
           </Button>
           <span className="text-xs text-ink-3">
-            {outstanding.length
-              ? `Still to write: ${outstanding.join(", ")}.`
+            {missing.length
+              ? `Still to write: ${missing.join(", ")}.`
               : "Written to the workspace as a Markdown file the next review reads."}
           </span>
         </div>

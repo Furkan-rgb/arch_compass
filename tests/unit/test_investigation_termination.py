@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import itertools
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -62,12 +63,30 @@ class _Nothing:
 _NOTHING = _Nothing()
 
 
+@dataclass(frozen=True)
+class _Judging:
+    """What `SelectedLangChainJudge.selection` reports, with only what the key reads in it."""
+
+    model_identity: str
+    prompt_identity: str
+
+
 def _atlas_and_repository():  # type: ignore[no-untyped-def]
     from archcompass.analysis.analyzer import analysis_atlas
     from archcompass.domain import RepositoryAtlas, RepositoryRef
 
     repository = RepositoryRef("repo", Path("/tmp/repo").resolve(), "branch", "content")
-    return analysis_atlas(RepositoryAtlas("atlas_1", repository)), repository
+    # Empty of nodes but not of provenance. An atlas that does not name the parser that
+    # built it is one this build refuses to read at all, because the alternative was a
+    # placeholder that no live parser version can ever equal and therefore a freshness
+    # check that failed for ever. These bounds are about termination, not about staleness,
+    # so the fixture says what built it and gets on with the question it is asking.
+    stamped = RepositoryAtlas(
+        "atlas_1",
+        repository,
+        parser_configuration=(("parser", "test-parser"), ("analysis", "test-config")),
+    )
+    return analysis_atlas(stamped), repository
 
 
 _EMPTY_ATLAS, _REPOSITORY = _atlas_and_repository()
@@ -427,8 +446,7 @@ def test_the_second_judgement_is_not_a_cache_hit_on_the_first() -> None:
     judge = CachingArchitectureJudge(
         _NOTHING,  # type: ignore[arg-type]
         _NOTHING,  # type: ignore[arg-type]
-        model_identity=lambda: "m",
-        prompt_identity=lambda: "p",
+        selection=lambda: _Judging("m", "p"),
     )
 
     def record(result: str) -> RecordedInvestigation:

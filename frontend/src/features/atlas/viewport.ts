@@ -18,24 +18,35 @@ import { prefersReducedMotion } from "../../lib/motion";
 import { MAX_ZOOM, MIN_ZOOM, READABLE_ZOOM, clamp, pointerDistance } from "./geometry";
 import type { AtlasNodeView } from "./graph";
 import { NODE_HEIGHT, NODE_WIDTH, type AtlasLayout } from "./layout";
+import { drawnBounds } from "./surface";
 
 export function useAtlasViewport({
   layout,
   graphSignature,
   selected,
   onSelectNode,
+  initialMinimap = true,
 }: {
   layout: AtlasLayout;
   /** What the map is of. A new signature is a new map, and gets a new camera. */
   graphSignature: string;
   selected: AtlasNodeView | undefined;
   onSelectNode: (nodeId: string | null) => void;
+  /**
+   * Whether the minimap starts on, which is a question about how much canvas there is.
+   *
+   * It defaulted to on everywhere. The minimap is pinned over the canvas's bottom-right
+   * corner, and below 64rem there is no second column, so on a phone an overview nobody asked
+   * for sat on top of cards on the one screen size with the least room to spare. The caller
+   * passes the same breakpoint the layout uses rather than a second width being invented here.
+   */
+  initialMinimap?: boolean;
 }) {
   const { positions } = layout;
   const [zoom, setZoom] = useState(1);
   const [panning, setPanning] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [showMinimap, setShowMinimap] = useState(true);
+  const [showMinimap, setShowMinimap] = useState(initialMinimap);
   const [viewport, setViewport] = useState({ x: 0, y: 0, width: 0, height: 0 });
   /**
    * Whether the last automatic fit stopped at the readable floor rather than framing the graph.
@@ -113,6 +124,17 @@ export function useAtlasViewport({
     });
   };
 
+  /**
+   * Where the camera is, recomputed — and only *set* where the answer has changed.
+   *
+   * Dragging to pan writes `scrollLeft` and `scrollTop` directly, which fires `onScroll`,
+   * which lands here. Both setters used to be handed fresh object literals, which differ by
+   * identity every time, so React re-rendered the whole canvas — every card, every edge, every
+   * pulse path and the minimap — on each frame of a gesture the reader performs constantly.
+   * A pan moves the offset and nothing else, so `canvasSize` in particular should never move
+   * during one. `lib/motion.ts`'s `useScrollEdges` already guards its state this way; this is
+   * the same idiom, on the two objects that matter most.
+   */
   const updateViewport = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -120,12 +142,40 @@ export function useAtlasViewport({
       x: (canvas.scrollLeft + canvas.clientWidth / 2) / zoom,
       y: (canvas.scrollTop + canvas.clientHeight / 2) / zoom,
     };
-    setCanvasSize({ width: canvas.clientWidth, height: canvas.clientHeight });
-    setViewport({
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    setCanvasSize((previous) =>
+      previous.width === width && previous.height === height ? previous : { width, height },
+    );
+    const next = {
       x: canvas.scrollLeft / zoom,
       y: canvas.scrollTop / zoom,
-      width: canvas.clientWidth / zoom,
-      height: canvas.clientHeight / zoom,
+      width: width / zoom,
+      height: height / zoom,
+    };
+    setViewport((previous) =>
+      previous.x === next.x &&
+      previous.y === next.y &&
+      previous.width === next.width &&
+      previous.height === next.height
+        ? previous
+        : next,
+    );
+  };
+
+  /**
+   * One viewport update per frame while a gesture is running.
+   *
+   * A pointermove can arrive faster than the compositor paints, and each one that changes the
+   * scroll offset is a render of the whole SVG. Coalescing to a frame is what makes a drag
+   * across a dense map cost one pass rather than three.
+   */
+  const pendingFrame = useRef(0);
+  const scheduleViewportUpdate = () => {
+    if (pendingFrame.current) return;
+    pendingFrame.current = window.requestAnimationFrame(() => {
+      pendingFrame.current = 0;
+      updateViewport();
     });
   };
 
@@ -155,13 +205,22 @@ export function useAtlasViewport({
    * read, with the minimap saying where that part is. The zoom control still reaches
    * `MIN_ZOOM`, because asking to see the whole shape at once is a real question — it is just
    * not the one to answer before the reader has asked it.
+   *
+   * What is framed is the rectangle the cards and their enclosures actually occupy, not
+   * `layout.width` and `layout.height`. Those are floored at a 920x430 minimum so a two-card
+   * graph is never a postage stamp, and dividing by the floor framed the empty space: on any
+   * canvas under about 1250px — which is every laptop once the detail column is taken out — a
+   * three-card graph opened at 72% adrift in a mostly empty world. `drawnBounds` is the same
+   * function `surface.ts` already centres on, so the fit and the centring stop disagreeing
+   * about what the graph is.
    */
   const fitGraph = () => {
     const canvas = canvasRef.current;
     if (!canvas || !canvas.clientWidth || !canvas.clientHeight) return;
+    const drawn = drawnBounds(layout);
     const whole = Math.min(
-      (canvas.clientWidth - 24) / layout.width,
-      (canvas.clientHeight - 24) / layout.height,
+      (canvas.clientWidth - 24) / drawn.width,
+      (canvas.clientHeight - 24) / drawn.height,
     );
     const next = clamp(whole, READABLE_ZOOM, 1.15);
     setFitFloored(whole < READABLE_ZOOM);
@@ -169,8 +228,8 @@ export function useAtlasViewport({
     window.requestAnimationFrame(() => {
       if (typeof canvas.scrollTo !== "function") return;
       canvas.scrollTo({
-        left: Math.max(0, (layout.width * next - canvas.clientWidth) / 2),
-        top: Math.max(0, (layout.height * next - canvas.clientHeight) / 2),
+        left: Math.max(0, (drawn.x + drawn.width / 2) * next - canvas.clientWidth / 2),
+        top: Math.max(0, (drawn.y + drawn.height / 2) * next - canvas.clientHeight / 2),
       });
     });
   };
@@ -270,6 +329,14 @@ export function useAtlasViewport({
     // Viewport dimensions depend on both zoom and graph bounds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout.height, layout.width, zoom]);
+
+  // A frame scheduled by a gesture that ended in an unmount has nothing left to update.
+  useEffect(
+    () => () => {
+      if (pendingFrame.current) window.cancelAnimationFrame(pendingFrame.current);
+    },
+    [],
+  );
 
   /**
    * The canvas can change size without the graph or the camera changing at all — the window
@@ -466,6 +533,7 @@ export function useAtlasViewport({
     centreOn,
     toggleFullscreen,
     updateViewport,
+    scheduleViewportUpdate,
     beginPan,
     pan,
     endPan,

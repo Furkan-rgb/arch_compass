@@ -89,7 +89,12 @@ export function RevisionRail({
 
   return (
     <div className={cn("px-3 py-3", className)}>
-      <h2 className="font-display text-sm font-semibold tracking-tight text-ink">Review lineage</h2>
+      {/* 15px, the step the type scale gives a panel heading — which is what this is, and
+          `ui/panel.tsx`'s `PanelHeader` sets it there. It was `text-sm`, one value off, for
+          no reason anybody chose. */}
+      <h2 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+        Review lineage
+      </h2>
       <p className="mb-3 mt-0.5 text-xs text-ink-3">
         {entries.length === 0
           ? "The first review of this case"
@@ -188,8 +193,14 @@ function RailEntry({
       to={to}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "block rounded-md px-2.5 py-2 transition",
-        active ? "bg-sunken" : "hover:bg-sunken",
+        // Two states, two devices. Both used to be `bg-sunken`, so pointing at any revision
+        // made it look like the revision you were reading — and "which revision am I reading"
+        // is the rail's entire job. The fill stays with the answer; the pointer is carried on
+        // the edge, which is what the elevation contract says to do when a fill is already
+        // spoken for. The border is present and transparent at rest so nothing moves by a
+        // pixel when it appears.
+        "block rounded-md border border-transparent px-2.5 py-2 transition",
+        active ? "bg-sunken" : "hover:border-rule-control",
       )}
     >
       <div className="flex items-center justify-between gap-2">

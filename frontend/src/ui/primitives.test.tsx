@@ -205,7 +205,7 @@ describe("the toast", () => {
     expect(region).toHaveAttribute("aria-live", "polite");
     expect(region).toHaveTextContent("Decision recorded.");
 
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Dismiss:/ }));
     await waitFor(() => expect(region).not.toHaveTextContent("Decision recorded."));
   });
 
@@ -214,7 +214,7 @@ describe("the toast", () => {
     for (let n = 0; n < 5; n += 1) {
       fireEvent.click(screen.getByRole("button", { name: "Warn" }));
     }
-    expect(screen.getAllByRole("button", { name: "Dismiss" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /^Dismiss:/ })).toHaveLength(3);
   });
 });
 

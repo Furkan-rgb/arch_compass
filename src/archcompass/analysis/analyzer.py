@@ -62,16 +62,23 @@ class DataclassRepositoryAnalyzer:
 
     def analyze(self, repository: RepositoryRef) -> RepositoryAtlas:
         # Keyed by the canonical root, which is the string a recorded selection is filed
-        # under and the string a stored atlas holds. `strict=False` because a root that is
-        # not there is the analyzer's error to report, in its own words, a line below.
-        recorded = self._scope_selections.get(
-            str(repository.path.expanduser().resolve(strict=False))
-        )
+        # under and the string the atlas below will hold. Asked of the analyzer rather than
+        # spelled here, because a key this file predicts is a key that can be predicted
+        # wrongly, and a scope that is looked up under a name nothing recorded is a scope
+        # silently not applied. A root that is not there is still the analyzer's error to
+        # report, in its own words — now raised from this line rather than the next.
+        recorded = self._scope_selections.get(self._analyzer.canonical_root(repository.path))
         atlas = self._analyzer.analyze(repository.path, excluded_paths=recorded or ())
         version = atlas.version
         current = RepositoryRef(
             id=repository.id,
-            path=repository.path,
+            # The root the analyzer actually walked, not the one it was handed. They are the
+            # same string on every live path today, and that is the whole hazard: the scope a
+            # freshness check applies is filed under `version.root_path`, and this ref is
+            # where `_parse_atlas` gets the key it looks it up by. Carrying the analyzer's
+            # own answer means the two cannot disagree; re-deriving it meant they agreed only
+            # for as long as every caller kept resolving its paths the same way.
+            path=Path(version.root_path),
             branch_id=repository.branch_id,
             content_id=version.content_fingerprint,
             remote_url=repository.remote_url,
@@ -154,6 +161,13 @@ def analysis_atlas(atlas: RepositoryAtlas) -> Atlas:
 
 
 def _parse_atlas(atlas: RepositoryAtlas) -> Atlas:
+    # Read rather than defaulted. `.get("parser", "unknown")` used to stand here, and
+    # "unknown" is not a parser version — it is a string that can never equal the live
+    # constant, so a freshness check would call the atlas stale for ever and no re-index
+    # could clear it. An atlas that does not say which parser built it is one this build
+    # cannot read at all, which is what the `KeyError` says; the one caller that can survive
+    # that catches it beside `ValidationError` and withholds lookups in plain words.
+    configuration = dict(atlas.parser_configuration)
     return Atlas(
         version=AtlasVersion(
             version_id=atlas.id,
@@ -164,8 +178,8 @@ def _parse_atlas(atlas: RepositoryAtlas) -> Atlas:
             repo_id=atlas.repository.id,
             branch_id=atlas.repository.branch_id,
             content_fingerprint=atlas.repository.content_id,
-            parser_version=dict(atlas.parser_configuration).get("parser", "unknown"),
-            analysis_config_hash=dict(atlas.parser_configuration).get("analysis", "unknown"),
+            parser_version=configuration["parser"],
+            analysis_config_hash=configuration["analysis"],
         ),
         nodes=[AtlasNode.model_validate_json(item) for item in atlas.nodes],
         edges=[AtlasEdge.model_validate_json(item) for item in atlas.edges],

@@ -4,7 +4,14 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { useDeferredValue, useId, useMemo, useState } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import {
@@ -21,9 +28,10 @@ import {
   repositoryName,
   strengthOf,
 } from "../../lib/format";
+import { useIsTabletUp } from "../../lib/media";
 import { StrengthBadge, Tag } from "../../ui/badge";
 import { Button, ToggleButton } from "../../ui/button";
-import { Field, Input, SearchInput } from "../../ui/field";
+import { Field, Input, SearchInput, Select } from "../../ui/field";
 import { ChevronDown } from "../../ui/icons";
 import { Markdown } from "../../ui/markdown";
 import { MetaLine, Mono } from "../../ui/meta";
@@ -48,6 +56,25 @@ const SCOPES = [
   "repository",
   "accepted_adr",
 ] as const;
+
+/**
+ * The dense size for this page's two selects, written once rather than beside each of them.
+ *
+ * Both used to be a hand-rolled `<select>` with its own class list — `border-rule bg-surface
+ * px-2 py-1` — which made three spellings of one control on one page: this, `ui/field.tsx`'s
+ * `Select`, and the vendored Radix one. `--rule` is the hairline that *separates*; a border
+ * belongs to something you could pick up, and a select is exactly that. On the filter bar the
+ * result was a 32px `ToggleButton` on the control film beside a 26px select on the panel
+ * colour with a fainter edge, which is two different claims about what is operable.
+ *
+ * So the paint comes from `controlClass` now — `--rule-control`, `--control`, the invalid and
+ * focus behaviour every other field in the product has — and only the *size* is said here.
+ * That size is the one the system already made five times: 32px on a fine pointer, because a
+ * filter bar is dense, and the 44px floor on a coarse one, because 44px is a touch
+ * requirement and is answered where touch is. `pr-7` leaves the native arrow its room after
+ * `pl-2.5` has taken the rest away.
+ */
+const DENSE_SELECT = "w-auto min-h-8 pointer-coarse:min-h-11 py-1 pl-2.5 pr-7 text-xs";
 
 /**
  * Which policy is open, in the address bar.
@@ -146,14 +173,45 @@ function PolicyCard({
   const bodyId = useId();
   const strength = strengthOf(policy.strength);
   const workspaceOwned = policy.origin === "workspace";
+  const disclosure = useRef<HTMLButtonElement | null>(null);
+
+  /**
+   * A citation that names a policy has to arrive at the policy, not at the top of the list.
+   *
+   * `OPEN_PARAM` above already expands the right card; it was the other half of the promise
+   * that was missing. The corpus is 54 cards and some 8,000 pixels, so following a review's
+   * bearing landed a reader at scroll 0 with every cue that anything had happened — the
+   * chevron, the body, the provenance — below the fold. Nothing on screen said which of the
+   * 54 the link had named.
+   *
+   * Mount only, and the ref is what makes that mean *arrival*: a card that is already open
+   * the first time it renders is one the address named, while a card the reader pressed was
+   * mounted long before and is already under their pointer. Re-scrolling that one would drag
+   * the page out from under the gesture that opened it.
+   *
+   * The focus goes with the scroll because a keyboard arrival is the same arrival — landing
+   * on the disclosure means the next key collapses it or the next tab enters the body.
+   * `preventScroll` so the two do not fight; the alignment is `scrollIntoView`'s to decide,
+   * and `scroll-mt-32` below is what keeps the card clear of the sticky filter bar.
+   * `styles.css` sets `scroll-behavior: smooth` on `html` and collapses it under
+   * `prefers-reduced-motion`, so the motion contract is honoured without asking for it here.
+   */
+  const openedOnArrival = useRef(expanded);
+  useEffect(() => {
+    if (!openedOnArrival.current) return;
+    const node = disclosure.current;
+    node?.focus({ preventScroll: true });
+    node?.scrollIntoView?.({ block: "start" });
+  }, []);
 
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-lg border bg-surface transition",
-        expanded
-          ? "border-rule-strong"
-          : "border-rule hover:border-rule-strong",
+        // No `hover:border-rule-strong`. The edge is the card's whole outline, and lighting
+        // the whole outline promised a click on the description, the meta line and the tags —
+        // none of which do anything. The paint moved to the row that actually acts, below.
+        "scroll-mt-32 overflow-hidden rounded-lg border bg-surface transition",
+        expanded ? "border-rule-strong" : "border-rule",
       )}
     >
       {/* Only the title and what identifies it are inside the control. The disclosure used
@@ -161,9 +219,16 @@ function PolicyCard({
           accessible name was a paragraph read aloud before the reader learnt it was a
           button. Everything else is a sibling now — still on the row, no longer in its name. */}
       <div className="px-4 py-3.5 sm:px-5">
-        <h3>
+        {/* The heading is the exact extent of the control, so it is the element that answers
+            a pointer: the visual target and the real target are now the same shape. The
+            negative margin takes the wash out to the card's edges, because a tint that stops
+            short of them reads as a second box rather than as a row lighting up. `--sunken`
+            flat, which is the ramp's step for a hover — an alpha of it composites to six
+            values in light and does nothing. */}
+        <h3 className="-mx-4 -my-1 px-4 py-1 transition has-[button:focus-visible]:bg-sunken has-[button:hover]:bg-sunken sm:-mx-5 sm:px-5">
           <button
             type="button"
+            ref={disclosure}
             onClick={onToggle}
             aria-expanded={expanded}
             aria-controls={bodyId}
@@ -397,6 +462,17 @@ export function PoliciesPage() {
   const [strength, setStrength] = useState<(typeof STRENGTHS)[number]>("all");
   const [scope, setScope] = useState<(typeof SCOPES)[number]>("all");
   const [authoredHere, setAuthoredHere] = useState(false);
+  /**
+   * Whether there is room for the six filters on one line beside the search box.
+   *
+   * `useIsTabletUp` rather than a class, because below it the filters are a different control
+   * and not the same one made narrower — a disclosure with a count, against a row. It is left
+   * *uncontrolled* past the first paint: React writes `open` when this value changes and
+   * never again, so a reader who opens the disclosure on a phone keeps it open. Holding the
+   * state here instead would put a `toggle` event, a set and a second commit between the
+   * first paint and the list, which is a re-render bought for nothing.
+   */
+  const wideEnoughForFilters = useIsTabletUp();
   const [open, setOpen] = useState<EditorTarget | null>(null);
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState<{ next: EditorTarget | null } | null>(
@@ -488,6 +564,11 @@ export function PoliciesPage() {
     guidance: byStrength.filter((policy) => policy.strength === "guidance")
       .length,
   };
+  /** How many of the folded filters are narrowing the list, for the summary that hides them. */
+  const activeFilters =
+    (strength === "all" ? 0 : 1) +
+    (scope === "all" ? 0 : 1) +
+    (authoredHere ? 1 : 0);
 
   const setExpanded = (id: string | null) =>
     setSearch(
@@ -499,6 +580,31 @@ export function PoliciesPage() {
       },
       { replace: true },
     );
+
+  /**
+   * The blocked decision has to arrive where the press happened.
+   *
+   * `requestEditor` refuses the switch and renders the prompt below, at the top of a document
+   * that is 54 policies and some 8,000 pixels long — so pressing Edit on a policy two thirds
+   * down produced no visible change whatsoever. The notice was thousands of pixels above the
+   * viewport, the editor was too, and nothing scrolled, focused or announced. The reasonable
+   * reading of a press that does nothing is that it did nothing, which is what had people
+   * pressing Edit on a second policy and racing two loads.
+   *
+   * So the prompt comes to the reader: it scrolls itself into view, `role="alert"` on the
+   * wrapper says it out loud, and the focus lands on *Keep writing* — the choice that loses
+   * nothing, which is the one a person who did not know they were being asked should land on.
+   * `preventScroll` so the focus does not fight the alignment the scroll just chose.
+   */
+  const promptRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!pending) return;
+    const node = promptRef.current;
+    node?.scrollIntoView?.({ block: "center" });
+    node
+      ?.querySelector<HTMLButtonElement>("[data-keep-writing]")
+      ?.focus({ preventScroll: true });
+  }, [pending]);
 
   /**
    * Every way into and out of the editor goes through here, because every one of them can
@@ -525,11 +631,11 @@ export function PoliciesPage() {
           {repositories.length ? (
             <label className="flex items-center gap-1.5 text-xs text-ink-3">
               Repository
-              <select
+              <Select
                 aria-label="Corpus repository"
                 value={root ?? ""}
                 onChange={(event) => setChosenRoot(event.target.value || null)}
-                className="max-w-48 rounded-sm border border-rule bg-surface px-2 py-1 text-xs text-ink"
+                className={cn(DENSE_SELECT, "max-w-48")}
               >
                 <option value="">Workspace only</option>
                 {repositories.map((path) => (
@@ -537,7 +643,7 @@ export function PoliciesPage() {
                     {repositoryName(path)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           ) : null}
           <Button
@@ -587,26 +693,33 @@ export function PoliciesPage() {
       {header}
 
       {pending ? (
-        <Notice tone="working" title="Unsaved draft" className="mb-5">
-          <div className="flex flex-wrap items-center gap-3">
-            <span>This policy has changes that have not been saved.</span>
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() => {
-                const next = pending.next;
-                setPending(null);
-                setDirty(false);
-                setOpen(next);
-              }}
-            >
-              Discard them
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setPending(null)}>
-              Keep writing
-            </Button>
-          </div>
-        </Notice>
+        <div ref={promptRef} role="alert" className="scroll-mt-20">
+          <Notice tone="working" title="Unsaved draft" className="mb-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <span>This policy has changes that have not been saved.</span>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  const next = pending.next;
+                  setPending(null);
+                  setDirty(false);
+                  setOpen(next);
+                }}
+              >
+                Discard them
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                data-keep-writing=""
+                onClick={() => setPending(null)}
+              >
+                Keep writing
+              </Button>
+            </div>
+          </Notice>
+        </div>
       ) : null}
 
       {open ? (
@@ -630,8 +743,15 @@ export function PoliciesPage() {
               search box that makes it navigable was reachable only from the top of it. The
               wrapper paints the canvas so the list scrolls behind the bar rather than through
               the gap between it and the rail, and `-mx-2 px-2` gives the card its full width
-              back after that padding. */}
-          <div className="sticky top-12 z-10 -mx-2 mb-3 bg-canvas px-2 py-2">
+              back after that padding.
+
+              Pinned *from `lg`*, though. On a phone the coarse-pointer floor makes each of
+              the five switches 44px, so the row wrapped to three lines and the bar stood at
+              roughly 200px — a third of a 619px viewport, permanently, over the list it exists
+              to make scannable. A bar that removes a third of the list is not helping anyone
+              scan it. Below `lg` the whole thing scrolls away with the content, and the
+              filters fold into the disclosure below. */}
+          <div className="-mx-2 mb-3 px-2 py-2 lg:sticky lg:top-12 lg:z-10 lg:bg-canvas">
             <div className="grid gap-2 rounded-lg border border-rule bg-surface p-2 lg:grid-cols-[minmax(0,1fr)_auto]">
               <SearchInput
                 label="Search policies"
@@ -639,59 +759,89 @@ export function PoliciesPage() {
                 onValueChange={setQuery}
                 placeholder="Search title, body or tag"
               />
-              <div className="flex flex-wrap items-center gap-3">
-                {/* The counts used to be a four-row Corpus panel beside the list, and the
-                  content rule is that a count is a control or it is not on screen. Required
-                  restated a number this row already owned as a button; Showing restated the
-                  length of the list underneath it. */}
-                <div
-                  role="group"
-                  aria-label="Filter by strength"
-                  className="flex gap-1"
-                >
-                  {STRENGTHS.map((item) => (
-                    <ToggleButton
-                      key={item}
-                      pressed={strength === item}
-                      disabled={strength !== item && !strengthCounts[item]}
-                      onClick={() => setStrength(item)}
-                      className="capitalize"
-                    >
-                      {item}
-                      <span className="tabular-nums text-ink-3">
-                        {strengthCounts[item]}
-                      </span>
-                    </ToggleButton>
-                  ))}
-                </div>
-                <ToggleButton
-                  pressed={authoredHere}
-                  disabled={!authoredHere && !authoredCount}
-                  onClick={() => setAuthoredHere(!authoredHere)}
-                >
-                  Authored here
-                  <span className="tabular-nums text-ink-3">
-                    {authoredCount}
-                  </span>
-                </ToggleButton>
-                <label className="flex items-center gap-1.5 text-xs text-ink-3">
-                  Scope
-                  <select
-                    aria-label="Filter by scope"
-                    value={scope}
-                    onChange={(event) =>
-                      setScope(event.target.value as (typeof SCOPES)[number])
-                    }
-                    className="rounded-sm border border-rule bg-surface px-2 py-1 text-xs text-ink"
+              {/* The search box is the one filter worth a permanent line on a phone, so it
+                  stays and the other six fold in. `open` is forced from `lg` up, where there is
+                  room for all of them and nothing changes; below it the summary carries how
+                  many are on, because a collapsed filter nobody can see is a list narrowed for
+                  a reason they cannot read. `lg:contents` dissolves the wrapper back into the
+                  grid so the desk layout is the one it always was. */}
+              <details open={wideEnoughForFilters} className="group min-w-0 lg:contents">
+                <summary className="inline-flex min-h-8 list-none items-center gap-1.5 rounded-sm px-1 text-xs font-semibold text-ink-2 pointer-coarse:min-h-11 lg:hidden [&::-webkit-details-marker]:hidden">
+                  Filters
+                  {activeFilters ? (
+                    <span className="tabular-nums text-ink-3">
+                      {activeFilters} on
+                    </span>
+                  ) : null}
+                  <ChevronDown className="size-3.5 text-ink-3 transition group-open:rotate-180" />
+                </summary>
+                <div className="mt-2 flex flex-wrap items-center gap-3 lg:mt-0">
+                  {/* The counts used to be a four-row Corpus panel beside the list, and the
+                    content rule is that a count is a control or it is not on screen. Required
+                    restated a number this row already owned as a button; Showing restated the
+                    length of the list underneath it. */}
+                  <div
+                    role="group"
+                    aria-label="Filter by strength"
+                    className="flex gap-1"
                   >
-                    {SCOPES.map((item) => (
-                      <option key={item} value={item}>
-                        {humanise(item)}
-                      </option>
+                    {STRENGTHS.map((item) => (
+                      <ToggleButton
+                        key={item}
+                        pressed={strength === item}
+                        // `all` is the reset, and a reset is exempt. The other three are
+                        // disabled when they would filter to nothing, which is what the
+                        // attribute is for — but `strengthCounts.all` is the corpus after the
+                        // search, the scope and the origin have already narrowed it, so it
+                        // reaches zero exactly when the list is empty. Pick `required`, type
+                        // something that matches nothing, and all four went inert at once
+                        // including the one that undoes the choice, while the empty state
+                        // below said "widen the strength and scope filters". Pressing `all`
+                        // can only ever widen, so it can never filter to nothing.
+                        disabled={
+                          item !== "all" &&
+                          strength !== item &&
+                          !strengthCounts[item]
+                        }
+                        onClick={() => setStrength(item)}
+                        className="capitalize"
+                      >
+                        {item}
+                        <span className="tabular-nums text-ink-3">
+                          {strengthCounts[item]}
+                        </span>
+                      </ToggleButton>
                     ))}
-                  </select>
-                </label>
-              </div>
+                  </div>
+                  <ToggleButton
+                    pressed={authoredHere}
+                    disabled={!authoredHere && !authoredCount}
+                    onClick={() => setAuthoredHere(!authoredHere)}
+                  >
+                    Authored here
+                    <span className="tabular-nums text-ink-3">
+                      {authoredCount}
+                    </span>
+                  </ToggleButton>
+                  <label className="flex items-center gap-1.5 text-xs text-ink-3">
+                    Scope
+                    <Select
+                      aria-label="Filter by scope"
+                      value={scope}
+                      onChange={(event) =>
+                        setScope(event.target.value as (typeof SCOPES)[number])
+                      }
+                      className={DENSE_SELECT}
+                    >
+                      {SCOPES.map((item) => (
+                        <option key={item} value={item}>
+                          {humanise(item)}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                </div>
+              </details>
             </div>
           </div>
 

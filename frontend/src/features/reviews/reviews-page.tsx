@@ -5,17 +5,17 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api, type Decision, type Finding, type Review, type ReviewRun } from "../../api";
 import { cn } from "../../lib/cn";
 import { runPollInterval, useRunsBecomeReviews } from "../../lib/runs";
 import {
+  VERDICT_ORDER,
   humanise,
   plural,
   relativeTime,
-  repositoryName,
   shortId,
   statusOf,
   verdictOf,
@@ -26,10 +26,17 @@ import { Button, ButtonLink, ToggleButton } from "../../ui/button";
 import { SearchInput } from "../../ui/field";
 import { GitBranchIcon } from "../../ui/icons";
 import { Mark } from "../../ui/mark";
-import { PathRef, TONE_TEXT } from "../../ui/meta";
+import { PathRef, TONE_EDGE, TONE_TEXT } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel } from "../../ui/panel";
-import { EmptyState, ErrorNotice, LoadingPanel, Notice, Spinner } from "../../ui/states";
+import {
+  EmptyState,
+  ErrorNotice,
+  LiveRegion,
+  LoadingPanel,
+  Notice,
+  Spinner,
+} from "../../ui/states";
 import { stageLabel } from "../start/run-progress";
 
 const STATUS_FILTERS = ["all", "completed", "awaiting_answers", "failed", "cancelled"] as const;
@@ -44,12 +51,18 @@ const STATUS_FILTERS = ["all", "completed", "awaiting_answers", "failed", "cance
 const REVIEW_PAGE_SIZE = 100;
 
 /**
- * One line of work: the same repository, the same branch, the same case.
+ * One line of work: one branch, and every revision recorded against it.
  *
- * Reviews are immutable and sequenced under exactly these three things — that is the
- * charter's third commitment and the reason a delta can exist at all. What makes review 4
- * worth keeping is that it succeeded review 3, so a lineage is drawn as a trajectory rather
- * than as four rows repeating the same six fields.
+ * Reviews are immutable and sequenced per branch — that is the charter's third commitment,
+ * and it says the number line belongs to the branch "whatever case is being reviewed
+ * against". What makes review 4 worth keeping is that it succeeded review 3, so a lineage is
+ * drawn as a trajectory rather than as four rows repeating the same six fields.
+ *
+ * This used to be keyed on the repository, the branch *and* the case, which read like a
+ * stricter version of the same idea and was a different one: the workspace numbers a review
+ * from the branch alone, so review 3 of a freshly minted case genuinely succeeds review 2 of
+ * the case before it. Splitting on the case drew that succession as two unrelated blocks and
+ * broke the join with the run in flight — see `lineageKeyOf`.
  */
 type Lineage = {
   key: string;
@@ -58,53 +71,96 @@ type Lineage = {
   branchId: string | null;
   /** Newest first, which is the order they are listed in. */
   reviews: Review[];
-  run: ReviewRun | null;
+  /**
+   * The runs in flight against this branch, newest revision first as the workspace lists
+   * them. Usually one, and never assumed to be: two runs on one branch used to be two blocks
+   * because the case was part of the key, and one of them would now be dropped silently.
+   */
+  runs: ReviewRun[];
 };
 
-/** The three things a review is sequenced under, as one key. */
-function lineageKeyOf(review: Review): string {
-  return `${review.repository.path}::${review.repository.branch_id}::${review.case.id}`;
+/**
+ * A checkout said as the segment that names it, under the segment above it.
+ *
+ * `repositoryName` keeps the last segment and nothing else, which is right on a page listing
+ * repositories and wrong on a heading stacked over the full path. Two lineages under
+ * `…/cases/boundary-review/repository` and `…/cases/layering-review/repository` both headed
+ * *repository*, over a `PathRef` that elides from the head — so the one word the heading had
+ * to itself was the one word the path beneath it already ended in, and the two lineages were
+ * indistinguishable. The parent segment is the part that tells them apart, so it leads,
+ * dimmed: it is where the thing is, and the name is what it is.
+ */
+function lineageIdentity(path: string): { parent: string | null; name: string } {
+  const parts = path.split("/").filter(Boolean);
+  return { parent: parts.length > 1 ? (parts.at(-2) ?? null) : null, name: parts.at(-1) || path };
 }
 
+/**
+ * The line of work a review or a run belongs to, as one key — and as one function, because
+ * the fault was having two.
+ *
+ * A review was keyed on `repository.path::branch_id::case.id` and a run on
+ * `repository_root::branch_id::case_id`, which look like the same three fields and are not.
+ * `repository.path` is the directory the newest atlas was built from; `repository_root` is
+ * the directory the workspace first saw that repository at, and the two are different strings
+ * as soon as one repository is indexed from a second checkout. The case is worse than
+ * different: starting clean, or reviewing a branch whose reviews were deleted, mints a fresh
+ * case, so the run's case and the branch's history routinely disagree. Either mismatch missed
+ * the lookup, and the review being made right now was drawn as a line of work of its own at
+ * the top of the page — with an empty history under it — instead of as the next revision of
+ * the lineage it belongs to.
+ *
+ * So the key is the branch and nothing else. That is what the charter's third commitment
+ * says a number line is — sequenced per branch, one number line a branch keeps whatever case
+ * is being reviewed against — and it is what the workspace already does: it numbers a run
+ * `latest_for_branch(branch_id).sequence + 1`, reading neither the path nor the case. The
+ * path is a heading, and a case that changed is a fact about one revision, said on that
+ * revision's own row.
+ *
+ * Both sides call this, so there is nowhere left to key a run one way and a review the other.
+ */
+function lineageKeyOf(subject: Review | ReviewRun): string {
+  // A record carrying no branch belongs to no line of work, and filing every such record
+  // under one empty key would group unrelated repositories together. Each keeps its own.
+  if ("repository" in subject) return subject.repository.branch_id || `review:${subject.id}`;
+  return subject.branch_id || `run:${subject.run_id}`;
+}
+
+type Grouped = { key: string; reviews: Review[]; runs: ReviewRun[] };
+
 function lineagesOf(reviews: Review[], runs: ReviewRun[], now = Date.now()): Lineage[] {
-  const groups = new Map<string, Lineage>();
-  for (const review of reviews) {
-    const key = lineageKeyOf(review);
-    const existing = groups.get(key);
-    if (existing) existing.reviews.push(review);
-    else {
-      groups.set(key, {
-        key,
-        path: review.repository.path,
-        branch: review.repository.branch,
-        branchId: review.repository.branch_id,
-        reviews: [review],
-        run: null,
-      });
-    }
-  }
+  const groups = new Map<string, Grouped>();
+  const group = (key: string): Grouped => {
+    const held = groups.get(key);
+    if (held) return held;
+    const made: Grouped = { key, reviews: [], runs: [] };
+    groups.set(key, made);
+    return made;
+  };
+  for (const review of reviews) group(lineageKeyOf(review)).reviews.push(review);
   // A run in flight is the next revision of a lineage, not a separate kind of thing sitting
-  // in its own list above everything. It only becomes one when its lineage has no reviews.
-  for (const run of runs) {
-    const key = `${run.repository_root ?? ""}::${run.branch_id}::${run.case_id}`;
-    const existing = groups.get(key);
-    if (existing) existing.run = run;
-    else {
-      groups.set(key, {
-        key,
-        path: run.repository_root ?? run.repository_name ?? "",
-        branch: run.branch_name ?? null,
-        branchId: run.branch_id ?? null,
-        reviews: [],
-        run,
-      });
-    }
-  }
+  // in its own list above everything. It only becomes one when its lineage has no reviews to
+  // sit under — the first review of a branch, or a history the filters have emptied.
+  for (const run of runs) group(lineageKeyOf(run)).runs.push(run);
   return [...groups.values()]
-    .map((lineage) => ({
-      ...lineage,
-      reviews: [...lineage.reviews].sort((left, right) => right.sequence - left.sequence),
-    }))
+    .map(({ key, reviews: held, runs: working }) => {
+      const ordered = [...held].sort((left, right) => right.sequence - left.sequence);
+      // The heading is read off the newest revision and only falls back to the run. A run
+      // reports the directory the repository was first seen at rather than the one the newest
+      // atlas was built from, so taking it while a run is in flight would rename the panel —
+      // and a heading that changes for the minutes a review is being made reads as a
+      // different repository appearing.
+      const newest = ordered[0];
+      const run = working[0];
+      return {
+        key,
+        path: newest?.repository.path ?? run?.repository_root ?? run?.repository_name ?? "",
+        branch: newest?.repository.branch ?? run?.branch_name ?? null,
+        branchId: newest?.repository.branch_id ?? run?.branch_id ?? null,
+        reviews: ordered,
+        runs: working,
+      };
+    })
     .sort((left, right) => latestAt(right, now) - latestAt(left, now));
 }
 
@@ -117,10 +173,16 @@ function lineagesOf(reviews: Review[], runs: ReviewRun[], now = Date.now()): Lin
  * every time it is asked is not an ordering.
  */
 function latestAt(lineage: Lineage, now: number): number {
-  const started = lineage.run ? Date.parse(lineage.run.started_at ?? "") : Number.NaN;
-  const run = lineage.run ? (Number.isNaN(started) ? now : started) : Number.NEGATIVE_INFINITY;
+  const running = lineage.runs.map((run) => {
+    const started = Date.parse(run.started_at ?? "");
+    return Number.isNaN(started) ? now : started;
+  });
   const newest = Date.parse(lineage.reviews[0]?.started_at ?? "");
-  return Math.max(run, Number.isNaN(newest) ? Number.NEGATIVE_INFINITY : newest);
+  return Math.max(
+    ...running,
+    Number.isNaN(newest) ? Number.NEGATIVE_INFINITY : newest,
+    Number.NEGATIVE_INFINITY,
+  );
 }
 
 /**
@@ -133,17 +195,25 @@ function latestAt(lineage: Lineage, now: number): number {
  * the fold, and reading a claim out of context — a candidate's summary with no verdict spread
  * and no revision around it — is the work, which is what opening the review is for.
  *
- * So the fact stays and the list goes. A review's row says how much of it wants a person, in
- * the same words the review's own head uses, and the claims are read where they can be acted
- * on. Two totals of the same list that disagree on two screens are worse than one, so this
+ * So the fact stays and the list goes. A review's row says how much of it is still open,
+ * counted exactly the way the review's own head counts it, and the claims are read where they
+ * can be acted on. Two totals of the same list that disagree on two screens are worse than one, so this
  * counts exactly what `ReviewCounts` counts: candidates `needsAttention` still holds open,
- * plus the questions of a round that is still answerable.
+ * plus one for a round that is still answerable.
+ *
+ * One for the round, not one per question, and the two pages drifted apart on exactly that.
+ * `ReviewCounts` moved to counting the round once — a held review with five outstanding
+ * candidates and four questions was saying "9 things still want you" directly above a chip
+ * reading "Attention 5" — and this stayed on `questions.length`, so a review with more than
+ * one open question was reported differently on the two screens that promise to agree. The
+ * docket lists an open round as a single first item, which is what makes one the honest
+ * number: it is one thing to go and do.
  */
 function wantsOf(review: Review, decisions: Map<string, Decision>): number {
   const outstanding = review.findings.filter((finding: Finding) =>
     needsAttention(finding, decisions.get(finding.candidate.id)),
   ).length;
-  return outstanding + (awaitsAnswers(review) ? review.questions.length : 0);
+  return outstanding + (awaitsAnswers(review) ? 1 : 0);
 }
 
 /**
@@ -172,36 +242,65 @@ function trajectorySentence(ordered: Review[]): string {
 }
 
 /**
+ * How many steps of a lineage are drawn before the rail starts eliding.
+ *
+ * The same number, for the same reason, as `features/review/trajectory.tsx`: a branch
+ * reviewed weekly for a quarter has a dozen revisions and the panel header has room for the
+ * repository, the branch and about six nodes. This rail used to keep all of them and scroll,
+ * with `scrollbar-none` on the scroller and macOS hiding overlay scrollbars anyway — so past
+ * six revisions it ended mid-connector against the panel edge and read as a rendering fault.
+ * Capping says out loud what scrolling hid, and the whole lineage is still in the sentence
+ * below.
+ */
+const DRAWN_REVISIONS = 6;
+
+/**
  * The lineage as a trajectory: one node per revision, the delta drawn on the segment between.
  *
  * `+2 −1` between two nodes is what that revision actually did — two candidates raised, one
  * addressed — which is the only reason to keep review 3 once review 4 exists. Hues come from
- * the status table rather than being chosen here.
+ * the status table rather than being chosen here, and the diff notation is drawn from
+ * `ui/mark.tsx` rather than typed: `−` is U+2212, which the Plex Mono subset does not
+ * promise, and a glyph that falls through to the system mono arrives at another optical size
+ * on another baseline.
  */
 function TrajectoryRail({ lineage }: { lineage: Lineage }) {
   const ordered = [...lineage.reviews].reverse();
   if (ordered.length < 2) return null;
+  const drawn = ordered.slice(-DRAWN_REVISIONS);
+  const elided = ordered.length - drawn.length;
   return (
     <>
       <p className="sr-only">{trajectorySentence(ordered)}</p>
-      <ol
-        aria-hidden="true"
-        className="scrollbar-none -mx-1 flex items-start overflow-x-auto px-1 pb-0.5"
-      >
-        {ordered.map((review, index) => {
+      <ol aria-hidden="true" className="flex items-start pb-0.5">
+        {elided ? (
+          <li className="flex shrink-0 items-center self-stretch pr-2 font-mono text-[11px] tabular-nums text-ink-3">
+            +{elided}
+          </li>
+        ) : null}
+        {drawn.map((review, index) => {
           const descriptor = statusOf(review.status);
           const moved = review.delta.new.length + review.delta.changed.length;
           const gone = review.delta.addressed.length;
           return (
             <li key={review.id} className="flex shrink-0 items-start">
-              {index ? (
-                <span className="flex w-16 flex-col items-center gap-1 pt-2">
+              {index || elided ? (
+                <span className="flex w-12 flex-col items-center gap-1 pt-2 sm:w-16">
                   <span className="block h-px w-full bg-rule-strong" />
-                  <span className="font-mono text-[10px] leading-none text-ink-3">
-                    {moved ? `+${moved}` : null}
-                    {moved && gone ? " " : null}
-                    {gone ? `−${gone}` : null}
-                    {!moved && !gone ? "·" : null}
+                  <span className="flex items-center gap-0.5 font-mono text-[10px] leading-none tabular-nums text-ink-3">
+                    {moved ? (
+                      <>
+                        <Mark shape="plus" className="size-[12px]" />
+                        {moved}
+                      </>
+                    ) : null}
+                    {gone ? (
+                      <>
+                        <Mark shape="minus" className="size-[12px]" />
+                        {gone}
+                      </>
+                    ) : null}
+                    {!moved && !gone ? <Mark shape="equals" className="size-[12px]" /> : null}
                   </span>
                 </span>
               ) : null}
@@ -226,12 +325,24 @@ function RevisionRow({
   review,
   run,
   wants,
+  showCase,
   onDelete,
   deleting,
 }: {
   review: Review;
   /** The run rejudging this very snapshot, where there is one. */
   run: ReviewRun | null;
+  /**
+   * Whether to name the case this revision was reviewed against, and not only its revision
+   * number.
+   *
+   * A line of work is the branch, so a panel can hold revisions taken against more than one
+   * case — starting clean opens a new case and the branch's number line carries straight on
+   * through it. Where that has happened the case is the thing that varies inside the panel
+   * and every row says which one it is; where it has not, the id is six characters of noise
+   * repeated down the whole history.
+   */
+  showCase: boolean;
   /**
    * How much of this revision still wants a person, or `null` where that is not known.
    *
@@ -246,58 +357,119 @@ function RevisionRow({
   deleting: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const counts = ["material", "held", "cleared"].map((verdict) => ({
+  /**
+   * Focus follows the swap, in both directions.
+   *
+   * Pressing Delete replaces the button that was pressed, so without this a keyboard user's
+   * focus falls to `<body>` and reaching Confirm means tabbing from the top of the document —
+   * on the one destructive action this page has. The first `button` inside the cell is
+   * Confirm while the question is up and Delete once it is dismissed, so one query serves
+   * both directions. `swapped` is what stops it stealing focus on the first render, where
+   * `confirming` is false because nobody has done anything yet rather than because they
+   * pressed Keep.
+   */
+  const controls = useRef<HTMLSpanElement>(null);
+  const swapped = useRef(false);
+  useEffect(() => {
+    if (!confirming && !swapped.current) return;
+    swapped.current = confirming;
+    controls.current?.querySelector("button")?.focus();
+  }, [confirming]);
+
+  const descriptor = statusOf(review.status);
+  const counts = VERDICT_ORDER.map((verdict) => ({
     descriptor: verdictOf(verdict),
     count: review.findings.filter((finding) => finding.verdict === verdict).length,
   }));
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-rule px-4 py-2.5 transition hover:bg-surface-2 sm:px-5">
+    <li
+      className={cn(
+        // The review's own state as a left edge, the device the docket row already uses for a
+        // verdict — and a review's state is on the same register, graded rather than
+        // described. It costs no horizontal space and is read without being looked at, which
+        // is the question asked of a whole panel at once: which of these is still open. Only
+        // `failed` is red; `awaiting_answers` is full ink and a completed revision recedes to
+        // `--ink-3`, because held and cleared gave up their hues for weight.
+        "group flex flex-wrap items-stretch border-t border-l-[3px] border-rule last:rounded-b-lg",
+        TONE_EDGE[descriptor.tone],
+      )}
+    >
+      {/*
+        The padding, the hover and the 44px floor all live on the link rather than on the row.
+        They were on the `<li>`, which meant the highlight ran under the Delete button and
+        under the row's own dead space — a hover is a promise that pressing here goes
+        somewhere, and two thirds of the lit area went nowhere. `--sunken` rather than
+        `--surface-2` for the hover: white to `#fafafa` is five values out of 255, which is
+        enough for a strip nobody is asked to notice and nothing at all for a state that has
+        to appear under a pointer.
+      */}
       <Link
         to={`/reviews/${review.id}`}
-        className="flex min-h-9 min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1"
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-4 py-2.5 transition group-last:rounded-bl-lg hover:bg-sunken sm:px-5"
       >
-        <span className="font-mono text-[13px] font-medium tabular-nums text-ink">
-          Review {review.sequence}
-        </span>
-        <StatusBadge status={review.status} />
-        {/* The one thing on this row that means act, in the words the review's own head
-            uses for it. A zero is not drawn: a history is mostly settled revisions, and
-            "nothing waiting on you" repeated down forty rows is forty lines spent saying
-            that nothing happened. */}
-        {wants ? (
-          <span className="text-[12.5px] font-semibold text-ink">
-            {plural(wants, "thing")} want{wants === 1 ? "s" : ""} you
+        {/* The row's identity wraps; the verdict spread does not. `ml-auto` used to push the
+            spread within whichever wrapped line it happened to land on, so three consecutive
+            rows put their counts at three different heights and three different x-positions
+            and never formed the column the treatment exists for. */}
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-mono text-[14px] font-medium tabular-nums text-ink">
+            Review {review.sequence}
           </span>
-        ) : null}
-        {run ? (
-          <Label className="inline-flex items-center gap-1.5 text-ink-2">
-            <Spinner label="" /> Rejudging · {run.stage ? stageLabel(run.stage) : "starting"}
-          </Label>
-        ) : null}
-        <span className="font-mono text-[11px] text-ink-3">
-          case rev {review.case.revision}
-          {review.repository.commit ? <> · {shortId(review.repository.commit, 8)}</> : null} ·{" "}
-          {relativeTime(review.started_at)}
+          {/* The one thing on this row that means act, on the count the review's own head
+              reports, and read before the state pill rather than after it: what a returning
+              reader is looking for is how much work is left, not which of five statuses this
+              revision is in. A zero is not drawn — a history is mostly settled revisions, and
+              "nothing left to decide" repeated down forty rows is forty lines spent saying
+              that nothing happened. */}
+          {wants ? (
+            <span className="text-[13px] font-semibold text-ink">
+              {wants} open
+            </span>
+          ) : null}
+          <StatusBadge status={review.status} />
+          {run ? (
+            <Label className="inline-flex items-center gap-1.5 text-ink-2">
+              <Spinner label="" /> Rejudging · {run.stage ? stageLabel(run.stage) : "starting"}
+            </Label>
+          ) : null}
+          <span className="font-mono text-[11px] text-ink-3">
+            case {showCase ? `${shortId(review.case.id, 6)} ` : ""}rev {review.case.revision}
+            {review.repository.commit ? (
+              <> · {shortId(review.repository.commit, 8)}</>
+            ) : null} · {relativeTime(review.started_at)}
+          </span>
         </span>
         {/* The verdict spread, in glyphs rather than in prose. "8 judged · 2 not cleared"
-            made a reader subtract to learn the one thing they wanted. */}
-        <span className="ml-auto flex shrink-0 items-center gap-2.5 font-mono text-[11.5px] tabular-nums">
-          {counts.map(({ descriptor, count }) => (
+            made a reader subtract to learn the one thing they wanted. The word is carried
+            `sr-only` because `Mark` is `aria-hidden` — three bare digits in the middle of a
+            link's accessible name name nothing — and a zero recedes on a laptop and goes
+            below `sm`, which is the rule the review head applies to the same spread. */}
+        <span className="flex shrink-0 items-center gap-2.5 font-mono text-xs tabular-nums">
+          {counts.map(({ descriptor: verdict, count }) => (
             <span
-              key={descriptor.label}
-              className={cn("inline-flex items-center gap-1", count ? "text-ink-2" : "text-ink-3")}
+              key={verdict.label}
+              className={cn(
+                "items-center gap-1",
+                count ? "inline-flex text-ink-2" : "hidden text-ink-3 sm:inline-flex",
+              )}
             >
               <Mark
-                shape={descriptor.glyph}
-                className={cn("size-[13px]", count ? TONE_TEXT[descriptor.tone] : "text-ink-3")}
+                shape={verdict.glyph}
+                className={cn("size-[13px]", count ? TONE_TEXT[verdict.tone] : "text-ink-3")}
               />
               {count}
+              <span className="sr-only"> {verdict.label.toLowerCase()}</span>
             </span>
           ))}
         </span>
       </Link>
 
-      <span className="flex shrink-0 items-center gap-2">
+      {/* Its own line below `sm`, where the link wraps to four and a control left on the
+          first flex line has nothing to sit against. */}
+      <span
+        ref={controls}
+        className="flex w-full shrink-0 items-center justify-end gap-2 border-t border-rule px-4 py-2 sm:w-auto sm:border-t-0 sm:py-2.5 sm:pl-2 sm:pr-5"
+      >
         {run ? (
           // Nothing is deleted while it is being rejudged, and the thing a person wants from
           // this row while that is happening is the run.
@@ -306,20 +478,37 @@ function RevisionRow({
           </ButtonLink>
         ) : confirming ? (
           <>
-            <span className="text-xs text-ink-3">Delete this review?</span>
+            {/* `role="alert"`, because the question replaces the control that asked it: a
+                reader who is not looking at this row would otherwise be given a new,
+                destructive choice with nothing announcing that it had appeared. */}
+            <span role="alert" className="text-xs text-ink-3">
+              Delete this review?
+            </span>
             <Button size="sm" variant="danger" disabled={deleting} onClick={onDelete}>
-              Confirm
+              {deleting ? (
+                <>
+                  <Spinner label="" /> Deleting
+                </>
+              ) : (
+                "Confirm"
+              )}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
               Keep
             </Button>
           </>
         ) : (
+          // Present but quiet until the row is under a pointer or holds the keyboard — the
+          // device the docket already uses for its select checkbox. A history is read far
+          // more often than it is pruned, and a destructive control drawn at full strength on
+          // every row of a list competes with the thing the list is for. On a coarse pointer
+          // it is simply there: hover is what reveals it, and a finger has none.
           <Button
             size="sm"
             variant="ghost"
             onClick={() => setConfirming(true)}
             aria-label={`Delete review ${review.sequence}`}
+            className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
           >
             Delete
           </Button>
@@ -333,22 +522,44 @@ function RevisionRow({
  * The revision being made, in the lineage it will belong to.
  *
  * Every identifier a review is filed under is known before the review exists, so the next
- * revision can be listed and opened while it is still being made.
+ * revision can be listed and opened while it is still being made. That is the whole reason
+ * this row can exist at all, and it is why the join above keys on the branch: the run knows
+ * its branch the moment it starts — the workspace refuses to start one against a repository
+ * it has not indexed — while the path it reports and the case it was given are both allowed
+ * to differ from the ones the branch's existing reviews carry.
+ *
+ * It used to be the one row in the list with a ground of its own — `bg-surface-2` — on the
+ * argument that a tint is what says this revision is being made right now. That tint is the
+ * panel header's ground, and it sat directly beneath the panel header, so the only row a
+ * reader could not press looked like a header and every row they could press looked like
+ * nothing. What marks this row is what it says: a spinner, the word *In progress* and the
+ * stage the run is on, all of which are drawn rather than dimmed and none of which is
+ * borrowed from another part of the ramp.
  */
-function PendingRow({ run, sequence }: { run: ReviewRun; sequence: number }) {
+function PendingRow({
+  run,
+  sequence,
+  showCase,
+}: {
+  run: ReviewRun;
+  sequence: number;
+  /** As on a revision's row: named only where the panel holds more than one case. */
+  showCase: boolean;
+}) {
   return (
-    <li className="border-t border-rule bg-surface-2">
+    <li className="group border-t border-l-[3px] border-rule border-l-transparent last:rounded-b-lg">
       <Link
         to={`/runs/${run.run_id}`}
-        className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 transition hover:bg-sunken sm:px-5"
+        className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 transition group-last:rounded-b-lg hover:bg-sunken sm:px-5"
       >
-        <span className="font-mono text-[13px] font-medium tabular-nums text-ink">
+        <span className="font-mono text-[14px] font-medium tabular-nums text-ink">
           Review {run.sequence ?? sequence}
         </span>
         <Label className="inline-flex items-center gap-1.5">
           <Spinner label="" /> In progress
         </Label>
         <span className="font-mono text-[11px] text-ink-3">
+          {showCase && run.case_id ? <>case {shortId(run.case_id, 6)} · </> : null}
           {run.stage ? stageLabel(run.stage) : "starting"}
         </span>
       </Link>
@@ -360,13 +571,14 @@ function LineageBlock({
   lineage,
   wants,
   onDelete,
-  deleting,
+  deletingId,
 }: {
   lineage: Lineage;
   /** How much still wants a person, by review id, for the revisions that know. */
   wants: Map<string, number>;
   onDelete: (id: string) => void;
-  deleting: boolean;
+  /** The review whose deletion is in flight, if any. */
+  deletingId: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   /**
@@ -375,61 +587,114 @@ function LineageBlock({
    * Answering a clarification round rejudges the snapshot that asked the questions, and the
    * run reports until it is genuinely done — so for the length of that rejudgement the run
    * list and the review list both describe revision N. Drawn as they arrive that is two rows
-   * for one revision, one of them claiming to be the next one. The run is keyed on its
-   * `review_id` instead and drawn on the row it belongs to.
+   * for one revision, one of them claiming to be the next one. A run is keyed on its
+   * `review_id` instead and drawn on the row it belongs to; what is left over is a revision
+   * that does not exist yet, which is what `PendingRow` is for. A run whose review is real but
+   * filtered off this panel counts as left over too: the row it would go on is not here.
    */
-  const rejudging = lineage.run?.review_id ?? null;
-  const pending = lineage.run && !lineage.reviews.some((review) => review.id === rejudging);
+  const rejudging = new Map(
+    lineage.runs.flatMap((run) => (run.review_id ? ([[run.review_id, run]] as const) : [])),
+  );
+  const pending = lineage.runs.filter(
+    (run) => !run.review_id || !lineage.reviews.some((review) => review.id === run.review_id),
+  );
   // Only the newest revision spells itself out. The ones before it are on the rail, and are
   // one press away — a history is scanned far more often than it is read. The exception is a
   // revision being rejudged: something happening now is not something to go looking for.
   const shown = expanded
     ? lineage.reviews
-    : lineage.reviews.filter((review, index) => index === 0 || review.id === rejudging);
+    : lineage.reviews.filter((review, index) => index === 0 || rejudging.has(review.id));
   const hidden = lineage.reviews.length - shown.length;
+  const identity = lineageIdentity(lineage.path);
+  // The branch is the line of work, so the case is free to change within it. Where it has,
+  // every row names the case it belongs to; where it has not, nothing is said about it.
+  const cases = new Set(
+    [
+      ...lineage.reviews.map((review) => review.case.id),
+      ...lineage.runs.map((run) => run.case_id ?? ""),
+    ].filter(Boolean),
+  );
+  const showCase = cases.size > 1;
   return (
     <Panel as="article">
-      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-5">
+      {/* `bg-surface-2`, which is the ground the elevation contract gives a panel's header
+          and every static strip set into a panel. The header used to be the panel's own
+          white, the same white as the clickable rows beneath it, separated from them by one
+          10%-black hairline — so nothing on the panel said which part of it did something.
+          `rounded-t-lg` because a strip that paints to the edge is the part that notices the
+          panel's 14px corner. */}
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-t-lg bg-surface-2 px-4 py-3 sm:px-5">
         <div className="min-w-0">
           <h2 className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[14px] leading-tight text-ink-3">
-            <span className="font-medium text-ink [overflow-wrap:anywhere]">
-              {repositoryName(lineage.path)}
+            <span className="[overflow-wrap:anywhere]">
+              {identity.parent ? <span className="text-ink-3">{identity.parent}/</span> : null}
+              <span className="font-medium text-ink">{identity.name}</span>
             </span>
-            {lineage.branch ? (
+            {/* An unnamed branch is still a branch, and a lineage is keyed on the id whether
+                or not a name came with it — so two lines of work on one repository used to
+                draw the same heading with nothing after it. The id is what the record is
+                filed under, and it is the only thing left that tells them apart. */}
+            {lineage.branch || lineage.branchId ? (
               <>
                 <GitBranchIcon className="size-3.5 shrink-0" aria-hidden="true" />
                 <span className="sr-only">branch</span>
-                <span className="[overflow-wrap:anywhere]">{lineage.branch}</span>
+                <span className="[overflow-wrap:anywhere]">
+                  {lineage.branch ?? shortId(lineage.branchId ?? "", 8)}
+                </span>
               </>
             ) : null}
           </h2>
           <PathRef path={lineage.path} className="mt-1" />
         </div>
-        <TrajectoryRail lineage={lineage} />
+        {/* A lineage of one has no trajectory to draw, which left the whole right half of the
+            header empty on exactly the case a first-time reader meets. What goes there
+            instead is the fact the rail would otherwise have carried: how much history this
+            line of work has. */}
+        {lineage.reviews.length > 1 ? (
+          <TrajectoryRail lineage={lineage} />
+        ) : lineage.reviews.length ? (
+          <span className="font-mono text-[11px] tabular-nums text-ink-3">
+            {plural(lineage.reviews.length, "revision")}
+          </span>
+        ) : null}
       </header>
 
       <ul>
-        {pending && lineage.run ? (
-          <PendingRow run={lineage.run} sequence={lineage.reviews.length + 1} />
-        ) : null}
+        {pending.map((run) => (
+          <PendingRow
+            key={run.run_id}
+            run={run}
+            sequence={lineage.reviews.length + 1}
+            showCase={showCase}
+          />
+        ))}
         {shown.map((review) => (
           <RevisionRow
             key={review.id}
             review={review}
-            run={review.id === rejudging ? lineage.run : null}
+            run={rejudging.get(review.id) ?? null}
             wants={wants.get(review.id) ?? null}
-            deleting={deleting}
+            showCase={showCase}
+            deleting={deletingId === review.id}
             onDelete={() => onDelete(review.id)}
           />
         ))}
       </ul>
-      {hidden > 0 ? (
+      {/* A toggle, not a one-way door. The comment above `shown` argues that a collapsed
+          lineage is the right default because a history is scanned far more often than it is
+          read — and this button used to disappear the moment it was pressed, so a lineage of
+          thirty revisions stayed thirty rows tall for the rest of the session with no way
+          back to the default the same argument asks for. */}
+      {hidden > 0 || expanded ? (
         <button
           type="button"
-          onClick={() => setExpanded(true)}
-          className="flex min-h-11 w-full items-center border-t border-rule px-4 text-[13px] font-semibold text-ink-2 transition hover:bg-surface-2 sm:px-5"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+          className="flex min-h-11 w-full items-center rounded-b-lg border-t border-rule px-4 text-[13px] font-semibold text-ink-2 transition hover:bg-sunken sm:px-5"
         >
-          Show {hidden} older {hidden === 1 ? "revision" : "revisions"}
+          {expanded
+            ? "Show fewer revisions"
+            : `Show ${hidden} older ${hidden === 1 ? "revision" : "revisions"}`}
         </button>
       ) : null}
     </Panel>
@@ -470,17 +735,69 @@ export function ReviewsPage() {
   // every `useMemo` beneath them — including the one guarding the counts, which walk the
   // findings of every lineage on the page.
   const all = useMemo(() => reviews.data ?? [], [reviews.data]);
-  const visible = useMemo(
+  /**
+   * The search filter and the status filter are split, because the counts on the status
+   * chips have to be counted off one and not the other.
+   *
+   * A chip saying how many revisions it would return is only true if it is counted against
+   * everything the *other* control has already let through. Counted off `all` it would
+   * ignore the search box — the same fault the "N revisions kept" line beside it used to
+   * have — and counted off the fully filtered list every chip but the pressed one reads
+   * zero.
+   */
+  const matching = useMemo(
     () =>
-      all.filter((review) => {
-        const matchesStatus = status === "all" || review.status === status;
-        const haystack =
-          `${review.repository.path} ${review.repository.branch ?? ""}`.toLowerCase();
-        return matchesStatus && haystack.includes(query.toLowerCase());
-      }),
-    [all, status, query],
+      all.filter((review) =>
+        `${review.repository.path} ${review.repository.branch ?? ""}`
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+      ),
+    [all, query],
   );
-  const lineages = useMemo(() => lineagesOf(visible, runs.data ?? []), [visible, runs.data]);
+  const visible = useMemo(
+    () => matching.filter((review) => status === "all" || review.status === status),
+    [matching, status],
+  );
+  /**
+   * How many revisions each status filter would return, and therefore which of them are worth
+   * offering at all.
+   *
+   * On a healthy workspace four of the five return nothing, and a chip that empties the page
+   * to an empty state is a dead end a reader was invited to walk into. The docket's filter
+   * settled this rule and its comment calls it general: a count of zero is worth reading and
+   * worth nothing to press.
+   */
+  const statusCounts = useMemo(() => {
+    const counts = new Map<string, number>(STATUS_FILTERS.map((item) => [item, 0]));
+    for (const review of matching) {
+      counts.set("all", (counts.get("all") ?? 0) + 1);
+      if (counts.has(review.status))
+        counts.set(review.status, (counts.get(review.status) ?? 0) + 1);
+    }
+    return counts;
+  }, [matching]);
+  /**
+   * The search box filters the runs too, on the same two fields it filters reviews on, and
+   * the status filter deliberately does not.
+   *
+   * Both used to run over the reviews alone, which broke in opposite directions. A query that
+   * excluded a repository left that repository's run in flight on the page — the one panel
+   * the reader had just asked to be rid of. And pressing a status chip stripped a lineage's
+   * whole history while keeping its run, which is the right answer for the wrong reason: a
+   * revision being made has no verdicts and no status yet, so no status can describe it, and
+   * the reason to open this page while one is running is to watch it. So the search reaches
+   * the runs and the status filter cannot hide them.
+   */
+  const matchingRuns = useMemo(
+    () =>
+      (runs.data ?? []).filter((run) =>
+        `${run.repository_root ?? ""} ${run.branch_name ?? ""}`
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+      ),
+    [runs.data, query],
+  );
+  const lineages = useMemo(() => lineagesOf(visible, matchingRuns), [visible, matchingRuns]);
 
   /**
    * The newest revision of every line of work, whatever the filters above are set to.
@@ -565,32 +882,68 @@ export function ReviewsPage() {
     return counts;
   }, [newest, branches]);
 
+  const list = (
+    <div className="grid gap-3">
+      {lineages.map((lineage) => (
+        <LineageBlock
+          key={lineage.key}
+          lineage={lineage}
+          wants={wants}
+          // Which review is being deleted, not whether any is. `remove.isPending`
+          // handed to every row disabled Confirm on a row nobody had touched.
+          deletingId={remove.isPending ? (remove.variables ?? null) : null}
+          onDelete={(id) => remove.mutate(id)}
+        />
+      ))}
+    </div>
+  );
+
   return (
     <div>
       <PageHeader
         eyebrow="Immutable history"
         title="Reviews"
-        description="Sequenced per branch and case, and readable exactly as recorded."
+        description="Sequenced per branch, and readable exactly as recorded."
       />
 
-      {reviews.isPending ? (
-        <LoadingPanel label="Opening review history…" rows={4} />
-      ) : !reviews.data ? (
-        // The header stays. A page that replaces itself with its own error message takes
-        // away the one thing left to do about it, which is go somewhere else.
-        <ErrorNotice
-          error={reviews.error}
-          action={
-            <Button size="sm" variant="secondary" onClick={() => void reviews.refetch()}>
-              Try again
-            </Button>
-          }
-        />
+      {reviews.isPending || !reviews.data ? (
+        /*
+          The history is what is loading or missing here; the review being made right now is
+          neither. `/api/reviews` answers with whole reviews and can be megabytes, so gating
+          the run on it meant the one thing on this page that cannot wait was the thing that
+          waited — and where the history failed outright, a run in flight was not listed at
+          all under a message about something else. The runs answer separately and they are
+          drawn as soon as they do, above whatever the history has to say for itself.
+        */
+        <>
+          {lineages.length ? <div className="mb-3">{list}</div> : null}
+          {reviews.isPending ? (
+            <LoadingPanel label="Opening review history…" rows={4} />
+          ) : (
+            // The header stays. A page that replaces itself with its own error message takes
+            // away the one thing left to do about it, which is go somewhere else.
+            <ErrorNotice
+              error={reviews.error}
+              action={
+                <Button size="sm" variant="secondary" onClick={() => void reviews.refetch()}>
+                  Try again
+                </Button>
+              }
+            />
+          )}
+        </>
       ) : (
         <>
-          {reviews.isError ? (
+          {/* One notice for both listings, because they fail the same way and mean the same
+              thing to a reader. The runs query is the only source of the pending row, the
+              Rejudging label and the Watch button, so a failed poll used to remove the
+              revision being made right now from a history that went on claiming to be
+              complete — silently, on the page that polls precisely because somebody comes
+              back to it. */}
+          {reviews.isError || runs.isError ? (
             <Notice tone="working" className="mb-6">
-              Lost contact with the workspace. This history may be out of date.
+              Lost contact with the workspace. This history may be out of date, and a review in
+              progress may not be listed.
             </Notice>
           ) : null}
 
@@ -599,13 +952,29 @@ export function ReviewsPage() {
               <Label as="h2" className="text-ink">
                 Lines of work
               </Label>
-              <span className="font-mono text-[11px] text-ink-3">
-                {plural(lineages.length, "branch", "branches")} ·{" "}
-                {all.length >= REVIEW_PAGE_SIZE
-                  ? `showing the newest ${REVIEW_PAGE_SIZE}`
-                  : `${plural(all.length, "revision")} kept`}
+              {/* Two numbers about the same list, measured the same way. The left one said
+                  "branches" and counted lineages, which were then keyed on the case as well —
+                  so two cases on one branch printed as two branches. A lineage is now the
+                  branch, so the two agree again, and the words stay "lines of work" because a
+                  line of work is what the block is. The right one was counted off the
+                  unfiltered history, so a search commonly produced "1 branch · 43 revisions
+                  kept" above four rows. */}
+              <span className="font-mono text-[11px] tabular-nums text-ink-3">
+                {plural(lineages.length, "line of work", "lines of work")} ·{" "}
+                {visible.length !== all.length
+                  ? `${plural(visible.length, "revision")} shown`
+                  : all.length >= REVIEW_PAGE_SIZE
+                    ? `showing the newest ${REVIEW_PAGE_SIZE}`
+                    : `${plural(all.length, "revision")} kept`}
               </span>
             </div>
+            {/* Drawn whenever there is any history at all, and the argument for a threshold
+                is answered elsewhere. A search field and five chips beside a single row does
+                look like furniture outweighing the work — but every chip now says how many
+                revisions it would return and a chip that would return none cannot be
+                pressed, so the strip states the shape of the history rather than offering
+                five ways to empty it. Hiding the controls below some count would take a
+                capability away at a number nothing could justify. */}
             {all.length ? (
               <div className="flex flex-wrap items-center gap-2">
                 <SearchInput
@@ -615,30 +984,53 @@ export function ReviewsPage() {
                   placeholder="Repository or branch"
                   className="w-full sm:w-64"
                 />
-                <div
-                  role="group"
-                  aria-label="Filter by status"
-                  className="scrollbar-none flex gap-1 overflow-x-auto"
-                >
-                  {STATUS_FILTERS.map((item) => (
-                    <ToggleButton
-                      key={item}
-                      pressed={status === item}
-                      onClick={() => setStatus(item)}
-                    >
-                      {humanise(item)}
-                    </ToggleButton>
-                  ))}
+                {/* `flex-wrap`, not a hidden-scrollbar scroller. macOS keeps overlay
+                    scrollbars hidden until the trackpad is touched and `scrollbar-none`
+                    removed them for good, so on a narrow viewport the strip simply ended
+                    with two chips unreachable and nothing saying so. */}
+                <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-1">
+                  {STATUS_FILTERS.map((item) => {
+                    const count = statusCounts.get(item) ?? 0;
+                    return (
+                      <ToggleButton
+                        key={item}
+                        pressed={status === item}
+                        disabled={!count && status !== item}
+                        onClick={() => setStatus(item)}
+                      >
+                        {humanise(item)}
+                        <span className="tabular-nums">{count}</span>
+                      </ToggleButton>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
           </div>
 
+          {/* The list below changes under a search or a filter with nothing said about it, so
+              a reader who is not looking at it has no way to learn whether their query
+              matched. One region covers the arrival, the search and the filter. */}
+          <LiveRegion>{plural(lineages.length, "line of work", "lines of work")} shown</LiveRegion>
+
           {!lineages.length ? (
             <EmptyState
               title={all.length ? "No review matches that" : "No reviews yet"}
               action={
-                all.length ? undefined : <ButtonLink to="/start">Review a repository</ButtonLink>
+                all.length ? (
+                  // The empty state used to say to adjust the controls and then not offer to.
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setQuery("");
+                      setStatus("all");
+                    }}
+                  >
+                    Clear the filters
+                  </Button>
+                ) : (
+                  <ButtonLink to="/start">Review a repository</ButtonLink>
+                )
               }
             >
               {all.length
@@ -646,17 +1038,7 @@ export function ReviewsPage() {
                 : "Point ArchCompass at a repository to record the first architecture review."}
             </EmptyState>
           ) : (
-            <div className="grid gap-3">
-              {lineages.map((lineage) => (
-                <LineageBlock
-                  key={lineage.key}
-                  lineage={lineage}
-                  wants={wants}
-                  deleting={remove.isPending}
-                  onDelete={(id) => remove.mutate(id)}
-                />
-              ))}
-            </div>
+            list
           )}
           {/* A delete that failed is reported by the toast `main.tsx` puts under every
               mutation. It used to paint an `ErrorNotice` at the foot of the page, a screen

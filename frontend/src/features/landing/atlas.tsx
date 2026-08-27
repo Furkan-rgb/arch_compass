@@ -71,11 +71,21 @@ const NODES: MapNode[] = [
   { id: "http", x: 290, y: 590, label: "http" },
 ];
 
+/**
+ * The four enclosures, and the one rule they all have to keep: none of them may reach
+ * `ANCHOR.x`.
+ *
+ * A module box is the single mark that says the repository was parsed into modules, so a box
+ * with a side missing is the claim failing quietly. `platform` was 300 wide from x=40, which
+ * put its right edge at 340 — twenty units under the callout, which is opaque — and the box
+ * simply had no right side at any width where the callout is pinned. At 275 it closes at 315,
+ * five clear of the anchor, and `http` at x=290 still sits inside it with room for its label.
+ */
 const MODULES: MapModule[] = [
   { x: 250, y: 30, width: 300, height: 215, label: "payments" },
   { x: 585, y: 55, width: 285, height: 245, label: "billing" },
   { x: 30, y: 195, width: 215, height: 240, label: "orders" },
-  { x: 40, y: 480, width: 300, height: 175, label: "platform" },
+  { x: 40, y: 480, width: 275, height: 175, label: "platform" },
 ];
 
 const EDGES: MapEdge[] = [
@@ -127,10 +137,16 @@ export function AtlasMap({ active, className }: { active: string; className?: st
           // and the leader was disappearing into the very edges it runs beside. A dash reads
           // as annotation rather than as something the atlas contains.
           //
-          // Only where the callout is actually pinned to the map; below `xl` it sits
+          // Only where the callout is actually pinned to the map; below `lg` it sits
           // underneath instead and a line to nowhere would be worse than none.
+          //
+          // `lg`, and it has to be the same `lg` the three switches in `landing-page.tsx`
+          // take — the callout going absolute, the map filling the box, and the callout's
+          // width. This said `xl` after those three moved down, so between 1024 and 1279 a
+          // card floated over the graph with nothing joining it to the node it is about,
+          // which is the one thing the hero exists to show.
           <path
-            className="hidden xl:inline"
+            className="hidden lg:inline"
             d={leader}
             stroke="var(--ink-3)"
             strokeWidth={1}

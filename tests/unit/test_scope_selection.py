@@ -13,8 +13,11 @@ from pathlib import Path
 import pytest
 
 from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyzer
+from archcompass.analysis.analyzer import DataclassRepositoryAnalyzer, analysis_atlas
 from archcompass.analysis.atlas import Atlas
+from archcompass.analysis.freshness import AtlasFreshnessService
 from archcompass.analysis.scope import validate_excluded_paths
+from archcompass.domain import RepositoryRef
 from archcompass.domain.errors import ScopeValidationError
 from archcompass.persistence.scopes import SQLiteScopeSelectionRepository
 from archcompass.persistence.sqlite.database import SQLiteDatabase
@@ -192,3 +195,46 @@ def test_a_recorded_scope_survives_the_connection_that_wrote_it(tmp_path: Path) 
     reopened = SQLiteScopeSelectionRepository(_database(tmp_path))
 
     assert reopened.get("/repositories/one") == ("tests",)
+
+
+def test_an_atlas_carries_the_root_the_analyzer_walked_rather_than_the_one_asked_for(
+    tmp_path: Path,
+) -> None:
+    """The scope is filed under one spelling of the directory, so the atlas must hold that one.
+
+    `DataclassRepositoryAnalyzer` is handed a `RepositoryRef` and hands the atlas back with a
+    ref of its own. That ref used to carry the path it was given, and `_parse_atlas` turns it
+    into `AtlasVersion.root_path` — the single key `AtlasFreshnessService` reads the scope by.
+    So a caller naming the repository any other way produced a correctly scoped atlas filed
+    under a key the selection is not stored under: the freshness check finds no exclusions,
+    digests the folders the analysis skipped, and calls the atlas stale. Re-indexing lands in
+    the same place, so it is stale for ever.
+
+    This repository has already been in that state. In the workspace on this machine
+    `scope_selections` holds `.../examples/cases/acme-shop/repository` while `atlas_versions`
+    holds `.../eval/cases/acme-shop/repository` for the same code, and nothing reconciles the
+    two. A symlink is the same disagreement in one line.
+
+    Two assertions, and each fails on its own without the other. The first names the cause
+    in one string comparison; the second is the consequence a reader meets — it raises
+    `StaleAtlasError` naming the alias, which is the message that would reach the interface.
+    """
+
+    root = _repository(tmp_path / "repository")
+    alias = tmp_path / "alias"
+    alias.symlink_to(root, target_is_directory=True)
+    analyzer = PythonAstRepositoryAnalyzer()
+    selections = SQLiteScopeSelectionRepository(_database(tmp_path))
+    selections.record(analyzer.canonical_root(alias), ("tests",))
+    assert str(alias) != analyzer.canonical_root(alias), "the two spellings must differ"
+
+    atlas = DataclassRepositoryAnalyzer(analyzer, selections).analyze(
+        RepositoryRef(id="repository", path=alias, branch_id="branch", content_id="unread")
+    )
+
+    assert not any('"path":"tests/' in node for node in atlas.nodes), (
+        "the scope was not applied, so this proves nothing about the key it is read by"
+    )
+    assert str(atlas.repository.path) == analyzer.canonical_root(root)
+    # Raises `StaleAtlasError` the moment the two disagree, which is the failure in full.
+    AtlasFreshnessService(analyzer, selections).ensure_fresh(analysis_atlas(atlas))

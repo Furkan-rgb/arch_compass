@@ -13,7 +13,12 @@ import { toggleVariants } from "@/components/ui/toggle";
  * switches themselves have only one look:
  *
  * - `segment` is one-of-many — which lens — and gets a sunken track. The track is what says
- *   these are alternatives, so choosing one un-chooses the rest.
+ *   these are alternatives, so choosing one un-chooses the rest. It is `--sunken` flat, not
+ *   `bg-sunken/70`: seventy per cent of `#ebebeb` over a white panel lands on `#f1f1f1`, an
+ *   invented grey six values from its ground, while the same declaration in dark composites
+ *   nineteen values away — a track that reads in one theme and vanishes in the other. It is
+ *   also the value `ui/tabs.tsx` gives the solid tab strip, which is the same device drawn
+ *   twice, and the two were a percent apart for as long as both existed.
  * - `chips` is many-of-many — which relationships to draw, what to leave out — and gets no
  *   track, because a bar drawn around switches that can all be on or all be off would claim
  *   a choice between them that does not exist.
@@ -37,7 +42,7 @@ function ToggleGroup({
       className={cn(
         "inline-flex w-fit items-center",
         variant === "segment"
-          ? "gap-0.5 rounded-sm border border-rule bg-sunken/70 p-0.5"
+          ? "gap-0.5 rounded-sm border border-rule bg-sunken p-0.5"
           : "flex-wrap gap-1",
         className,
       )}

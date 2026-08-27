@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { api, type ReviewRun } from "../../api";
@@ -69,6 +69,26 @@ export function RunPage() {
     },
   });
 
+  /**
+   * Where the keyboard goes when the button it was standing on removes itself.
+   *
+   * Stopping a run flips the status to `cancelled`, and the footer's whole control set is
+   * gated on the run still being live — so the most consequential press on this page ended
+   * with the pressed element gone from the document, focus fallen to `<body>`, the next Tab
+   * restarting at the top of the page, and nothing said about what had happened. The page
+   * does not navigate away either: `reviewId` is null for a cancelled run.
+   *
+   * "Start again" is the affordance the stopped state already grows, carrying this run's
+   * repository and its excluded folders, so it is a destination rather than a placeholder —
+   * the same focus-return gesture `ui/drawer.tsx` performs when it closes. It fires only for
+   * a stop somebody asked for here; a run that failed on its own must not steal focus from
+   * whatever a reader was doing while they waited.
+   */
+  const againId = useId();
+  useEffect(() => {
+    if (cancel.isSuccess) document.getElementById(againId)?.focus();
+  }, [cancel.isSuccess, againId]);
+
   // A review that exists is a better page than a review that is being made, so as soon as
   // one is composed this hands over. Replace, not push: the run is not a step in history a
   // reader wants the back button to return them to.
@@ -125,7 +145,17 @@ export function RunPage() {
   const failed = state.status === "failed";
   const stopped = state.status === "cancelled";
   const lineage = lineageOf(reviews.data ?? [], state.branch_id, state.case_id);
-  const sequence = state.sequence ?? lineage.length + 1;
+  /**
+   * The number, once the lineage has answered — and nothing before it.
+   *
+   * `lineage.length + 1` is computed from `reviews.data ?? []`, so while the summaries query
+   * is still out the lineage is empty and the fallback is 1. A run that is really revision 5
+   * opened as "Review 1 · in progress" and then renumbered itself. `CaseNote` on the start
+   * page was rewritten to remove exactly this: a sentence that names a case revision is a
+   * claim, and a claim made before the answer arrives is a guess. Saying the status alone for
+   * one render is cheaper than a placeholder that shifts.
+   */
+  const sequence = state.sequence ?? (reviews.isPending ? null : lineage.length + 1);
   const status = failed ? "did not finish" : stopped ? "stopped" : "in progress";
   // The whole of what the run was started with, handed back rather than thrown away.
   // `?root=` is the same hand-off the repositories page makes; the folders travel beside it
@@ -149,9 +179,7 @@ export function RunPage() {
               type on the page spent on the fact the reader is least in doubt about — so
               watching a run and then reading the review it became looked like two products. */}
           <div className="min-w-0">
-            <Label>
-              Review {sequence} · {status}
-            </Label>
+            <Label>{sequence === null ? status : `Review ${sequence} · ${status}`}</Label>
             <h1
               title={state.repository_root}
               className="mt-1.5 flex min-w-0 flex-wrap items-baseline gap-x-2 font-mono text-[15px] leading-tight tracking-[-0.01em] text-ink-3 sm:text-[17px]"
@@ -166,8 +194,16 @@ export function RunPage() {
                 </>
               ) : null}
             </h1>
+            {/* The whole path behind the ellipsis, wherever this row had to shorten it. An
+                absolute path is the identity of the thing being reviewed and is regularly
+                wider than the box; two sibling checkouts differing only in a middle segment
+                truncate to the same string, and there was nothing to recover the difference
+                from. */}
             {state.repository_root ? (
-              <Mono className="mt-1.5 block truncate text-[11px] text-ink-3">
+              <Mono
+                title={state.repository_root}
+                className="mt-1.5 block truncate text-[11px] text-ink-3"
+              >
                 {state.repository_root}
               </Mono>
             ) : null}
@@ -178,7 +214,11 @@ export function RunPage() {
             <ButtonLink to="/reviews" variant="secondary">
               Review history
             </ButtonLink>
-            {failed || stopped ? <ButtonLink to={again}>Start again</ButtonLink> : null}
+            {failed || stopped ? (
+              <ButtonLink id={againId} to={again}>
+                Start again
+              </ButtonLink>
+            ) : null}
           </div>
         </div>
       </header>

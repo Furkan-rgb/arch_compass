@@ -207,6 +207,17 @@ class FindingResponse(APIModel):
     recommended_response: str | None
     reused_from_review_id: str | None
     model_identity: str
+    #: Which of the gateway's endpoints served this judgement, as the response named it.
+    #: `Finding.served_by` carries the whole argument for the field; what belongs here is
+    #: why it has a default when its neighbours do not.
+    #:
+    #: Absent is the normal case for most of the corpus and for two of the three providers,
+    #: so a reader that has never heard of the field has to keep working. A default is how
+    #: the schema says that: FastAPI leaves a defaulted field out of `required`, the
+    #: generated TypeScript makes it optional, and the hand-written specimen on the landing
+    #: page goes on compiling without claiming an endpoint served it. `case_revision` on
+    #: `AnswerResponse` is the same shape for the same reason. The server always sends it.
+    served_by: str = ""
     prompt_identity: str
     retrieval_identity: str
     investigation_identity: str
@@ -448,8 +459,14 @@ class ReviewResponse(APIModel):
     # belongs, and which is still here.
     synopsis: str | None
     synopsis_identity: str
-    model_identity: str
-    prompt_identity: str
+    # No `model_identity` and no `prompt_identity` beside it, and the asymmetry is the point.
+    # `synopsis_identity` names the one model that wrote the one paragraph above it, so it is
+    # a fact about the review. What judged the review is a fact about each finding — every
+    # `FindingResponse` in `findings` carries its own pair — and the review-level fields
+    # were the comma-joined set of those, which the revision delta then compared against a
+    # single identity. `domain/review.py` argues that out where the fields used to be. Nothing in
+    # `frontend/src` read them; a client that wants "what judged this review" reduces the
+    # findings it already has, the way `workflow/report.py:_provenance` does.
     started_at: str
     finished_at: str | None
     failure: str | None
@@ -584,6 +601,7 @@ class ReviewResponse(APIModel):
                     recommended_response=item.recommended_response,
                     reused_from_review_id=item.reused_from_review_id,
                     model_identity=item.model_identity,
+                    served_by=item.served_by,
                     prompt_identity=item.prompt_identity,
                     retrieval_identity=item.retrieval_identity,
                     investigation_identity=item.investigation_identity,
@@ -634,8 +652,6 @@ class ReviewResponse(APIModel):
             ],
             synopsis=review.synopsis,
             synopsis_identity=review.synopsis_identity,
-            model_identity=review.model_identity,
-            prompt_identity=review.prompt_identity,
             started_at=review.started_at.isoformat(),
             finished_at=(
                 None if review.finished_at is None else review.finished_at.isoformat()

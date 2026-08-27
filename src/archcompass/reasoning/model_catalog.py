@@ -98,7 +98,7 @@ class ModelCatalogService:
         return tuple(self._registry.values())
 
     def status(self) -> ReasoningModelStatus:
-        """Which model is in force, and how it came to be."""
+        """Which model is selected, and how it came to be."""
 
         if self._pin is not None:
             return ReasoningModelStatus(

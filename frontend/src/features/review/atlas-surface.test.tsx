@@ -187,8 +187,13 @@ describe("the atlas surface", () => {
     render(wrap(<AtlasSurface review={reviewFixture()} onOpen={onOpen} />));
 
     const map = await screen.findByRole("group", { name: /structure/i });
+    // The whole qualified name, and the verdict as a word at the end of it. A pattern rather
+    // than the whole string because the card also names the region the layout drew round it,
+    // and that part belongs to the lens and moves with it — the identity and the verdict
+    // belong to the card and do not. Anchored at both ends so a leaf-only name or a card that
+    // said "judged" would still fail.
     const card = await within(map).findByRole("button", {
-      name: "domain.orders.Orders, class, Held",
+      name: /^domain\.orders\.Orders, class(,.*)?, Held$/,
     });
     fireEvent.click(card);
 
@@ -427,7 +432,12 @@ describe("the atlas surface", () => {
     expect(lens.closest("details")).toBeNull();
     expect(screen.getByRole("button", { name: "Hide tests" }).closest("details")).not.toBeNull();
     expect(screen.getByRole("search").closest("details")).not.toBeNull();
-    expect(screen.getByText(/search and filters/i).closest("summary")).not.toBeNull();
+    // And the fold says what is inside it. The caption names the atlas queries too, because
+    // Surface signals and Surface cycles add cards to the map rather than narrowing it, and a
+    // reader hunting for them had no reason to open something labelled as filters.
+    expect(
+      screen.getByText("Search, filters and atlas queries").closest("summary"),
+    ).not.toBeNull();
   });
 
   /**
@@ -496,13 +506,16 @@ describe("the atlas surface", () => {
     render(wrap(<AtlasSurface review={reviewFixture()} />));
 
     const map = await screen.findByRole("group", { name: /structure/i });
+    // The region the layout drew round the card sits between the kind and the verdict, so the
+    // two ends are anchored and the middle is left to the lens. What is asserted is the pair
+    // the charter cares about: the whole name, and a verdict that differs per verdict.
     const material = await within(map).findByRole("button", {
-      name: "domain.billing.Billing, class, Material",
+      name: /^domain\.billing\.Billing, class(,.*)?, Material$/,
     });
     expect(within(material).getByText("Material")).toBeInTheDocument();
 
     const cleared = within(map).getByRole("button", {
-      name: "domain.invoice.Invoice, class, Cleared",
+      name: /^domain\.invoice\.Invoice, class(,.*)?, Cleared$/,
     });
     expect(within(cleared).getByText("Cleared")).toBeInTheDocument();
   });
@@ -540,8 +553,10 @@ describe("the atlas surface", () => {
     render(wrap(<AtlasSurface review={reviewFixture()} />));
 
     const map = await screen.findByRole("group", { name: /structure/i });
+    // The whole name at the head of the accessible name, whatever the layout appends after
+    // the kind. The cut string must not be what a screen reader gets.
     const card = await within(map).findByRole("button", {
-      name: "domain.billing.PaymentGatewayAdapter, class",
+      name: /^domain\.billing\.PaymentGatewayAdapter, class(,.*)?$/,
     });
     expect(within(card).getByText("PaymentGatewayAdapt…")).toBeInTheDocument();
     // The segment that tells two cards cut to the same characters apart, and the whole name

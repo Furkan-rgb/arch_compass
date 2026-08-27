@@ -69,6 +69,23 @@ from archcompass.analysis.scope import CONFIG_SUFFIXES, IGNORED_DIRECTORIES, exc
 from archcompass.domain.errors import PathValidationError
 from archcompass.records import canonical_json, stable_id
 
+# What this string is for, and what forces it to move.
+#
+# `AtlasFreshnessService` compares it against the stamp on a stored atlas, and where they
+# agree the atlas is served as current. So it is the product's only way of saying "this
+# structure was built by a parser that no longer exists" — and for its first eight versions
+# nothing but somebody's memory made it move. Twice memory lost. `6d27325` gave every
+# configuration and package node the size it had always been measured at and left this at v5,
+# so stored atlases went on reporting them as nothing at all. `9f2a461` restored every
+# `IMPLEMENTS` edge a failed type-checker sweep had silently dropped — thirty-six candidates
+# out of fifty-four on this repository — and left it at v6.
+#
+# `tests/unit/test_analysis_equivalence.py` now refuses to record a changed golden atlas
+# under an unchanged version, so making the analyzer produce something new and leaving this
+# alone is a failing test rather than a stale workspace nobody hears about. What it cannot
+# see, it says so itself: the goldens are analysed with no edge resolver installed, which is
+# exactly the configuration `9f2a461` was about.
+#
 # v4 records per-module facts (constants stated, repository modules named). An atlas built
 # by v3 has none, so it is stale rather than quietly missing them, and is re-analyzed.
 #
@@ -392,6 +409,18 @@ class PythonAstRepositoryAnalyzer:
         # and hashing it would make two machines analysing the same commit disagree about
         # whether a stored atlas is stale.
         self._excluded_roots = canonical_roots(excluded_roots)
+
+    def canonical_root(self, root: Path) -> str:
+        """The string this analyzer will stamp on the atlas of `root`, without analysing it.
+
+        `_validate_root` and nothing else, which is the whole point: `_snapshot` calls the
+        same function a line into `analyze`, and `root_path` below is `str()` of what it
+        returns. There is no second expression that has to be kept in step with this one,
+        so there is no second expression to forget — see `AtlasSource.canonical_root` for
+        what used to stand in the two callers instead.
+        """
+
+        return str(_validate_root(root))
 
     def analyze(self, root: Path, *, excluded_paths: tuple[str, ...] = ()) -> Atlas:
         """The atlas of this repository, less whatever subtrees the caller asked to leave out.

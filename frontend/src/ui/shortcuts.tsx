@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 
+import { cn } from "../lib/cn";
 import { isPlainShortcut } from "../lib/keyboard";
 import { useOverlay } from "../lib/motion";
 import { Button } from "./button";
@@ -18,9 +19,11 @@ type Shortcut = { id: string; caps: ReactNode[]; does: string };
  * that the review had a keyboard at all.
  *
  * Grouped by scope rather than by key, because that is the question being asked: what works
- * here. "Everywhere" is true on any route; the other two are only true on a docket, and
- * saying so is cheaper than a sheet that changes shape with the route and leaves a reader
- * unsure whether a key is gone or was never there.
+ * here. "Everywhere" is true on any route; the other three name the surface they are true on,
+ * which is cheaper than a sheet that changes shape with the route and leaves a reader unsure
+ * whether a key is gone or was never there. The last of them used to be called "Deciding" —
+ * an activity where its three siblings named a place — so nothing on the sheet said where
+ * A, P and W are live.
  *
  * The two ways down the list are one row rather than two, because they are one shortcut with
  * two keys on it — and the arrows are drawn from `ui/icons.tsx` rather than typed, which is
@@ -54,7 +57,7 @@ const GROUPS: Array<{ title: string; shortcuts: Shortcut[] }> = [
     ],
   },
   {
-    title: "Deciding",
+    title: "An open docket row",
     shortcuts: [
       { id: "accept", caps: ["A"], does: "Accept and act on the open finding" },
       { id: "park", caps: ["P"], does: "Park it for later" },
@@ -94,13 +97,36 @@ export function useShortcutSheet() {
 /**
  * A key cap: a literal keystroke rather than a word, so it is set in mono.
  *
- * The same recipe the decision bar prints on its buttons. It is not shared with that one on
- * purpose — there the cap sits on an ink fill and borrows `border-current`; here it sits on
- * a panel and takes the rule.
+ * One recipe with a ground, rather than a recipe per call site. There were five hand-rolled
+ * `<kbd>`s at three sizes — 10px, 10.5px and 11px — with four borders and three inks between
+ * them, and four of the five sat below 11px, which is the smallest mono step the type scale
+ * has. At 10px IBM Plex Mono inside a 1px box stops reading as a cap at all.
+ *
+ * `on` is what actually differed between them, and it is a fact about what the cap is resting
+ * on rather than about what a cap is. That is the argument for a prop instead of a copy: the
+ * sheet's caps sit on a panel and take the control edge and the control fill; the rail's sit
+ * on the band, which does not invert with the theme and has neither.
+ *
+ * There is a third ground — `border-current` over an ink fill, which the decision bar prints
+ * on its own buttons — and it is deliberately not here yet. A variant with no call site is a
+ * variant nobody has checked; it belongs in this prop the day that file adopts it.
  */
-function KeyCap({ children }: { children: ReactNode }) {
+export function KeyCap({
+  on = "surface",
+  className,
+  children,
+  ...props
+}: HTMLAttributes<HTMLElement> & { on?: "surface" | "band"; children: ReactNode }) {
   return (
-    <kbd className="inline-flex min-w-6 items-center justify-center rounded-xs border border-rule-strong bg-control px-1.5 py-0.5 font-mono text-[11px] font-semibold leading-4 text-ink shadow-rim">
+    <kbd
+      className={cn(
+        "inline-flex min-w-6 items-center justify-center rounded-xs border px-1.5 py-0.5 font-mono text-[11px] font-semibold leading-4",
+        on === "surface" && "border-rule-control bg-control text-ink shadow-rim",
+        on === "band" && "border-band-rule text-band-ink-2",
+        className,
+      )}
+      {...props}
+    >
       {children}
     </kbd>
   );
@@ -133,18 +159,21 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
             {GROUPS.map((group) => (
               <section key={group.title}>
                 <Label>{group.title}</Label>
+                {/* The key first, in a fixed track. This is the one list in the product that
+                    is keyed on a keystroke, and it led with the sentence and hung the caps off
+                    the right edge — where a row carrying two caps and a row carrying one do
+                    not line up, so neither column could be scanned. Finding `W` meant reading
+                    eleven sentences. The charter's rule is to lead with the identifier and
+                    keep the sentence beneath it; here the identifier is the key. */}
                 <ul className="mt-1.5 divide-y divide-rule">
                   {group.shortcuts.map((entry) => (
-                    <li
-                      key={entry.id}
-                      className="flex items-baseline justify-between gap-4 py-1.5"
-                    >
-                      <span className="min-w-0 text-[13px] text-ink-2">{entry.does}</span>
-                      <span className="flex shrink-0 items-center gap-1">
+                    <li key={entry.id} className="flex items-baseline gap-3 py-1.5">
+                      <span className="flex w-20 shrink-0 items-center justify-end gap-1">
                         {entry.caps.map((cap, index) => (
                           <KeyCap key={index}>{cap}</KeyCap>
                         ))}
                       </span>
+                      <span className="min-w-0 text-[13px] text-ink-2">{entry.does}</span>
                     </li>
                   ))}
                 </ul>

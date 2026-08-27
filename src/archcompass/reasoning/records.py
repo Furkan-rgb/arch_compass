@@ -15,7 +15,9 @@ which is why a candidate is the product of the two.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
+from types import MappingProxyType
 from typing import Final, Literal
 
 from pydantic import Field
@@ -23,17 +25,98 @@ from pydantic import Field
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.records import BoundaryDTO, ThinkingMode, utc_now
 
-#: What a judgement was produced by, and what it was produced from. Both are compared
-#: against themselves — `CachingArchitectureJudge` keys a cached finding on them, and
-#: `DeterministicRevisionCalculator` asks whether the stamp on a stored finding still matches
-#: what this process would produce. So they must be one value each, computed in one place.
+# What a judgement was produced by, and what it was produced from. Both are compared
+# against themselves — `CachingArchitectureJudge` keys a cached finding on them, and
+# `DeterministicRevisionCalculator` asks whether the stamp on a stored finding still matches
+# what this process would produce. So they must be one value each, computed in one place.
+#
+# There is one prompt identity per judge rather than one for the product, because there are
+# genuinely three prompts: the deep judge opens with `JUDGEMENT_TOOL_CONTRACT` and a set of
+# tool descriptions the plain judge never sends, and the deterministic stand-in sends nothing
+# at all. A single shared constant would make three different questions report as the same
+# question, and a prompt that moved under one of them would move nothing here.
+#
+# "One place" is therefore not a constant but the code that chooses between them:
+# `SelectedLangChainJudge.selection` names the judge class it would build for the model in
+# force right now, and the identity is read off that class rather than carried beside it, so
+# the choosing and the stamping are one act. `bootstrap` hands *that method* to the cache and
+# to the revision calculator rather than deriving the answer a second time.
+#
+# The indirection is the fix for the failure this comment used to only predict. These were
+# three literals and two f-strings across four modules; nothing made the two sides agree, and
+# when the deep judge arrived they stopped agreeing — every finding inside every stored review
+# was stamped `judge:deep-v2` while `bootstrap` reported `judge:v3`. Inside a stored review,
+# which is what the delta reads: the finding cache also holds older rows stamped `judge:v2`,
+# and those are honest, because the plain judge produced them under that name before the deep
+# judge existed. `analysis/delta.py` records what the disagreement costs: every candidate of
+# every review reports `ChangeCause.PROMPT` for ever, and the comment there says the corpus
+# fingerprint had already done exactly that once. Measured on the workspace that found it:
+# 148 stored findings, not one of them reused, and three
+# consecutive revisions of a commit nobody had touched each reporting `changed=7, unchanged=0`
+# and re-rolling every candidate through the tool loop.
+#
+# Which of the two values to keep was decided by what is already written down. Reviews are
+# immutable — see `docs/charter.md` — so whatever this reports has to be read against stamps
+# nobody may rewrite, and every stamp on a finding in a stored review says `judge:deep-v2`.
+# Teaching the deep judge to stamp `judge:v3` instead would have agreed with itself and
+# disagreed with all 148 of them, buying one more full re-judgement of every candidate for
+# nothing. Reporting the identity of the judge actually selected costs none: the stored stamps
+# read as unmoved on the next review, and the verdicts carry forward.
+
+#: Each identity is followed immediately by the digest of everything that judge sends a
+#: model, as `reasoning/adapters/prompt_inventory.py` assembles it. They are written as one
+#: pair, on adjacent lines, because they are one decision: `scripts/judge_prompt_check.py`
+#: fails `make check` when the digest stops answering for the prompt, and its message tells
+#: whoever reads it to bump the two together. The failure had to name a place to edit, and a
+#: reader sent to two places thirty lines apart is a reader who edits one of them.
 #:
-#: They were three literals and two f-strings across four modules. Nothing made the two sides
-#: agree, and `analysis/delta.py` records what happens when they stop: every candidate of
-#: every review reports `ChangeCause.PROMPT` for ever, and the comment there says the corpus
-#: fingerprint had already done exactly that once.
+#: `make check` recomputes these offline. It re-judges nothing and reaches no provider — the
+#: cost of a moved prompt is a build failure and one edit here, not a re-run of every stored
+#: finding, which is the price the rejected content-hash-as-identity design would have made
+#: the user pay.
+#:
+#: The exclusions the digests are computed under are argued in `prompt_inventory`'s own
+#: docstring. They narrow the check; they do not narrow what these identities claim.
+
+#: The judge that makes one structured call and is offered nothing to look at.
 JUDGE_PROMPT_IDENTITY: Final = "judge:v3"
+_JUDGE_PROMPT_DIGEST: Final = "182d0bcb8297b560deb223a1a7c6a933a25080d4a9b9dc62d95dcbdd29b1ae57"
+
+#: The judge that may read the reviewed repository while it decides. Bumped whenever the model
+#: is shown something different, because a stored finding carries this and
+#: `DeterministicRevisionCalculator` asks whether the stamp still matches what this process
+#: would produce.
+#:
+#: `v2` adds `review_tools.FILESYSTEM_ROOT_NOTE`, which is not part of the judgement contract
+#: but is part of what the model reads — and it changed behaviour, which is the whole test of
+#: whether an identity should move. Everything judged under `v1` re-judges once.
+#:
+#: It lives here beside the other two, rather than beside the prompt it names, so that the set
+#: a judgement can be stamped with is enumerable in one screen. That is what the dispatcher
+#: above chooses from, and what a reader checking the invariant has to be able to see whole.
+DEEP_JUDGE_PROMPT_IDENTITY: Final = "judge:deep-v2"
+_DEEP_JUDGE_PROMPT_DIGEST: Final = (
+    "25c7b503a2ee829d2d92495be838e37ce441953f4f92fe57fee387e59a870ee7"
+)
+
+#: The stand-in that reaches no provider at all, and so sends no prompt. Its digest is the
+#: digest of the empty string, and that is the correct value rather than a placeholder: what
+#: this judge sends a model is nothing.
 DETERMINISTIC_JUDGE_PROMPT_IDENTITY: Final = "judge:deterministic-v1"
+_DETERMINISTIC_JUDGE_PROMPT_DIGEST: Final = (
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+)
+
+#: The three pairs above as one mapping, which is the shape the check reads. Assembled from
+#: the names rather than restating either half, so there is nowhere for a fourth spelling of
+#: an identity to appear.
+JUDGE_PROMPT_DIGESTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        JUDGE_PROMPT_IDENTITY: _JUDGE_PROMPT_DIGEST,
+        DEEP_JUDGE_PROMPT_IDENTITY: _DEEP_JUDGE_PROMPT_DIGEST,
+        DETERMINISTIC_JUDGE_PROMPT_IDENTITY: _DETERMINISTIC_JUDGE_PROMPT_DIGEST,
+    }
+)
 
 
 def model_identity(config: ReasoningModelConfig) -> str:

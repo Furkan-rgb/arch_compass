@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { cn } from "../../lib/cn";
 import { plural, relativeTime, repositoryName } from "../../lib/format";
+import { useScrollEdges } from "../../lib/motion";
 import { Tag } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Field, Input, Select } from "../../ui/field";
@@ -12,6 +13,15 @@ import { Mono } from "../../ui/meta";
 import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
 import { isAbsolutePath } from "./scope-picker";
+
+/**
+ * How many indexed repositories the first tab draws.
+ *
+ * A cap rather than a scroller, because this panel is one step of a form and a workspace's
+ * whole history belongs to `/repositories` and to the command palette. What the cap owes the
+ * reader is a count of what it left out and a route to it, which the line under the grid is.
+ */
+const RECENT_LIMIT = 8;
 
 /**
  * Four ways to name a repository, and no typing required for three of them.
@@ -31,7 +41,16 @@ export function RepositoryPicker({
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const examples = useQuery({ queryKey: ["examples"], queryFn: api.examples });
 
-  const indexed = repositories.data ?? [];
+  /**
+   * Newest first, because the panel only draws the first `RECENT_LIMIT` of them.
+   *
+   * The listing comes back in whatever order the workspace built it, so "the first eight"
+   * used to mean an arbitrary eight — and the tab beside it said `Indexed 43`. Sorted, the
+   * cut is a statement a reader can predict: the eight you indexed most recently.
+   */
+  const indexed = [...(repositories.data ?? [])].sort(
+    (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at),
+  );
   const hasRecent = Boolean(indexed.length);
   const bundled = examples.data?.length ?? 0;
 
@@ -53,6 +72,12 @@ export function RepositoryPicker({
         active={tab}
         onChange={setChosen}
         variant="solid"
+        /* A strip of four pills is 355px wide and the panel it sits in is 883px, so with no
+           width of its own the track was drawn five times wider than anything in it — a box
+           whose only edge is a hairline, around a gap. `sm:w-fit` and not `w-fit`: the strip
+           wraps below `sm`, and `fit-content` on a wrapping flex container resolves to
+           `max-content`, which is the one width that does not fit a phone. */
+        className="sm:w-fit"
         items={[
           { id: "recent", label: "Indexed", count: indexed.length || undefined },
           { id: "browse", label: "Browse" },
@@ -90,18 +115,37 @@ export function RepositoryPicker({
                 : "Browse for a folder on this machine, or clone a repository by address."}
             </EmptyState>
           ) : (
-            <ul className="grid gap-1.5 sm:grid-cols-2">
-              {indexed.slice(0, 8).map((repository) => (
+            // One column until there are two cards to put in two. `sm:grid-cols-2`
+            // unconditionally reserved the right half of the panel for a second entry a
+            // workspace with one repository does not have, so the single choice the whole
+            // page is blocked on sat beside 442px of nothing.
+            <ul className={cn("grid gap-1.5", indexed.length > 1 && "sm:grid-cols-2")}>
+              {indexed.slice(0, RECENT_LIMIT).map((repository) => (
                 <li key={repository.root_path}>
                   <button
                     type="button"
                     onClick={() => onChange(repository.root_path)}
                     aria-pressed={value === repository.root_path}
+                    // The whole path, wherever the card had to shorten it — the same title
+                    // `FolderRow` carries, on the button rather than on the `Mono` inside it
+                    // so a pointer anywhere on the card recovers it. Two sibling checkouts
+                    // differing only in a middle segment truncate to the same string.
+                    title={repository.root_path}
                     className={cn(
                       "w-full rounded-md border px-3 py-2.5 text-left transition",
                       value === repository.root_path
                         ? "border-ink bg-sunken"
-                        : "border-rule bg-surface hover:border-rule-strong",
+                        // A card you can pick up, drawn as one. This was `border-rule
+                        // bg-surface`, which is the panel's own ground behind a 10% hairline
+                        // — so the one choice this page is waiting on was white on white in
+                        // light, indistinguishable from a paragraph. `--rule-strong` is the
+                        // system's stated border for something you could pick up,
+                        // `--surface-2` is a real step off the panel in both themes, and the
+                        // rim is what gives the card a top edge on the void. The hover then
+                        // has somewhere to go: `--sunken` is sixteen values below the card in
+                        // light and eleven above it in dark, where `--surface-2` under a
+                        // pointer would be no move at all.
+                        : "border-rule-strong bg-surface-2 shadow-rim hover:bg-sunken",
                     )}
                   >
                     <div className="flex items-center gap-2">
@@ -137,6 +181,20 @@ export function RepositoryPicker({
               ))}
             </ul>
           )}
+          {/* The tab says `Indexed 43` and the panel draws eight of them, and nothing used to
+              say so — on a workspace with real history the repository somebody wants is
+              usually not in the first eight, and the only way out was already knowing that
+              Browse or the palette exists. One line, pointing at the affordance that lists
+              every repository by name rather than adding a second list here. */}
+          {indexed.length > RECENT_LIMIT ? (
+            <p className="mt-2 text-xs leading-5 text-ink-3">
+              {indexed.length - RECENT_LIMIT} more, indexed earlier. Press{" "}
+              <kbd className="inline-flex items-center rounded-xs border border-rule px-1 font-mono text-[10.5px] font-semibold leading-4 text-ink-2">
+                ⌘K
+              </kbd>{" "}
+              to find one by name, or use Browse.
+            </p>
+          ) : null}
         </TabPanel>
 
         <TabPanel id="browse" active={tab}>
@@ -167,6 +225,11 @@ function DirectoryBrowser({
     queryKey: ["directories", path ?? "~"],
     queryFn: () => api.directories(path),
   });
+  // A home folder is forty entries in a 224px box, and macOS keeps the overlay scrollbar
+  // hidden until the trackpad is touched — so the list simply ended, mid-row, against a
+  // rule. `.scroll-edge` and this hook are the device `styles.css` already describes for
+  // exactly this and had no caller anywhere in the product.
+  const { ref: scroller, edges } = useScrollEdges<HTMLUListElement>();
 
   if (listing.error) {
     return (
@@ -197,7 +260,7 @@ function DirectoryBrowser({
           >
             <ArrowUp className="size-[13px]" /> Up
           </Button>
-          <Mono className="min-w-0 flex-1 truncate text-[11px]">
+          <Mono className="min-w-0 flex-1 truncate text-[11px]" title={listing.data?.path}>
             {listing.data?.path ?? "…"}
           </Mono>
           <Button
@@ -209,7 +272,12 @@ function DirectoryBrowser({
             Use this folder
           </Button>
         </div>
-        <ul className="scrollbar-slim max-h-56 overflow-y-auto p-1.5">
+        <ul
+          ref={scroller}
+          data-edge-top={edges.top}
+          data-edge-bottom={edges.bottom}
+          className="scroll-edge scrollbar-slim max-h-56 overflow-y-auto p-1.5"
+        >
           {listing.isLoading ? (
             <li className="flex items-center gap-2 px-2 py-3 text-sm text-ink-3">
               <Spinner label="" /> Reading…
@@ -556,10 +624,23 @@ function ExampleList({ value, onChange }: { value: string; onChange: (root: stri
               "rounded-md border px-3 py-2.5 text-left transition",
               pressed
                 ? "border-ink bg-sunken"
-                : "border-rule bg-surface hover:border-rule-strong",
+                // The same card recipe the indexed list wears, for the same reason: an
+                // example is a thing you pick up, and a border on the panel's own ground was
+                // not saying so.
+                : "border-rule-strong bg-surface-2 shadow-rim hover:bg-sunken",
               // The others stop offering while one is being indexed; the one being indexed
               // stays at full strength, because it is the one saying what is happening.
-              load.isPending && loading !== example.name && "opacity-50",
+              //
+              // The card recedes, the text does not. This was `opacity-50`, which composites
+              // a whole block at once — so the description, which is the text that decides
+              // which example to pick, fell to 2.19:1 in light and 2.34:1 in dark for the
+              // several seconds an index takes. Taking the edge and the rim away says "not
+              // offering" structurally and leaves both ink tiers at the values
+              // `tokens.test.ts` measures; the `disabled` attribute has already removed the
+              // pointer and the hover.
+              load.isPending &&
+                loading !== example.name &&
+                "border-transparent shadow-none",
             )}
           >
             <div className="flex items-center justify-between gap-2">

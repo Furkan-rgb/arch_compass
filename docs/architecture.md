@@ -20,8 +20,12 @@ a correct citation. A name has neither reading. It matches, or it visibly matche
 and what matches nothing is refused or dropped.
 
 `test_no_model_output_schema_asks_for_a_place_in_one_of_our_lists` is the guard: it sweeps
-every Pydantic model under `reasoning/` and fails on a field named or suffixed `position`,
-`positions`, `index`, `indexes`, `indices` or `ordinal`. The two halves of "refused or dropped" are both real and
+every Pydantic model under `reasoning/` and fails on a field whose name is one of the ordinal
+words in that test's `_ORDINAL_NAMES`, or whose last underscore-delimited segment is one —
+`policy_index` is refused and `subindex` is not, because the guard reads names as words rather
+than as characters, and a field nobody separated is a field nobody meant. The words are not
+copied here; they are
+listed there, where they move with the sweep that reads them. The two halves of "refused or dropped" are both real and
 they are different acts — an unresolvable name in an investigation lookup comes back to the
 model as a refusal naming the recovery step, while a policy the judge cites but was never
 shown is logged and dropped, because a citation is a record of why and losing one weakens
@@ -124,8 +128,11 @@ the other bucket names are convention, not a guard.
 ## Dependency direction
 
 Every package depends on `domain/`, and `domain/` depends on nothing. That is measured, not
-asserted: an AST sweep in `test_boundaries.py` fails if any module under `domain/` imports
-Pydantic, LangChain, LangGraph, FastAPI, SQLite, a provider SDK, or any other feature.
+asserted: `test_domain_imports_only_the_standard_library_and_itself` is an AST sweep that
+fails if any module under `domain/` imports a vendor library, a port, or another feature
+package. What counts as one is that test's `forbidden` tuple, whose feature half is derived
+from `FEATURES` rather than typed out a second time. An earlier version of this sentence
+listed the libraries by name and had already fallen behind that tuple.
 
 The heaviest edges are all inward:
 
@@ -212,12 +219,20 @@ truth, filtered to what a review needs. Ollama is the local boundary beside it, 
 is no third: the direct Google, Groq and Cerebras integrations are gone, and the models they
 served are reachable as OpenRouter catalogue entries.
 
-Two guarantees ride on every OpenRouter request and both are load-bearing.
-`provider.require_parameters` makes schema support a hard routing filter rather than a
-preference, because a model's declared capabilities are a union across its endpoints and
-five of twenty on one model do not honour a schema. The output ceiling travels as
-`max_tokens` rather than `max_completion_tokens` for the same reason: it is what those
-endpoints declare, and the two together route to nothing.
+**What rides on an OpenRouter request is a preference, not a filter.** Every parameter sent
+ranks the endpoints that could serve it; none of them refuses one. So the output ceiling
+travels as `max_tokens` rather than `max_completion_tokens` because that is the name those
+endpoints declare — no endpoint of `google/gemini-3.5-flash-lite` declares the other, and a
+parameter nothing declares ranks every route below the ones that do.
+
+`provider.require_parameters` used to sit beside it, turning that preference into a hard
+filter on the argument that a model's declared capabilities are a union across its endpoints.
+It is gone. No judgement was ever observed to be served by an endpoint that dropped what was
+asked, so the guarantee was never seen to be worth anything, while the filter was observed to
+leave a request with no eligible route at all and 404 mid-experiment. The residual risk — a
+route whose schema support is weaker than its model's catalogue row claims — is stated rather
+than defended against, and it is loud when it happens, because the schema call raises.
+`Finding.served_by` is what turns it from an argument into a query.
 
 **A path built from anything a person supplied is checked before it is opened.** Nothing on
 the live path does that today: every workspace join is a constant, and the one place a
@@ -296,11 +311,179 @@ Ollama this evening, and whether a hinge can be investigated is a fact about the
 selected at the moment the node runs.
 
 **The finding cache keys on identities that must agree.** Model identity, prompt identity,
-retrieval identity and — since the second judgement exists — the investigation's identity.
-Each is compared against what the previous review recorded, and a disagreement is permanent
-rather than transient: model identity makes every candidate report `ChangeCause.MODEL` for
-ever, prompt identity `ChangeCause.PROMPT`, retrieval `ChangeCause.POLICIES` per candidate.
-They are each computed in exactly one place for that reason.
+retrieval identity, the investigation's identity, the candidate and the case. Each of the
+first three is also compared against what the previous review recorded, and a disagreement
+there costs the verdict: the candidate reports `ChangeCause.MODEL`, `ChangeCause.PROMPT` or
+`ChangeCause.POLICIES`, and is judged again. That is the right bill when the judge or the
+corpus really moved, and it is paid once, because the re-judgement records the identity now
+in force. What is never right is two derivations of the same fact disagreeing with each
+other, which re-judges everything on every run for as long as the two are apart and spoils
+every verdict recorded meanwhile. They are each computed in exactly one place for that
+reason.
+
+**All three of those comparisons are per candidate, and the other side of each is the record
+that candidate's own verdict left** — the finding's two stamps, the manifest's fingerprint.
+None of them is a fact about a review. `Review` carried `model_identity` and
+`prompt_identity`, composed as the comma-joined set of its findings' stamps, and the delta
+compared that joined string against the single identity `selection` reports. A set and a value
+are not the same kind of thing: they matched only while every stored review held exactly one
+stamp, and the first review to mix two made every candidate read changed on the next
+revision — a whole review re-judged for nothing. Not for ever, though: re-judging stamps
+every finding with the one identity in force, so the revision after that compares a set of
+one against a single value and matches again. Measured on the wiring that carried the fields,
+over the stored 7-finding review with three of its findings restamped to a second prompt
+identity: `unchanged=0 changed=7`, then `unchanged=7 changed=0`. The bill is one review per
+straddle, and the straddle is a reviewer switching model mid-review, which is a thing this
+product invites them to do.
+The fields are gone rather than better composed — there is nowhere left to write a
+review-level identity, so there is nothing for a comparison to reach for. What that buys is
+that the fan-out window becomes honest: judgement dispatches per candidate and `selection()` is
+read per call, so a reviewer switching model mid-review re-judges the candidates the departed
+model judged and carries the rest forward. `report.py` derives "judged by" from the findings
+at the point of display, which is the only place that answer exists.
+
+It is held from the source, in `test_boundaries.py`, by a pair of sweeps that is complete only
+together — one over what may exist to be compared, one over where a comparison may stand.
+Neither is described further here, for the reason the paragraph below gives about every other
+sweep in that file: each states its own reach and its own limits in its docstring, beside the
+code that decides them.
+
+That place is `SelectedLangChainJudge.selection()`, and it answers with one record —
+`JudgeSelection`: the selection, the model identity a finding produced under it carries, which
+judge runs, what that judge stamps as its prompt, and whether it reaches a provider at all. The revision
+calculator, the finding cache, the retriever's mode, the question generator, the synopsist
+and the answerer are all handed that one method. There is no way to obtain one of those
+answers without the rest, which is the whole design — the composition root used to hold three
+callbacks that each re-read the selection at a different moment and each re-derived a fact
+from it, and two of them derived it differently.
+
+The last three of those six only need `deterministic`, and they got it from a helper in
+`selected.py` whose body was the same expression `selection` tests — under a comment saying the
+rule lived in one place. That is the defect written above, one branch away from the branch it
+was written about, so the rule is now asked of the source, by the stand-in sweeps in
+`test_boundaries.py` — the block of them sharing the `_STAND_IN_*` constants, starting at
+`test_the_stand_in_provider_is_written_out_in_exactly_one_place`. It has to be a source test.
+A re-spelled copy agrees with the original on every input, which is exactly why nothing caught
+the last two.
+
+How far those reach, and what they decline to reach, is not restated here, and that is the
+point. This document described it twice and claimed more coverage than the sweeps had both
+times. The correction that named the escaping spellings instead went stale the same day,
+because a new sweep closed them while the correction was being written — and the number of
+sweeps has moved since this paragraph was first typed, which is why no number is given. A
+sentence describing a sweep is a copy of the sweep, and it drifts exactly the way the
+duplicated identities above drifted: the test moves, the sentence does not.
+
+Each of those tests states its own reach and its own limits in its docstring, beside the code
+that decides them. Read them there, and run them for the verdict.
+
+The identity is not a value the record carries. It is read off the judge class the record
+names — `identity` on `DeepArchitectureJudge`, `LangChainArchitectureJudge` and
+`DeterministicJudge` — because there is one prompt identity per judge, and the deep judge
+sends tool descriptions and a tool contract the plain one never does. That distinction is
+what the two previous fixes of this defect missed. Both made the two sides read one shared
+constant; both held until a third judge arrived with a constant of its own, and every
+candidate of every review then reported `ChangeCause.PROMPT` and was re-judged for as long as
+that stood. A judge wired in without an identity of its own does not compile now, which a
+shared constant could never enforce.
+
+`identity` is deliberately not on the `ArchitectureJudge` protocol. What the graph holds is
+`CachingArchitectureJudge`, a wrapper with no identity of its own that could only answer by
+constructing a judge; widening the protocol would make every implementation claim an identity
+so that one of them could report one.
+
+**An identity nobody remembers to bump is the same defect as an identity that disagrees, and
+the build refuses it.** The identity is hand-written, and hand-written means somebody has to
+remember. Measured over the 400 commits of `main` at `769759a`, by loading each tree and
+rendering its judge prompts rather than by reading its source for named constants: 15 commits
+moved judge prompt text, 3 moved an identity with it, and 12 shipped a changed question under
+a stamp that says nothing changed. Every finding judged under one of those twelve reads as
+unmoved for ever, and the delta never revisits it.
+
+`reasoning/adapters/prompt_inventory.py` assembles what each judge sends by *calling* the
+real prompt builders, `scripts/judge_prompt_check.py` digests that, and `records.py` records
+the digest on the line under the identity it was minted against. A mismatch fails `make
+check`. It is the shape of `SQLiteDatabase._verify_unchanged`, and it is that shape on
+purpose: neither replaces the hand-written key with a content hash, because a content hash
+*as* the identity re-judges every stored finding at the user's expense the first time a
+comma moves. Both keep the key and raise when the checksum beside it stops being true.
+
+What the check watches and what the identity claims are not the same set, and the difference
+is written down where the exclusions are made rather than restated here. The properties that
+keep it usable are tests rather than prose: it fires on a prompt that moved, it stays quiet on
+a source re-flow and on a relocation that render the same text, and every judge that stamps an
+identity is found by importing it rather than by matching a spelling.
+
+**A judgement has one identity, and it is a row's primary key rather than a recipe.**
+`CachingArchitectureJudge.key` is the only enumeration of what a judgement depends on.
+`SQLiteCoreFindingCache` stamps that key onto every finding it hands back, on
+`Finding.cache_key`, and `record_sources` attaches a review to the row by putting the same
+string back into a `WHERE cache_key = ?`.
+
+There was a second enumeration until this: a `_finding_identity` hashed out of the stamps a
+finding carries, so that a review could find a row whose bytes a later pass had changed. It
+could not see the case — a finding records the model, prompt and retrieval that judged it,
+never the case it was judged under — so a candidate judged under two cases was one identity.
+Measured: 231 rows, 137 carrying an identity, 124 distinct; thirteen pairs, three of which
+had reached different verdicts. `record_sources` matched `AND source_review_id IS NULL`, so a
+review claimed whichever row of a pair was unclaimed.
+
+The rule this establishes is the one the migration checksum established for
+`schema_migrations`: where two things must name one value, do not write the name twice —
+make one of them *be* the value. A better second hash is the fix that has already failed
+twice here, once for the corpus fingerprint and once for the model and prompt identities,
+because a second expression is a second place to forget a term. There is no second place now.
+A term added to the key is carried into the cache's identity with no other edit, and the join
+is on a primary key, so the first-null-wins race has nowhere to happen.
+
+**A scope selection has one key, and nothing computes it.** The folders a repository is
+reviewed without are stored under its canonical root path. Three readers used to work that
+path out for themselves — the analyzer before a review, the index service before an analysis,
+the freshness check after one — each carrying its own
+`str(root.expanduser().resolve(strict=False))` beside a comment promising it matched the
+others. It did match. A key that disagreed would not fail either: `get` returns `None`, which
+reads as "nobody chose a scope", so the review re-reads the folders somebody excluded and its
+fingerprint over that wider set of files marks the stored atlas stale on every open, for ever.
+
+`AtlasSource.canonical_root` answers the question now, so the callers ask instead of guessing
+and there is no second expression to keep in step. The rest of the rule is a source test.
+`test_a_scope_selection_key_is_always_asked_for_and_never_spelled_out` walks every call to the
+port in `src/`, follows each key back through the names and helpers that supply it — across
+modules, since `RepositoryIndexService.scope` is reached from a web route — and admits two
+shapes: the question put to the analyzer, or the answer read whole off a record written from
+it. The same test also holds the question to one answerer: every `canonical_root` in `src/`
+sits beside an `analyze` in the same class, because the answer's whole content is the string
+that analyzer will stamp, and a helper of that name on a service is the hand-spelled key back
+under a spelling the first rule cannot tell from the real one.
+
+It has to be a source test, for the reason the stand-in sweep above has to be one. Six
+re-spellings were run against it — including the two that survived the previous pass, one at
+the call to `get` and one at the call to the private helper that forwards to it. None of them
+changes what the code does: with this test deselected every one passes the whole unit suite,
+and with it in place every one fails this test and nothing else.
+
+**`Finding.served_by` is provenance, not an identity, and the difference is the point.** A
+hosted gateway serves one model from several endpoints — `google/gemini-3.5-flash-lite` has
+seven — and which one answered is its routing decision, taken per request. The response says
+so and nothing used to keep it, so `model_identity` read the same whichever endpoint ran the
+judgement and the record could not tell a sampler apart from a route. It is observed over the
+span `SelectedLangChainJudge` holds the transport for, because a judgement is a conversation
+of up to twenty-six requests and the gateway routes each of them separately.
+
+It is in no key. Not the finding cache's — which is now the only one — and not anything the
+revision delta reads: which endpoint answered is what happened to a judgement, not what the
+judgement was asked, and a gateway balancing its load would otherwise re-judge every candidate
+in the workspace. Recording is also not pinning — nothing chooses a route on the strength of it, for
+the reason `openrouter.request_body` gives. Empty is the ordinary value: every finding stored
+before the field existed, and every judgement made by a provider with one endpoint.
+
+It leaves the application in two places and is rendered in one. The API sends it on every
+finding, so a client that wants it has it; nothing in `frontend/src` reads it yet, and the
+workbench does not show it. The Markdown report is what renders it — a **Served by** line in
+the footer, under the same "say where it came from" rule that puts the model and the prompt
+there — and it omits the line entirely when nothing named an endpoint rather than printing a
+dash, because an empty slot beside a real one reads as a route that failed to be recorded,
+which is a stronger claim than the record makes.
 
 **`InvestigationLookup` is deliberately not the port's `RecordedLookup`.** One is a domain
 record on an immutable review; the other is the live transcript a loop is writing.

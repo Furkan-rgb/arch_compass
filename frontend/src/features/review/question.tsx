@@ -1,11 +1,13 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import type { Finding, Question, Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { humanise, plural } from "../../lib/format";
 import { Tag } from "../../ui/badge";
+import { ToggleButton } from "../../ui/button";
 import { Textarea } from "../../ui/field";
 import { Mono } from "../../ui/meta";
+import { Prose, plainProse } from "../../ui/prose";
 import { QuestionHelp } from "./question-help";
 
 /**
@@ -31,10 +33,15 @@ function ChoiceRow({
     <label
       className={cn(
         "flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm leading-6 transition",
-        disabled && "cursor-not-allowed opacity-50",
         checked
           ? "border-rule-strong bg-sunken text-ink"
           : "border-rule bg-surface-2 text-ink hover:border-rule-strong",
+        // An off option is drawn off, not faded. `opacity-50` composites the row and its
+        // words together toward whatever is behind them, which took the text of a skipped
+        // question's options to about 2:1 and manufactured a grey belonging to no ramp — and
+        // it sat *before* the checked branch, so half of what it set was overwritten anyway.
+        // The control film with meta ink says the same thing at a measured contrast.
+        disabled && "cursor-not-allowed border-rule-control bg-control text-ink-3",
       )}
     >
       <input
@@ -67,10 +74,12 @@ export function QuestionItem({
   writingOwn,
   skipped,
   asking,
+  helpOpen,
   onChoose,
   onWriteOwn,
   onWrite,
   onAsking,
+  onHelpOpen,
   onUseDraft,
   onToggleSkip,
   className,
@@ -86,15 +95,48 @@ export function QuestionItem({
   skipped: boolean;
   /** What is half-typed into the help panel, held by the page rather than by this. */
   asking: string;
+  /** Whether the help panel is open, held by the page for the same reason `asking` is. */
+  helpOpen: boolean;
   onChoose: (option: string) => void;
   onWriteOwn: () => void;
   onWrite: (value: string) => void;
   onAsking: (value: string) => void;
+  onHelpOpen: (open: boolean) => void;
   /** Wording the reviewer took from the agent, with the model that wrote it. */
   onUseDraft: (text: string, model: string) => void;
   onToggleSkip: () => void;
   className?: string;
 }) {
+  const box = useRef<HTMLDivElement>(null);
+
+  // The qualified name where a candidate has one, and its sentence where it does not — the
+  // same fallback the single name used, applied to all of them.
+  const names = affected.map(
+    (finding) =>
+      finding.candidate.participants[0]?.qualified_name ?? finding.candidate.summary,
+  );
+
+  /**
+   * Follow the box when it appears with words already in it.
+   *
+   * *Put this in my answer* writes into a box that is above the button in the DOM and does not
+   * yet exist, so pressing it mounted a hundred pixels of textarea between the question and
+   * the help panel: the panel and the button under the cursor dropped, and nothing said the
+   * wording had landed anywhere. `nearest` so a box already on screen is left exactly where it
+   * is — the same rule the round uses when it opens the next row.
+   *
+   * Only where the box arrives filled. Reaching for it by choosing *Something else* empties
+   * the value on purpose, and scrolling to an empty box somebody just asked for would be the
+   * page moving for no reason.
+   */
+  const arrivedFilled = (!question.options.length || writingOwn) && Boolean(value);
+  useEffect(() => {
+    if (!arrivedFilled) return;
+    box.current?.scrollIntoView?.({ block: "nearest" });
+    // Deliberately keyed on the box appearing rather than on the value, or every keystroke
+    // in a long answer would scroll the page a little.
+  }, [arrivedFilled]);
+
   return (
     <div className={cn("min-w-0", className)}>
       {/* The question is the point of the panel, so it is the one thing set at the reading
@@ -108,25 +150,39 @@ export function QuestionItem({
         id={`question-${question.id}-text`}
         className="max-w-[54ch] text-[17px] font-medium leading-7 text-ink"
       >
-        {question.text}
+        {/* Through `Prose`. A question is written by the same model, about the same code, and
+            the prompt behind it neither asks for backticks nor forbids them — so a span here
+            is incidental rather than common. It is drawn anyway, because at 17px a raw
+            delimiter is the largest character on the panel and unmissable. */}
+        <Prose>{question.text}</Prose>
       </p>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <Tag>{humanise(question.facet)}</Tag>
         {/* Named, not described: a reviewer wants to know *which* candidates turn on this,
             and a sentence beginning "Affects ports.TaskFormatter is implemented only by…"
             is neither. Not links, either — this is a form with answers in it, and nothing
-            here is allowed to unmount it. */}
-        <span className="min-w-0 text-xs text-ink-3 wrap-anywhere">
-          {affected.length ? (
+            here is allowed to unmount it.
+
+            Three names, not one. It named the first and counted the rest — "Affects X and 3
+            others" — and whether an answer is safe depends on what it will be applied to, so
+            a reviewer with four affected candidates could see a quarter of the question they
+            were being asked. Three is where a row of qualified names stops being scannable;
+            past that the whole list is on the hover and in the accessible name, which is the
+            device the docket's group headings already use for the same reason. */}
+        <span
+          title={affected.length > 3 ? names.join("\n") : undefined}
+          className="min-w-0 text-xs text-ink-3 wrap-anywhere"
+        >
+          {names.length ? (
             <>
               Affects{" "}
-              <Mono className="text-[11px] text-ink-2">
-                {affected[0].candidate.participants[0]?.qualified_name ??
-                  affected[0].candidate.summary}
-              </Mono>
-              {affected.length > 1
-                ? ` and ${plural(affected.length - 1, "other")}`
-                : ""}
+              {names.slice(0, 3).map((name, index) => (
+                <span key={name}>
+                  {index ? ", " : ""}
+                  <Mono className="text-ink-2">{name}</Mono>
+                </span>
+              ))}
+              {names.length > 3 ? ` and ${plural(names.length - 3, "other")}` : ""}
             </>
           ) : (
             plural(question.candidate_ids.length, "affected candidate")
@@ -137,7 +193,10 @@ export function QuestionItem({
       {question.options.length ? (
         <div
           role="radiogroup"
-          aria-label={`Answers to: ${question.text}`}
+          // Stripped, not rendered: an `aria-label` is a string and cannot hold an element,
+          // and a screen reader announcing "backtick Clock backtick" is worse than the
+          // delimiter on screen was.
+          aria-label={`Answers to: ${plainProse(question.text)}`}
           className="mt-3 grid gap-1.5"
         >
           {question.options.map((option) => (
@@ -167,15 +226,31 @@ export function QuestionItem({
           escaped would be a worse question than a blank one — the model proposed these, it
           did not establish them. */}
       {!question.options.length || writingOwn ? (
-        <Textarea
-          id={`question-${question.id}`}
-          aria-labelledby={`question-${question.id}-text`}
-          value={value}
-          disabled={skipped}
-          onChange={(event) => onWrite(event.target.value)}
-          className="mt-2.5 min-h-24"
-          placeholder="Add the architectural context that is not visible in the code…"
-        />
+        /* `animate-expand` on the wrapper, because this box regularly appears under a press
+           somewhere else — *Put this in my answer*, in the panel below it — and an element a
+           hundred pixels tall arriving in one frame reads as the page jumping rather than as
+           the box opening. The ref is on the wrapper for the same reason: `Textarea` is a
+           shared control that forwards no ref, and growing its props to satisfy one call site
+           would put a scroll target on every field in the product.
+
+           `min-h-32 field-sizing-content max-h-64` rather than the shared `min-h-24` floor.
+           This is the field the charter's whole ask-rather-than-assume loop funnels into and
+           its placeholder asks for a paragraph, which is not what four lines and a resize
+           corner are for. It grows with what is typed where the browser supports
+           `field-sizing`, and is exactly what shipped before where it does not. The floor in
+           `ui/field.tsx` is left where it is: every other textarea in the product inherits
+           it, including the policy editor's body. */
+        <div ref={box} className="animate-expand">
+          <Textarea
+            id={`question-${question.id}`}
+            aria-labelledby={`question-${question.id}-text`}
+            value={value}
+            disabled={skipped}
+            onChange={(event) => onWrite(event.target.value)}
+            className="mt-2.5 max-h-64 min-h-32 field-sizing-content"
+            placeholder="Add the architectural context that is not visible in the code…"
+          />
+        </div>
       ) : null}
 
       {/* Below every way of answering and above the skip, which is where it belongs in the
@@ -186,25 +261,26 @@ export function QuestionItem({
         question={question}
         review={review}
         draft={asking}
+        open={helpOpen}
         onDraft={onAsking}
+        onOpenChange={onHelpOpen}
         onUseAnswer={onUseDraft}
       />
 
-      <button
-        type="button"
-        aria-pressed={skipped}
+      {/* The shared toggle rather than a hand-rolled one, because the hand-rolled one had the
+          state backwards twice over: pressed was a fill on an inset token with no border —
+          the invert-on-press pattern the design system replaced across the product — and the
+          *unpressed* hover painted that same `bg-sunken`, so pointing at "Skip explicitly"
+          made it look exactly like a question already skipped, with only the word to tell
+          them apart. `ToggleButton` carries the state on an edge appearing. `min-h-11` keeps
+          the 44px target the negative margin was written for on a fine pointer too. */}
+      <ToggleButton
+        pressed={skipped}
         onClick={onToggleSkip}
-        className={cn(
-          // A line of text that is still a 44px target: the negative margin keeps the words
-          // where they read best and lets the hit area be thumb-sized.
-          "-ml-2.5 mt-1.5 inline-flex min-h-11 items-center rounded-sm px-2.5 text-xs font-semibold transition",
-          skipped
-            ? "bg-sunken text-ink"
-            : "text-ink-3 hover:bg-sunken hover:text-ink",
-        )}
+        className="-ml-2.5 mt-1.5 min-h-11"
       >
         {skipped ? "Skipped explicitly — undo" : "Skip explicitly"}
-      </button>
+      </ToggleButton>
     </div>
   );
 }

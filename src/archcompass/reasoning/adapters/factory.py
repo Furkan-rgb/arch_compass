@@ -84,6 +84,14 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
         # The same transport as every other vendor of this API, and one difference: the
         # parameters go through `extra_body` rather than through `ChatOpenAI`'s own fields.
         # `openrouter.request_body` says why, and it is the whole of the difference.
+        #
+        # Including the decoding. Read down this function and the `temperature=0` in the
+        # Ollama branch below is the only one visible, which is exactly the reading that let
+        # every hosted judgement this product ever made be sampled at whatever default the
+        # endpoint chose: the parameter had been taken out of the hosted body and its absence
+        # here looked deliberate. It is in `request_body` now, with the argument for it,
+        # because on this path a sampling parameter is also a routing preference and the
+        # gateway has to be told it in the same object it reads the rest of the request from.
         return ChatOpenAI(
             model=config.model,
             base_url=config.base_url,

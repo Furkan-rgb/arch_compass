@@ -40,6 +40,29 @@ ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = ROOT / "examples/cases/boundary-review/repository"
 BUNDLE = ROOT / "src/archcompass/presentation/web/static/index.html"
 
+#: Everything the emitted bundle is made of, for the staleness check below.
+#:
+#: `frontend/src` is the obvious one and was for a while the only one, which left the check
+#: silent about four more, each of which the build reads:
+#:
+#: * `frontend/index.html` is the entry document. Adding one `<meta>` to it put that `<meta>`
+#:   in the emitted `static/index.html` on the next build, measured.
+#: * `frontend/vite.config.ts` decides the output names, the plugins and the aliases. Setting
+#:   `entryFileNames` and `chunkFileNames` to `.mjs` renamed every emitted chunk, measured.
+#: * `frontend/vite-plugins/` is the code that config composes, and one of those plugins
+#:   decides which files survive in the output directory at all — `grace-window.test.ts`.
+#: * `frontend/package.json` pins the version of every dependency that lands in a chunk.
+#:
+#: Editing any of the four without rebuilding left this check green, which is what makes a
+#: stale bundle answer the browser tests in the wrong bytes.
+BUNDLE_INPUTS = (
+    ROOT / "frontend/src",
+    ROOT / "frontend/index.html",
+    ROOT / "frontend/vite.config.ts",
+    ROOT / "frontend/vite-plugins",
+    ROOT / "frontend/package.json",
+)
+
 #: Long enough for a full deterministic review of the example repository on a cold workspace.
 REVIEW_TIMEOUT_MS = 180_000
 
@@ -66,6 +89,72 @@ TABLET = {
 
 #: The width the rest of the suite already used. A laptop, not a monitor.
 DESKTOP = {"viewport": {"width": 1440, "height": 960}}
+
+
+def _is_test_only(name: str) -> bool:
+    """Whether a file under `frontend/` is one no build ever reads.
+
+    Two shapes, and the second is the one this check got wrong. `*.test.ts` and `*.test.tsx`
+    are the suites themselves. `test-setup.ts` and `test-fixtures.ts` are the vitest
+    environment and its fixtures: named by prefix rather than by suffix, imported by
+    `vite.config.ts` under `test.setupFiles` and by the suites, and reachable from no module
+    the browser build emits. Editing either cannot change a byte of the bundle, and a guard
+    that fails when you edit a test is a guard people delete — which is the reason the whole
+    exclusion exists, and the reason it has to cover both spellings.
+    """
+
+    return name.endswith((".test.ts", ".test.tsx")) or name.startswith("test-")
+
+
+def _newer_than(built: float) -> list[Path]:
+    """The files the bundle is built from that have changed since it was built.
+
+    The list rather than the newest time, because the failure message is the useful half: a
+    reader who has just edited three files wants to know which one this is about.
+    """
+
+    stale: list[Path] = []
+    for source in BUNDLE_INPUTS:
+        entries = source.rglob("*") if source.is_dir() else [source]
+        for entry in entries:
+            if not entry.is_file() or _is_test_only(entry.name):
+                continue
+            if entry.stat().st_mtime > built:
+                stale.append(entry)
+    return sorted(stale)
+
+
+def assert_bundle_is_current() -> None:
+    """Refuse to drive a browser against a bundle older than the code it is made of.
+
+    A stale bundle is what makes this whole directory worse than nothing. Every module here
+    drives whatever is on disk, and `test_first_load.py` now *weighs* what is on disk, so a
+    build from before the change under test answers every question about the wrong bytes —
+    and answers them green. That has produced false findings on this branch more than once,
+    which is why the check is here rather than in anybody's head.
+
+    `make check` and `make test-browser` both run `frontend-build` first, so this never fires
+    on the ordinary paths. It is for `uv run pytest -m browser` typed by hand after an edit,
+    which is the path that has actually gone wrong.
+
+    This is the part of `frontend/entry-graph.test.ts` that outlived it, and it measures the
+    one thing a browser cannot see: whether the bundle it is looking at is the bundle the
+    source describes. The note left here when that file went said the rest of it was an
+    approximation of what `test_first_load.py` measures in a browser directly. That was true of
+    most of it and false of three assertions — the Markdown renderer's reach, and the two that
+    kept its fingerprints from matching nothing at all — which had no replacement anywhere
+    until `test_first_load.py` grew named Markdown checks of its own. A deletion note that
+    accounts for a file it does not account for is how an assertion goes missing quietly.
+    """
+
+    assert BUNDLE.is_file(), f"no build at {BUNDLE.parent} — run `make frontend-build`"
+    stale = _newer_than(BUNDLE.stat().st_mtime)
+    assert not stale, (
+        f"{len(stale)} of the files {BUNDLE} is built from are newer than it — "
+        f"{', '.join(str(entry.relative_to(ROOT)) for entry in stale[:5])} — so the browser "
+        "would be driving a bundle from before the change under test — run "
+        "`make frontend-build`"
+    )
 
 
 def free_port() -> int:
@@ -153,7 +242,11 @@ def run_review(browser, workspace_url: str) -> str:  # type: ignore[no-untyped-d
 # Getting to a state, without depending on what it is called
 #
 # The frontend is under active redesign, so everything below finds things by role, by
-# landmark, or by a data attribute the application itself navigates with. Where a word is
+# landmark, or by a data attribute carrying an identity the application itself works in —
+# `data-candidate`, which holds `finding.candidate.id`. That used to read "a data attribute
+# the application itself navigates with", which is the third place on this branch to have
+# said so and is not true of any attribute here; `open_first_candidate` below has the
+# measurement. Where a word is
 # unavoidable it is one of the product's own nouns from the charter ("queue", "judgement
 # context"), matched case-insensitively as a substring so a rewording around it still
 # matches. Nothing here asserts on copy; these are directions, not claims.
@@ -197,10 +290,22 @@ def show_everything(page) -> None:  # type: ignore[no-untyped-def]
     implicitly, so "the first group" silently became something else and this helper failed on
     a count it could not explain. A name is the thing that identifies this control; its
     position among unrelated controls never was.
+
+    The wait is the second half of the same lesson. `count()` is the one locator method that
+    does not auto-wait: it asks the page what is there *now* and answers immediately, so
+    called straight after the surface tabs put the docket back on screen it counted a filter
+    React had not rendered yet and failed claiming the control was gone. Everything else in
+    this module waits for the thing it is about to touch — `open_first_candidate` waits on
+    its rows, `wait_for_review` on its tablist — and this was the one place that did not.
+    Waiting for the toggle it is going to click is both the wait and the assertion that the
+    control still exists, and `wait_for` reports which one it gave up on.
     """
 
     group = page.get_by_role("group", name="Filter the docket").first
+    group.wait_for(state="visible", timeout=REVIEW_TIMEOUT_MS)
     toggles = group.get_by_role("button")
+    # The widest filter, and the wait that makes the count below a real count.
+    toggles.last.wait_for(state="visible", timeout=REVIEW_TIMEOUT_MS)
     assert toggles.count() >= 2, "the docket filter is no longer a group of toggles"
     toggles.last.click()
 
@@ -208,9 +313,18 @@ def show_everything(page) -> None:  # type: ignore[no-untyped-def]
 def open_first_candidate(page) -> None:  # type: ignore[no-untyped-def]
     """Open the first row of the docket, which expands the assessment under it.
 
-    `[data-candidate]` is the hook the docket's own `j`/`k` navigation reads, so it is
-    load-bearing application code rather than a test seam, and it survives a redesign of
-    everything visible about the row.
+    `[data-candidate]` is the row's stated identity, and this used to claim more than that:
+    that the docket's own `j`/`k` navigation reads it, so it was load-bearing application
+    code rather than a test seam. It is not. `docket.tsx:671` writes the attribute onto the
+    row's button and no non-test line in `frontend/src` mentions it anywhere else; the walk
+    steps through `visible.map((finding) => finding.candidate.id)` in React state
+    (`docket.tsx:1468`). A false reason for a good choice is worse than no reason, because
+    the next helper written beside it inherits the reason and not the check.
+
+    The choice is still right, on the claim that survives measuring. What the attribute holds
+    is `finding.candidate.id` — the identity the walk steps through, and the key every
+    decision is filed under — put there by the row itself. That is why it survives a redesign
+    of everything visible about the row, which a name, a position or a shape does not.
     """
 
     rows = page.locator("[data-candidate]")

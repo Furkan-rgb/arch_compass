@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { api, type CheckoutRefresh, type RepositorySummary, type ReviewSummary } from "../../api";
@@ -16,7 +16,7 @@ import { Badge, Tag } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
 import { Field, Input, SearchInput } from "../../ui/field";
 import { GitBranchIcon, RefreshIcon } from "../../ui/icons";
-import { MetaLine, Mono, PathRef, Statistic } from "../../ui/meta";
+import { MetaLine, Mono, PathRef } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
 import { EmptyState, ErrorNotice, LoadingPanel, Notice, Spinner } from "../../ui/states";
@@ -111,14 +111,28 @@ function RepositoryCard({
 
   return (
     <article
+      // Which card drives the panel beside it was carried by a hairline going one step
+      // darker and a ring of the same value — 1.29:1 against the canvas in light, and
+      // nothing at all in the accessibility tree, so a reader could not tell which of
+      // fifteen identical cards the atlas belonged to. It is a ground change now, which is
+      // what the ramp already defines for a selected row, and it is stated as
+      // `aria-current`. `CaseCard` reached the same recipe first.
+      aria-current={selected ? "true" : undefined}
       className={cn(
-        "rounded-lg border bg-surface p-4 transition",
+        "rounded-lg border p-4 transition",
         selected
-          ? "border-rule-strong ring-1 ring-rule-strong"
-          : "border-rule hover:border-rule-strong",
+          ? "border-rule-strong bg-sunken"
+          : "border-rule bg-surface hover:border-rule-strong",
       )}
     >
-      <button type="button" onClick={onSelect} className="block w-full text-left">
+      {/* Not a button. This wrapped the heading, both badges, the meta line and five tags in
+          one control, so the card's accessible name was the whole card read out as a single
+          string and the `<h2>` stopped being a heading anybody could navigate by — on the
+          page whose entire job is "what ArchCompass has indexed". The card is content again
+          and `Open atlas` below is the one named control that selects it, which is the same
+          argument the `PathRef` beneath already makes: a control inside a control is one
+          press with two meanings. */}
+      <div>
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="font-display text-base font-semibold tracking-tight text-ink">
             {repositoryName(repository.root_path)}
@@ -155,29 +169,36 @@ function RepositoryCard({
             latest ? `last review ${relativeTime(latest.started_at)}` : "never reviewed",
           ]}
         />
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <Tag>{(repository.node_count ?? 0).toLocaleString()} nodes</Tag>
-          <Tag>{(repository.edge_count ?? 0).toLocaleString()} edges</Tag>
-          <Tag>{(repository.signal_count ?? 0).toLocaleString()} signals</Tag>
-          {/* Beside the counts because it belongs to the same claim: these are the
-              measurements of an analysis, and this says what that analysis was not shown.
-              A narrowed repository stays narrowed through every later index, deliberately
-              and until now silently — so a review that skipped half the code looked exactly
-              like one that had read all of it. */}
-          {repository.excluded_path_count ? (
-            <Tag>{plural(repository.excluded_path_count, "folder")} left out</Tag>
-          ) : null}
-          {cost ? <Tag>Last review: {cost}</Tag> : null}
-        </div>
-      </button>
+        {repository.excluded_path_count || cost ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {/* The three atlas measurements used to lead this row and they are gone from it.
+                They were on screen twice at once — here, and again as 24px statistics in the
+                panel beside the card, with `edges` renamed to `Relations` in the second copy
+                — and the comment on `reviewCost` above already argues that none of them is a
+                number anybody can act on. What is left is what a person deciding whether to
+                run a review actually weighs: what the analysis was not shown, and what the
+                last one cost. */}
+            {repository.excluded_path_count ? (
+              <Tag>{plural(repository.excluded_path_count, "folder")} left out</Tag>
+            ) : null}
+            {cost ? <Tag>Last review: {cost}</Tag> : null}
+          </div>
+        ) : null}
+      </div>
 
-      {/* Below the selecting button, not inside it: a path is a control of its own now — it
+      {/* Below the card body rather than inside it: a path is a control of its own now — it
           copies — and a control inside a control is one press with two meanings. */}
       <PathRef path={repository.root_path} className="mt-2.5" />
 
       <div className="mt-3.5 flex flex-wrap gap-2 border-t border-rule pt-3">
+        {/* `secondary`, not the accent fill. The accent means "this is the one thing the page
+            is asking for" and a card list spends it once per row, so eight repositories drew
+            eight solid reds plus the header's own and none of them was the one. The header's
+            `Review a repository` keeps the page's single primary; inside the card, order is
+            the hierarchy. */}
         <Button
           size="sm"
+          variant="secondary"
           onClick={() => navigate(`/start?root=${encodeURIComponent(repository.root_path)}`)}
         >
           Review
@@ -187,7 +208,11 @@ function RepositoryCard({
             Latest review
           </ButtonLink>
         ) : null}
-        <Button size="sm" variant="secondary" onClick={onSelect}>
+        {/* The one control that selects this card, now that the card body is content rather
+            than a control. It was already labelled, already 44px on a coarse pointer and
+            already in the action row; the whole-card button beside it was the second way to
+            do the same thing. */}
+        <Button size="sm" variant="secondary" aria-pressed={selected} onClick={onSelect}>
           Open atlas
         </Button>
         <Button
@@ -232,19 +257,27 @@ function AtlasPreview({ repository }: { repository: RepositorySummary }) {
   });
 
   return (
-    <Panel className="xl:sticky xl:top-20">
+    // `order-first` below `xl`, where this panel is stacked *after* every card in the list.
+    // Pressing the third of fifteen cards changed something a dozen cards below the fold,
+    // with no scroll and no announcement, so the press read as doing nothing. Above `xl` the
+    // grid puts it back in the second column, unchanged.
+    <Panel className="order-first xl:order-none xl:sticky xl:top-20">
       <PanelHeader title="Atlas" description={<PathRef path={root} />} />
       <PanelBody>
-        {/* The workspace's own overview summary is the sentence "N nodes, N edges, N objective
-            signals" and the arrays beside it are a capped page rather than a total, so the
-            counts here are the ones the indexer recorded against the snapshot. */}
-        <div className="grid grid-cols-3 gap-4">
-          <Statistic label="Nodes" value={(repository.node_count ?? 0).toLocaleString()} />
-          <Statistic label="Relations" value={(repository.edge_count ?? 0).toLocaleString()} />
-          <Statistic label="Signals" value={(repository.signal_count ?? 0).toLocaleString()} />
-        </div>
+        {/* One sentence, not three 24px statistics. These were the largest type in the page
+            body, set for three numbers the card's own comment calls unactionable, and the
+            same three were printed as tags on the card at the same time. A number nobody
+            acts on belongs in a sentence beside the thing it describes. The workspace's own
+            overview summary is that same sentence, and the arrays beside it are a capped page
+            rather than a total, so the counts here are the ones the indexer recorded against
+            the snapshot. */}
+        <Mono className="text-ink-3">
+          {(repository.node_count ?? 0).toLocaleString()} nodes ·{" "}
+          {(repository.edge_count ?? 0).toLocaleString()} relations ·{" "}
+          {(repository.signal_count ?? 0).toLocaleString()} signals
+        </Mono>
 
-        <div className="mt-5 border-t border-rule pt-4">
+        <div className="mt-4 border-t border-rule pt-4">
           <Label>Most depended upon</Label>
           {hotspots.isLoading ? (
             <div className="mt-2 flex items-center gap-2 text-sm text-ink-3">
@@ -262,18 +295,32 @@ function AtlasPreview({ repository }: { repository: RepositorySummary }) {
               />
             </div>
           ) : hotspots.data?.metric_values?.length ? (
-            <ul className="mt-2 grid gap-1">
+            // Ruled, not striped. A zebra measured 1.09:1 against the panel in light and
+            // 1.07:1 in dark, which is a tint nobody can see doing the job this system gives
+            // a hairline. The `gap-1` went with it: a gap leaves a divider floating between
+            // rows instead of ruling them.
+            <ul className="mt-2 divide-y divide-rule">
               {hotspots.data.metric_values.slice(0, 8).map((metric) => {
                 const node = hotspots.data?.node_summaries?.find(
                   (item) => item.node_id === metric.node_id,
                 );
+                const name = node?.qualified_name ?? metric.node_id;
                 return (
+                  // The whole name on the hover, because the column is about 200px wide and
+                  // the rest of it was simply gone — no title, no wrap, no link.
                   <li
                     key={metric.node_id}
-                    className="flex items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-xs odd:bg-sunken/50"
+                    title={name}
+                    className="flex items-center justify-between gap-3 py-1.5 text-xs"
                   >
-                    <Mono className="truncate text-[11px]">
-                      {node?.qualified_name ?? shortId(metric.node_id, 14)}
+                    {/* Truncated from the head rather than the tail. Eight qualified names
+                        out of one repository share long prefixes, so clipping the end left
+                        several rows reading identically; reversing the direction spends the
+                        ellipsis on the part they have in common and keeps the part that
+                        tells them apart. `bdi` is what stops the reversal reordering the
+                        name itself. */}
+                    <Mono className="truncate [direction:rtl] [text-align:left]">
+                      <bdi>{name}</bdi>
                     </Mono>
                     <span className="shrink-0 tabular-nums text-ink-3">{metric.value}</span>
                   </li>
@@ -295,6 +342,7 @@ export function RepositoriesPage() {
   const client = useQueryClient();
   const toast = useToast();
   const [query, setQuery] = useState("");
+  const [cloning, setCloning] = useState(false);
   const [url, setUrl] = useState("");
   const [branch, setBranch] = useState("");
 
@@ -323,7 +371,10 @@ export function RepositoriesPage() {
       { replace: true },
     );
 
-  const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
+  const repositories = useQuery({
+    queryKey: ["repositories"],
+    queryFn: api.repositories,
+  });
   /**
    * The summary, not the reviews: all this page reads off a review is its path, its status,
    * its start, its finish and a finding count — and a stored review is most of a
@@ -334,7 +385,10 @@ export function RepositoriesPage() {
    * application reach this list too, and a review deleted or composed elsewhere does not
    * leave this page quoting it.
    */
-  const reviews = useQuery({ queryKey: ["reviews", "summary"], queryFn: api.reviewSummaries });
+  const reviews = useQuery({
+    queryKey: ["reviews", "summary"],
+    queryFn: api.reviewSummaries,
+  });
   const checkout = useMutation({
     mutationFn: () => api.checkoutRepository(url.trim(), branch.trim() || null),
     // The form is on screen and the failure belongs beside it, so the global toast would be
@@ -344,6 +398,7 @@ export function RepositoriesPage() {
       select(result.root_path);
       setUrl("");
       setBranch("");
+      setCloning(false);
       await client.invalidateQueries({ queryKey: ["repositories"] });
       toast.say(`Cloned ${repositoryName(result.root_path)}. It is indexed when a review starts.`);
     },
@@ -365,12 +420,28 @@ export function RepositoriesPage() {
       ),
     [all, query],
   );
-  // An explicit `?root=` wins over the search, so arriving from the palette selects what the
-  // palette named even where a stale search term would have hidden it.
-  const selected =
-    (all ?? []).find((repository) => repository.root_path === requestedRoot) ??
-    visible[0] ??
-    null;
+  /**
+   * An explicit `?root=` wins over the search, so arriving from the palette selects what the
+   * palette named even where a stale search term would have hidden it.
+   *
+   * Where nobody has selected anything the first visible card stands in — and that made the
+   * search box a selection control nobody asked for. With no `?root=` in the URL, every
+   * keystroke re-pointed the panel at whichever repository had risen to the top of the
+   * filtered list, swapped its counts, its hotspots and its path, fired another hotspots
+   * request, and moved the selected treatment from card to card for a selection nobody made.
+   * So the stand-in is latched: once a repository has stood in, it keeps standing in, and it
+   * is resolved against the whole listing rather than the filtered one. A search now filters
+   * the list and leaves the panel where it was.
+   */
+  const held = useRef<string | null>(null);
+  const explicit = (all ?? []).find((repository) => repository.root_path === requestedRoot);
+  const kept = held.current
+    ? (all ?? []).find((repository) => repository.root_path === held.current)
+    : undefined;
+  const selected = explicit ?? kept ?? visible[0] ?? null;
+  useEffect(() => {
+    held.current = selected?.root_path ?? null;
+  }, [selected]);
 
   return (
     <div>
@@ -378,53 +449,81 @@ export function RepositoriesPage() {
         eyebrow="Deterministic analysis"
         title="Repositories"
         description="What ArchCompass has indexed."
-        actions={<ButtonLink to="/start">Review a repository</ButtonLink>}
+        actions={
+          <>
+            {/* The clone form used to be the first surface under this header: a two-field
+                form for a repository you do not have, standing between the page's own
+                description and the list the page exists for, on every visit including the
+                hundredth. It is a page-level control, so it lives where the page keeps its
+                page-level controls, and the form opens when somebody wants it. */}
+            <Button
+              variant="secondary"
+              aria-expanded={cloning}
+              onClick={() => setCloning(!cloning)}
+            >
+              Clone a repository
+            </Button>
+            <ButtonLink to="/start">Review a repository</ButtonLink>
+          </>
+        }
       />
 
-      <Panel className="mb-5">
-        <PanelHeader
-          title="Clone a repository into the workspace"
-          description="The checkout stays local and is indexed when a review starts."
-        />
-        <PanelBody className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto] md:items-end">
-          <Field label="Repository address">
-            {(props) => (
-              <Input
-                {...props}
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://github.com/org/repository"
-              />
-            )}
-          </Field>
-          <Field label="Branch" hint="Optional">
-            {(props) => (
-              <Input
-                {...props}
-                value={branch}
-                onChange={(event) => setBranch(event.target.value)}
-                placeholder="main"
-              />
-            )}
-          </Field>
-          <Button
-            variant="secondary"
-            disabled={!url.trim() || checkout.isPending}
-            onClick={() => checkout.mutate()}
-          >
-            {checkout.isPending ? <Spinner /> : "Clone"}
-          </Button>
-          {checkout.error ? (
-            <div className="md:col-span-3">
-              <ErrorNotice error={checkout.error} />
-            </div>
-          ) : null}
-        </PanelBody>
-      </Panel>
+      {cloning ? (
+        <Panel className="mb-5">
+          <PanelHeader
+            title="Clone a repository into the workspace"
+            description="The checkout stays local and is indexed when a review starts."
+          />
+          <PanelBody className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto] md:items-end">
+            <Field label="Repository address">
+              {(props) => (
+                <Input
+                  {...props}
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="https://github.com/org/repository"
+                />
+              )}
+            </Field>
+            <Field label="Branch" hint="Optional">
+              {(props) => (
+                <Input
+                  {...props}
+                  value={branch}
+                  onChange={(event) => setBranch(event.target.value)}
+                  placeholder="main"
+                />
+              )}
+            </Field>
+            <Button
+              variant="secondary"
+              disabled={!url.trim() || checkout.isPending}
+              onClick={() => checkout.mutate()}
+            >
+              {/* The word stays and the mark joins it. Swapping the label for a spinner
+                  collapsed the button's width and changed its accessible name to "Working",
+                  so a reader lost the identity of the control they had just pressed. */}
+              {checkout.isPending ? (
+                <>
+                  <Spinner label="" /> Cloning
+                </>
+              ) : (
+                "Clone"
+              )}
+            </Button>
+            {checkout.error ? (
+              <div className="md:col-span-3">
+                <ErrorNotice error={checkout.error} />
+              </div>
+            ) : null}
+          </PanelBody>
+        </Panel>
+      ) : null}
 
-      {/* The header and the clone form stay mounted through every state below them. A page
-          that replaces itself with its own error message takes away the two things a person
-          can still do about it — go somewhere else, or clone something. */}
+      {/* The header stays mounted through every state below it, and it now carries the clone
+          control as well as the primary action. A page that replaces itself with its own
+          error message takes away the two things a person can still do about it — go
+          somewhere else, or clone something. */}
       {repositories.isPending ? (
         <LoadingPanel label="Loading indexed repositories…" rows={4} />
       ) : !all ? (
@@ -474,8 +573,21 @@ export function RepositoriesPage() {
                 />
               ))}
               {!visible.length ? (
-                <EmptyState title="No repository matches that">
-                  Clear the search to see every indexed repository.
+                <EmptyState
+                  title="No repository matches that"
+                  action={
+                    <Button variant="secondary" onClick={() => setQuery("")}>
+                      Clear the search
+                    </Button>
+                  }
+                >
+                  {/* The panel beside this one keeps showing a full atlas for a repository
+                      the search has hidden, and the two halves of the screen were
+                      contradicting each other with nothing to explain it. The panel is
+                      genuinely useful, so it stays and the empty state says whose it is. */}
+                  {selected
+                    ? `${repositoryName(selected.root_path)} is still open beside this. Clear the search to see it.`
+                    : "Clear the search to see every indexed repository."}
                 </EmptyState>
               ) : null}
             </div>

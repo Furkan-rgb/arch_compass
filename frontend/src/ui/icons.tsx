@@ -42,6 +42,15 @@ import type { SVGProps } from "react";
  * is `aria-hidden`: each sits next to its own label, and announcing both says it twice.
  * `ui/mark.tsx` is the other half of this — the marks a *descriptor* wears, which are chosen
  * from a fixed vocabulary rather than picked per call site.
+ *
+ * One stroke weight across both halves. This set was drawn at 1.75 — inherited from the
+ * hand-cut icons it replaced, which were 1.6 — while `ui/mark.tsx` overrides Lucide to 2.25
+ * under a comment whose every word applies here too: almost nothing in this interface renders
+ * at the 20–24px Lucide is tuned for, and a thin stroke arrives grey once it is scaled down
+ * that far. These render at exactly the same sizes as the marks and regularly on the same
+ * line — a verdict's mark beside a `CopyButton`'s glyph — so two weights read as two
+ * vocabularies. If a particular icon closes its counters up at 2.25, override it where it is
+ * declared rather than taking the whole set back down.
  */
 function icon(Source: LucideIcon) {
   return function Wrapped(props: SVGProps<SVGSVGElement>) {
@@ -49,7 +58,7 @@ function icon(Source: LucideIcon) {
       <Source
         aria-hidden="true"
         focusable="false"
-        strokeWidth={1.75}
+        strokeWidth={2.25}
         width="1em"
         height="1em"
         {...props}

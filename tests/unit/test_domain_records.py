@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -29,6 +29,18 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.domain._support import utc_now
+
+
+@dataclass(frozen=True)
+class _Judging:
+    """What `SelectedLangChainJudge.selection` reports, with only the two stamps in it.
+
+    The calculator reads a record rather than two callables so that the model it compares
+    against and the prompt it compares against are one reading of the selection.
+    """
+
+    model_identity: str
+    prompt_identity: str
 
 
 def test_case_revision_is_immutable_and_records_an_answer() -> None:
@@ -160,7 +172,18 @@ def test_revision_calculator_rejudges_for_policy_model_and_prompt_changes(
         summary="Domain imports an adapter",
         participants=(Participant("domain.order", "source"),),
     )
-    finding = Finding(candidate, Verdict.CLEARED, "No conflict was found.", (), ())
+    # The stamps are on the finding, which is the only place they are. A review holds no
+    # model or prompt identity of its own: it held the comma-joined set of its findings'
+    # stamps, and the calculator compared that set against a single identity.
+    finding = Finding(
+        candidate,
+        Verdict.CLEARED,
+        "No conflict was found.",
+        (),
+        (),
+        model_identity="old-model",
+        prompt_identity="old-prompt",
+    )
     now = utc_now()
     previous = Review(
         "review-1",
@@ -183,13 +206,10 @@ def test_revision_calculator_rejudges_for_policy_model_and_prompt_changes(
                 ("policy-a",),
             ),
         ),
-        model_identity="old-model",
-        prompt_identity="old-prompt",
     )
     calculator = DeterministicRevisionCalculator(
         corpus_fingerprint=lambda _: "new-corpus",
-        model_identity=lambda: "new-model",
-        prompt_identity=lambda: "new-prompt",
+        selection=lambda: _Judging("new-model", "new-prompt"),
     )
 
     delta = calculator.calculate((candidate,), case, previous, repository)
@@ -199,6 +219,141 @@ def test_revision_calculator_rejudges_for_policy_model_and_prompt_changes(
         ChangeCause.MODEL,
         ChangeCause.PROMPT,
     )
+
+
+def test_a_review_that_mixed_two_models_re_judges_only_what_the_moved_model_judged(
+    tmp_path: Path,
+) -> None:
+    """The fan-out window, and the reason the comparison had to become per candidate.
+
+    Judgement fans out per candidate through `Send`, and `SelectedLangChainJudge.selection()`
+    is read per call so that `PUT /api/models/selection` takes effect while a review runs.
+    A reviewer who switches model mid-review therefore straddles the fan-out, and the review
+    that comes out of it holds two model stamps and two prompt stamps.
+
+    Against the review-level fields this cost a whole review rather than a candidate.
+    `report.py` stored `",".join(sorted({every stamp}))` — `"model-a,model-b"` for the review
+    below — and the calculator compared that joined string against a single identity. No
+    single identity equals a joined pair, so `MODEL` and `PROMPT` were reported for every
+    candidate and `ChangedAndNewCandidateSelector` re-judged every one of them.
+
+    It did not last for ever, and the reason it did not is the reason it was expensive: the
+    re-judgement stamped every finding with the identity in force, leaving a review that holds
+    one stamp again, so the revision after it matched. Re-measured against the wiring that
+    carried the fields, over the stored 7-finding review with three findings restamped:
+    revision N reads `unchanged=0 changed=7 causes=['prompt']`, revision N+1 reads
+    `unchanged=7 changed=0` and the selector then refuses the run as `NothingToReviewError`.
+    One review re-judged for nothing, every time somebody straddles the fan-out. That is the
+    original defect: a fact computed in two places that cannot agree.
+
+    Per candidate the window costs only what it should. Only the candidate the departed model
+    judged is re-judged; the one the selected model judged carries its verdict forward.
+    """
+
+    repository = RepositoryRef("repo", tmp_path, "branch", "content")
+    atlas = RepositoryAtlas("atlas", repository)
+    case = ArchitectureCase.create()
+    before = Candidate.identified(
+        pattern="dependency_direction",
+        summary="Domain imports an adapter",
+        participants=(Participant("domain.order", "source"),),
+    )
+    after = Candidate.identified(
+        pattern="duplicated_knowledge",
+        summary="A retry limit is stated twice",
+        participants=(Participant("app.limits.RETRY", "copy"),),
+    )
+    judged_before = Finding(
+        before,
+        Verdict.CLEARED,
+        "No conflict was found.",
+        (),
+        (),
+        model_identity="model-a",
+        prompt_identity="judge:a",
+    )
+    judged_after = Finding(
+        after,
+        Verdict.CLEARED,
+        "No conflict was found.",
+        (),
+        (),
+        model_identity="model-b",
+        prompt_identity="judge:b",
+    )
+    now = utc_now()
+    previous = Review(
+        "review-1",
+        1,
+        repository,
+        atlas,
+        case,
+        (judged_before, judged_after),
+        (),
+        ReviewStatus.COMPLETED,
+        ReviewDelta(new=(before, after)),
+        now,
+        now,
+    )
+    calculator = DeterministicRevisionCalculator(
+        selection=lambda: _Judging("model-b", "judge:b")
+    )
+
+    delta = calculator.calculate((before, after), case, previous, repository)
+
+    assert delta.unchanged == (after,)
+    assert [
+        (change.candidate.id, change.causes) for change in delta.changed
+    ] == [(before.id, (ChangeCause.MODEL, ChangeCause.PROMPT))]
+
+
+def test_an_unstamped_finding_is_not_re_judged_for_a_model_it_never_named(
+    tmp_path: Path,
+) -> None:
+    """No record to decide from, so nothing is decided — the manifest's rule, for the stamps.
+
+    A cause raised here is permanent: nothing ever writes a stamp onto a finding that was
+    stored without one, so "changed" would be the answer on every run for ever. That is the
+    shape of every returning form of this defect, and it is why a candidate the retrieval
+    manifest says nothing about is left alone too.
+
+    Unreachable from anything this build writes — every judge stamps both — and measured as
+    unreachable in what is stored: 148 of 148 findings in `.archcompass/workspace.sqlite3`
+    carry both stamps. It is guarded because the delta must state what the records establish,
+    and an absent record establishes nothing.
+    """
+
+    repository = RepositoryRef("repo", tmp_path, "branch", "content")
+    atlas = RepositoryAtlas("atlas", repository)
+    case = ArchitectureCase.create()
+    candidate = Candidate.identified(
+        pattern="dependency_direction",
+        summary="Domain imports an adapter",
+        participants=(Participant("domain.order", "source"),),
+    )
+    unstamped = Finding(candidate, Verdict.CLEARED, "No conflict was found.", (), ())
+    now = utc_now()
+    previous = Review(
+        "review-1",
+        1,
+        repository,
+        atlas,
+        case,
+        (unstamped,),
+        (),
+        ReviewStatus.COMPLETED,
+        ReviewDelta(new=(candidate,)),
+        now,
+        now,
+    )
+    calculator = DeterministicRevisionCalculator(
+        selection=lambda: _Judging("model-b", "judge:b")
+    )
+
+    delta = calculator.calculate((candidate,), case, previous, repository)
+
+    assert delta.unchanged == (candidate,)
+    assert delta.changed == ()
 
 
 def test_a_stale_manifest_entry_does_not_move_the_corpus_for_everything_else(

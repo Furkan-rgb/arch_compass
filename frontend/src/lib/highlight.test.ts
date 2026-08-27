@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { escapeHtml, highlight, isSupported, languageForPath } from "./highlight";
+import { COLOURED_EXTENSIONS, escapeHtml, highlight, isSupported, languageForPath } from "./highlight";
 
 describe("colouring code", () => {
   it("marks up the parts of a Python excerpt that carry meaning", () => {
@@ -16,6 +16,17 @@ describe("colouring code", () => {
     expect(languageForPath("pyproject.toml")).toBeUndefined();
     expect(languageForPath("Makefile")).toBeUndefined();
     expect(languageForPath(null)).toBeUndefined();
+  });
+
+  it("resolves every extension it claims to a grammar that is registered", () => {
+    // `toml` mapped to `ini`, and `ini` is registered nowhere — so `isSupported` was false and
+    // `languageForPath("pyproject.toml")` fell through to `undefined`. Harmless, and a lie: a
+    // row in the table reads as support and delivered none, and nothing could see the
+    // difference from outside because `undefined` is also the honest answer for a file the
+    // table never named. That is why this walks the claims rather than a list of paths.
+    for (const extension of COLOURED_EXTENSIONS) {
+      expect(languageForPath(`a.${extension}`), extension).toBeDefined();
+    }
   });
 
   it("never guesses", () => {

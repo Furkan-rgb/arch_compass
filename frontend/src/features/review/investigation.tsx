@@ -1,5 +1,7 @@
 import type { Investigation, InvestigationLookup } from "../../api";
 import { humanise, plural } from "../../lib/format";
+import { Prose } from "../../ui/prose";
+import { LookupResult, parsePythonList, splitTrailer } from "./lookup-result";
 
 /**
  * One lookup said the way a person would say it, rather than as the call it was.
@@ -47,29 +49,67 @@ export function lookupLabel(item: InvestigationLookup): string {
   return item.tool;
 }
 
-function resultExtent(result: string): string {
-  return `${plural(result.split("\n").length, "line")} back`;
+/**
+ * How much came back, counted in what a reader can see rather than in what crossed the wire.
+ *
+ * Lines everywhere except a glob. A glob answers with a Python `repr` of a list — all 38 stored
+ * ones are a single physical line, the longest 13,111 characters of it — and `lookup-result.tsx`
+ * draws it as the list it is a repr of. "1 line back" printed beside 273 visible paths is this
+ * label describing the wire while the block under it describes the answer, and of the two the
+ * answer is what the reader is being told about. So the count comes off the same parse the
+ * render uses, and falls back to lines when that parse refuses and the raw string is what
+ * renders.
+ *
+ * The tool's trailing sentence comes off first, for the same reason and on every tool.
+ * `[Read 3 lines (lines 1-3 of 212 total)…]` is what `read_file` wrote about its own answer, not
+ * a line of it, and `ResultNote` draws it under a rule rather than in the block — so counting it
+ * made a three-line read say "5 lines back" against three numbers on screen. 382 of the 501
+ * stored `read_file` results carry one, and 4 of the 369 greps.
+ */
+function resultExtent(item: InvestigationLookup): string {
+  if (item.tool === "glob") {
+    const paths = parsePythonList(item.result);
+    if (paths) return `${plural(paths.length, "path")} back`;
+  }
+  return `${plural(splitTrailer(item.result).body.split("\n").length, "line")} back`;
 }
 
 /**
  * How an investigation ended, in the reader's words rather than the enum's.
  *
- * `null` is deliberately not "finished". It means the reason was not recorded — which is
- * true of every investigation stored before terminations existed, and of nothing else — and
- * calling that a natural end would tell a reader the search was complete on the strength of
- * a missing field.
+ * Only the endings that are news are here, and every one of them is the same news: the
+ * looking stopped before it was finished. A natural end is deliberately absent. It is the
+ * one termination that tells a reader nothing the lookup count beside it has not already
+ * told them — "it ended when it ended" — so it earns no clause and is left unsaid.
+ *
+ * `null` is deliberately not a natural end either. It means the reason was not recorded —
+ * which is true of every investigation stored before terminations existed, and of nothing
+ * else — and letting it fall silent with the natural ends would tell a reader the search
+ * was complete on the strength of a missing field.
  */
 const ENDINGS: Record<string, string> = {
-  natural_end: "the pass stopped looking",
   model_call_limit: "cut short: no turns left",
   lookup_limit: "cut short: no lookups left",
   investigation_size_limit: "cut short: too much gathered",
   provider_error: "cut short: the model stopped answering",
+  // `Termination` has eight members and this map covered five of them, which were not the
+  // five that happen. Over the 147 stored investigations the endings are `natural_end` 143,
+  // `repeated_tool_call` 3 and `malformed_judgement` 1; the other four written here have
+  // never occurred once. So the second commonest real ending was falling through to
+  // `humanise` and printing "ended: Repeated tool call" — the enum member itself, title-cased,
+  // in the one line this fold has to say something in.
+  //
+  // Not "no lookups left", which is what a spent budget would be. `domain/review.py` calls it
+  // a stuck loop rather than a search: the same question put to the same tool a third time,
+  // against a repository that cannot change while it is judged and tools that only read. The
+  // third answer is the second answer. So the clause says what the pass saw.
+  repeated_tool_call: "cut short: it began repeating itself",
+  wall_clock_limit: "cut short: out of time",
   malformed_judgement: "cut short: the answer could not be used",
 };
 
 function ending(termination: string | null | undefined): string {
-  if (!termination) return "why it ended was not recorded";
+  if (!termination) return "end not recorded";
   return ENDINGS[termination] ?? `ended: ${humanise(termination)}`;
 }
 
@@ -77,7 +117,12 @@ function ending(termination: string | null | undefined): string {
  * What the closed fold says, which has to be what is inside it.
  *
  * A fold labelled only "Looked up" makes a reader open it to find out whether it was worth
- * opening. The count is half the answer and how the looking ended is the other half.
+ * opening. The count is half the answer; the other half is whether the looking ran out, and
+ * that half is only worth printing when the answer is yes. A pass that stopped of its own
+ * accord adds no clause at all: the count has already said how much looking there was, and
+ * "the pass stopped looking" after it repeats the fact in worse words. A pass that was cut
+ * short says so, and a stored review whose reason was never recorded says that instead of
+ * borrowing the silence that now means a natural end.
  *
  * It used to say "settled the hinge" or "the repository was silent", off a `resolved` flag
  * the investigating model set. Nothing here settles a hinge any more — the judge does, and
@@ -95,6 +140,7 @@ export function investigationSummary(investigation: Investigation): string {
   }
   const counted = plural(investigation.lookups.length, "lookup");
   if (!investigation.candidate_id) return counted;
+  if (investigation.termination === "natural_end") return counted;
   return `${counted} · ${ending(investigation.termination)}`;
 }
 
@@ -116,25 +162,30 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
                 <span className="font-mono text-[11px] leading-5 text-ink-2 [overflow-wrap:anywhere]">
                   {lookupLabel(item)}
                 </span>
-                <span className="text-[11px] leading-5 text-ink-3">{resultExtent(item.result)}</span>
+                <span className="text-[11px] leading-5 text-ink-3">{resultExtent(item)}</span>
               </p>
-              <pre className="mt-1 max-h-64 overflow-auto rounded-md border border-rule bg-surface px-3 py-2">
-                <code className="font-mono text-[11px] leading-5 text-ink-2">{item.result}</code>
-              </pre>
+              {/* Drawn as the shape the tool it names produces, rather than as one grey wall
+                  of preformatted text. The dispatch, the six shapes and the argument for
+                  dispatching on the tool rather than on the text are all in
+                  `lookup-result.tsx`; the block, its ground and its cap have not moved and
+                  are argued there too. */}
+              <LookupResult item={item} />
             </li>
           ))}
         </ul>
       ) : null}
       {investigation.closing ? (
-        <p className="mt-3 max-w-[62ch] text-[13px] leading-6 text-ink-2 wrap-anywhere">
-          {investigation.closing}
+        // Written by the same judge loop that writes a finding's reasoning, and about the
+        // same code, so it quotes identifiers the same way and is drawn the same way.
+        <p className="mt-3 max-w-[46ch] text-[13px] leading-6 text-ink-2 wrap-anywhere">
+          <Prose>{investigation.closing}</Prose>
         </p>
       ) : null}
       {investigation.withheld ? (
         /* The application's own sentence, verbatim: it names the way back rather than
            describing a fault, and paraphrasing it would lose the instruction. */
-        <p className="mt-3 max-w-[62ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
-          {investigation.withheld}
+        <p className="mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+          <Prose>{investigation.withheld}</Prose>
         </p>
       ) : null}
       {investigation.lookups.length && investigation.termination !== "natural_end" ? (
@@ -147,7 +198,7 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
            the second branch unreachable: a stored review from before the field existed has
            `termination: null`, which is exactly the case the sentence is for, and it was
            the one case that silently rendered nothing. */
-        <p className="mt-3 max-w-[62ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+        <p className="mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
           {investigation.termination
             ? `The lookups stopped early — ${ending(investigation.termination)}. What the review
                concluded was reached from what had been gathered by then.`

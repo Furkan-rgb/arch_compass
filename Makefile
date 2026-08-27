@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check policy-index policy-index-check lint typecheck test frontend-check frontend-build test-ollama test-openrouter examples evaluation check build full test-browser run dev web web-hosted docker-build
+.PHONY: sync frontend-sync api-types api-types-check policy-index policy-index-check judge-prompt-check lint typecheck test frontend-check frontend-build test-ollama test-openrouter examples evaluation check build full test-browser run dev web web-hosted docker-build
 
 sync:
 	uv sync --locked
@@ -23,6 +23,16 @@ policy-index:
 
 policy-index-check:
 	uv run python scripts/build_policy_index.py --check
+
+# What each judge sends a model, digested and compared against the digest recorded beside the
+# prompt identity in `reasoning/records.py`. In `check` and not gated behind anything, for the
+# same reason the policy index check is: it reaches no provider and needs no key, and the
+# thing it catches is invisible until much later — a stored finding stamped with an identity
+# whose prompt has since moved reads as unmoved for ever, so the verdict is never revisited.
+# There is no build half to pair with this. The failure prints the digest to record, and
+# recording it is a person's decision about whether the identity moves too.
+judge-prompt-check:
+	uv run python scripts/judge_prompt_check.py --check
 
 lint:
 	uv run ruff check .
@@ -155,7 +165,7 @@ docker-build:
 	    || { echo "The container answered without a session cookie:"; cat $$headers; exit 1; }; \
 	  echo "docker smoke: /api/workspace answered 200 with a session cookie"
 
-check: frontend-build lint typecheck test frontend-check policy-index-check
+check: frontend-build lint typecheck test frontend-check policy-index-check judge-prompt-check
 
 build: frontend-build
 	uv build --no-sources

@@ -52,10 +52,17 @@ function SelectTrigger({
       data-slot="select-trigger"
       className={cn(
         "inline-flex w-fit select-none items-center justify-between gap-1.5 whitespace-nowrap",
-        "rounded-sm border border-rule-strong bg-control text-ink shadow-rim transition duration-150",
+        // `--rule-control`, not `--rule-strong`. This trigger rests on `--control`, which in
+        // light is the same white as the panel behind it, so the edge is the entire
+        // affordance — and `--rule-strong` measured 1.41:1 against it, under the 3:1 a
+        // boundary a reader has to find is held to. `--rule` and `--rule-strong` keep
+        // structure, which is a quieter job.
+        "rounded-sm border border-rule-control bg-control text-ink shadow-rim transition duration-150",
         "hover:bg-control-2",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20",
-        "disabled:pointer-events-none disabled:opacity-45",
+        // No ring of its own, and no `outline-none` turning off the one the product declares
+        // in `@layer base`. The registry's `ring-ink/20` composites to 1.57:1, so this was a
+        // second, weaker focus treatment that won wherever it was written.
+        "disabled:pointer-events-none disabled:border-rule-control disabled:bg-control disabled:text-ink-3 disabled:shadow-none",
         "data-[placeholder]:text-ink-3",
         size === "sm"
           ? "min-h-8 pointer-coarse:min-h-11 px-2.5 text-xs font-semibold"
@@ -126,7 +133,12 @@ function SelectItem({
         "relative flex w-full cursor-default select-none items-center gap-2 rounded-sm",
         "min-h-8 pointer-coarse:min-h-11 py-1.5 pl-2 pr-7 text-[13px] text-ink-2 outline-none",
         "focus:bg-sunken focus:text-ink data-[state=checked]:text-ink data-[state=checked]:font-semibold",
-        "data-disabled:pointer-events-none data-disabled:opacity-45",
+        // An option that cannot be chosen is still an option a reader is meant to read — it
+        // is telling them the alternative exists and is unavailable. `opacity-45` on
+        // `--ink-2` took that sentence to roughly 2:1; `--ink-3` is the tier the token layer
+        // measures at 5:1 or better on every ground, and the missing hover is what says the
+        // row is inert.
+        "data-disabled:pointer-events-none data-disabled:text-ink-3",
         className,
       )}
       {...props}

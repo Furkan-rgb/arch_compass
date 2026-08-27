@@ -15,8 +15,14 @@ Two checks, both of which name what broke rather than that something did:
 * **Every row is a target.** 44px in the smaller dimension, which is the charter's fifth
   principle and the size of the part of a thumb that lands where it was aimed.
 
-Both are written against roles, landmarks and the data attributes the application itself
-navigates with, because the copy on these pages is being rewritten while this is written.
+Both are written against roles, landmarks and `data-candidate`, because the copy on these
+pages is being rewritten while this is written. That attribute is not read by the
+application — `docket.tsx:671` is the only line outside a test that names it, and it writes
+it; the keyboard walk steps through `finding.candidate.id` in React state. What makes it a
+sound anchor is what it holds rather than who reads it: the candidate identity the walk
+steps through and the key a decision is filed under, written by the row itself, so it
+survives a redesign of the row. The older wording here claimed the application navigated by
+the attribute, which was measured false.
 Where a word appears it is one of the product's own nouns and it is matched as a
 case-insensitive substring.
 """
@@ -506,6 +512,22 @@ def test_every_tap_target_in_the_review_is_wide_enough_for_a_thumb(  # type: ign
     measure("judgement context at 390px")
     close_dialog(phone_page)
 
+    # The Ask surface, which is the fourth place on this page a thumb lands and was the one
+    # state this sweep never reached. It is here because its composer now holds its button
+    # *inside* the field — the arrangement where a target is most easily squeezed to fit the
+    # box around it — and because the openers beside it are `sm` controls that reach the floor
+    # only through `pointer-coarse`.
+    #
+    # The box is typed into first, and that is not decoration. `Ask` is disabled while there
+    # is nothing to send, `exemption` above quite correctly refuses to measure a control that
+    # cannot be activated, and a state that only ever shows the disabled one measures the
+    # composer's button never. A word in the field is what puts it on screen as a target.
+    surface_tabs(phone_page).last.click()
+    composer = phone_page.locator("textarea[aria-label]").first
+    composer.wait_for(state="visible", timeout=20_000)
+    composer.fill("Why is the gateway held?")
+    measure("ask surface at 390px")
+
     # Kept in the output rather than swallowed: an exemption nobody ever reads is a hole
     # rather than an exemption. pytest shows it on failure, or on demand with `-s`.
     print("\nTap targets exempted with a reason:")
@@ -585,3 +607,236 @@ def test_the_hero_puts_the_judgement_beside_the_copy_on_a_tablet(  # type: ignor
         )
     finally:
         context.close()
+
+
+# --------------------------------------------------------------------------------------
+# Where the way out of a held finding sits, on the width where the rail stacks
+# --------------------------------------------------------------------------------------
+
+#: How far **Answer it** may sit from the question it answers, in CSS pixels, at 390x844.
+#:
+#: Four, today: `mt-1` on the control and nothing else between it and the `<p>` its
+#: `aria-describedby` names. The bound is a line box rather than the measurement, so an honest
+#: change of margin does not fail it and a change of *place* does — which is the whole subject.
+#:
+#: `docs/known-defects.md` carries the other half of this: below `lg` the rail stacks under the
+#: argument, so the control is reached after the model's paragraph. What that entry got wrong
+#: for two passes was how far. It reasoned from a 2,139-character argument standing above an
+#: **Answer it**, and no held finding can carry one:
+#: `FindingOutput.the_verdict_carries_what_it_is_allowed_to` in `reasoning/adapters/langchain.py`
+#: refuses a hinge on any verdict but `held`, and `finding-detail.tsx` draws no control without
+#: a hinge. The arguments this control can ever stand under run 156 to 971 characters across the
+#: 69 recorded held judgements, and swept over all 69 with their own hinges it lands 275px to
+#: 956px below the *top* of the argument, median 624px — and 4px below the question.
+ANSWER_IT_FROM_ITS_QUESTION_PX = 26
+
+
+def test_the_way_out_of_a_held_finding_is_the_first_control_a_phone_reaches(  # type: ignore[no-untyped-def]
+    phone_page, review_url: str
+) -> None:
+    """Where **Answer it** sits below `lg`, as three rectangles instead of an argument.
+
+    Below `lg` the Judged band is one column and the rail stacks under the argument, so
+    everything in the rail is reached by scrolling past the model's paragraph. That is the cost
+    of an open row and every verdict pays it. What this pins is that the held row's extra
+    control is not the one being buried: it arrives first — before **Judgement context**, and
+    long before Accept / Park / Waive, which every row carries — and it arrives attached to the
+    question it answers rather than a screen away from it.
+
+    The distances to the other two controls are asserted as an *order* and not as a budget.
+    They are whatever the argument, the readings and the excerpts of a given finding come to,
+    and a bound on them would be a bound on how much the model wrote.
+
+    jsdom holds the other half, in `features/review/finding-detail.test.tsx`: a cleared finding
+    has no hinge and so no control here at all, which is why nothing in this layout may depend
+    on one existing.
+    """
+
+    wait_for_review(phone_page, review_url)
+    show_everything(phone_page)
+    open_first_candidate(phone_page)
+    phone_page.locator("[class*='max-w-[58ch]']").first.wait_for(
+        state="visible", timeout=REVIEW_TIMEOUT_MS
+    )
+    phone_page.evaluate("() => document.fonts.ready")
+
+    where = phone_page.evaluate(
+        """() => {
+             const argument = document.querySelector(
+               '[class*="max-w-[58ch]"][class*="text-[16px]"]',
+             );
+             if (!argument) return null;
+             const named = (pattern) =>
+               [...document.querySelectorAll("button")].filter((control) =>
+                 pattern.test((control.textContent || "").trim()),
+               );
+             const ways = named(/^Answer it/);
+             const answer = ways[0];
+             if (!answer) return null;
+             const question = document.getElementById(answer.getAttribute("aria-describedby"));
+             if (!question) return null;
+             const context = named(/judgement context/i)[0];
+             const decisions = named(/^(Accept and act|Park|Waive)$/);
+             const top = (node) => node.getBoundingClientRect().top;
+             const bottom = (node) => node.getBoundingClientRect().bottom;
+             return {
+               ways: ways.length,
+               fromItsQuestion: top(answer) - bottom(question),
+               belowArgument: top(answer) - bottom(argument),
+               contextBelowArgument: context ? top(context) - bottom(argument) : null,
+               decisionsBelowArgument: decisions.length
+                 ? Math.min(...decisions.map(top)) - bottom(argument)
+                 : null,
+             };
+           }"""
+    )
+    assert where is not None, "the first row of this review is not a held finding with a way out"
+
+    # One control for one action. The repair this test replaces proposed a second one on the
+    # phone, which `features/review/review-workbench.test.tsx` holds the line against elsewhere.
+    assert where["ways"] == 1, f"{where['ways']} ways out of one held finding"
+
+    assert where["fromItsQuestion"] <= ANSWER_IT_FROM_ITS_QUESTION_PX, (
+        f"**Answer it** is {where['fromItsQuestion']:.0f}px below the question it answers, past "
+        f"the {ANSWER_IT_FROM_ITS_QUESTION_PX}px this layout allows — the pair reads as one "
+        "thing or it reads as a control in a corner"
+    )
+
+    assert where["contextBelowArgument"] is not None, "an open finding has a Judgement context"
+    assert where["decisionsBelowArgument"] is not None, "an open finding has a decision bar"
+
+    # **Below the argument, before the ordering.** The three distances are signed, and an
+    # ordering is a *relative* claim: it survives the one term this test is really about going
+    # negative, because the other two are measured from the same edge and fall with it. That is
+    # not a hypothetical. Move the rail above `<ModelProse>` in `finding-detail.tsx`, rebuild
+    # the bundle and run this test, and it passed with **Answer it** drawn above the model's
+    # paragraph on a phone. `docs/known-defects.md` names this test as what stops that shape
+    # changing, so the shape has to be what it measures. jsdom catches the same move as a
+    # document-order failure (`finding-detail.test.tsx`, "puts the rail after the argument");
+    # this is the half that knows the rail was *drawn* after it.
+    #
+    # Measured, on this review's first held row at 390x844 with the rail hoisted: **Answer it**
+    # at **-202.17px**, **Judgement context** at **+631.38px**, the decision bar at
+    # **+1,625.55px**, ascending — one term negative and two positive, and the ordering
+    # assertion below is satisfied by all three. Only the first term *can* go negative: the
+    # other two are drawn below the grid that the rail and the argument share, so hoisting the
+    # rail inside that grid cannot lift them past it. The argument on this row is 79.17px tall,
+    # which is the whole of why the first distance is 202px, and it is why the -1,058 / -938 /
+    # 682 this comment used to carry does not reproduce here — that triple was taken over a
+    # different row, and a distance measured against one judgement is a fact about that
+    # judgement's length.
+    #
+    # Zero, not a margin: the two boxes are the argument and a control below it, and any
+    # positive gap is a layout decision rather than a property. What is being refused is a
+    # negative one.
+    assert where["belowArgument"] >= 0, (
+        f"**Answer it** is drawn {-where['belowArgument']:.0f}px *above* the bottom of the "
+        "model's argument — the rail is painting before the paragraph it is a margin note on, "
+        "which is the stacked reading order this layout is built on running backwards"
+    )
+    assert (
+        where["belowArgument"] < where["contextBelowArgument"] < where["decisionsBelowArgument"]
+    ), (
+        "on a phone the way out of a held finding is reached before the controls every row "
+        f"carries: **Answer it** at {where['belowArgument']:.0f}px below the argument, "
+        f"**Judgement context** at {where['contextBelowArgument']:.0f}px, the decision bar at "
+        f"{where['decisionsBelowArgument']:.0f}px"
+    )
+
+
+#: The widest run of characters the model has ever written that a line breaker may not split.
+#:
+#: `(src.audiobook.preparation.providers.base.NarrationPreparationProvider)` — 71 characters,
+#: brackets included, because UAX #14 forbids a break after an opening bracket and before a
+#: closing one. It sets **541.7px** in Onest at the reading size, against the **324px** column a
+#: phone gives the model's paragraph. `ui/prose.test-corpus.ts` carries the measurement and the
+#: recipe; this file only needs the string.
+WIDEST_UNBREAKABLE_TOKEN = "(src.audiobook.preparation.providers.base.NarrationPreparationProvider)"
+
+#: Put the widest recorded name into the argument and report what the block is drawn at.
+#:
+#: The text is replaced on the paragraph the component rendered rather than injected into a box
+#: of the test's own, because what is under test is the *shipped* block: its measure, its
+#: wrapping and every ancestor between it and the document. React is not re-rendering while this
+#: runs, so the node keeps the class list it was given.
+_WIDEST_NAME_IN_THE_ARGUMENT = """(token) => {
+  const argument = document.querySelector('[class*="max-w-[58ch]"][class*="text-[16px]"]');
+  if (!argument) return null;
+  const block = argument.querySelector('p');
+  if (!block) return null;
+  block.textContent = `The candidate is ${token} and it has one implementation here.`;
+  const style = getComputedStyle(block);
+  return {
+    overflowWrap: style.overflowWrap,
+    wordBreak: style.wordBreak,
+    column: block.clientWidth,
+    ink: block.scrollWidth,
+  };
+}"""
+
+#: The same block with the permission withdrawn, which is what deleting the class does.
+_WITHOUT_THE_BREAK = """() => {
+  const block = document.querySelector(
+    '[class*="max-w-[58ch]"][class*="text-[16px]"] p',
+  );
+  block.style.overflowWrap = 'normal';
+  block.style.wordBreak = 'normal';
+  return { column: block.clientWidth, ink: block.scrollWidth };
+}"""
+
+
+def test_a_name_wider_than_the_column_folds_instead_of_widening_the_phone(  # type: ignore[no-untyped-def]
+    phone_page, review_url: str
+) -> None:
+    """The one class that keeps a qualified name inside a 324px column, measured where it acts.
+
+    `ModelProse` sets `wrap-anywhere` on every block it draws. Take it off and 48 of the 375
+    recorded judgements draw wider than the column a phone gives that block, the worst by 218px:
+    the widest unbreakable run the model has written is 541.7px against a 324px column. Deleting
+    the class was silent in the whole suite. It was
+    silent *here* too, and for a reason worth naming rather than fixing quietly: the fit check
+    above already measures horizontal overflow on every state of this workbench at 390px, and
+    the deterministic review it drives has never produced a name long enough to reach it. A
+    guarantee held by what one fixture happens to say is not a guarantee, so the content is
+    supplied instead of hoped for.
+
+    The control is the second half and it is what makes the first half mean anything: the same
+    block, the same measurement, with the permission withdrawn — if that does not report, the
+    assertion above is passing on a page where nothing was ever at risk.
+
+    `ui/prose.test.tsx` holds the other half, which is that the block declares the permission at
+    all. This is the half that knows nothing between the paragraph and the document takes it
+    away again.
+    """
+
+    wait_for_review(phone_page, review_url)
+    show_everything(phone_page)
+    open_first_candidate(phone_page)
+    phone_page.locator("[class*='max-w-[58ch]']").first.wait_for(
+        state="visible", timeout=REVIEW_TIMEOUT_MS
+    )
+    # The face has to be the shipped Onest before any width is read: `font-display: swap`
+    # otherwise answers with a fallback whose zero is 0.6299em, and every figure is five per
+    # cent wrong.
+    phone_page.evaluate("() => document.fonts.ready")
+
+    drawn = phone_page.evaluate(_WIDEST_NAME_IN_THE_ARGUMENT, WIDEST_UNBREAKABLE_TOKEN)
+    assert drawn is not None, "no block at the reading size in an open finding"
+    assert drawn["column"] <= 390, (
+        f"the argument is {drawn['column']}px wide inside a 390px phone, so the column this "
+        "test is about is not the one on screen"
+    )
+
+    assert drawn["ink"] <= drawn["column"], (
+        f"the model's paragraph draws {drawn['ink']}px of text inside a {drawn['column']}px "
+        f"column: a {WIDEST_UNBREAKABLE_TOKEN!r} the line breaker may not split has pushed the "
+        "column open instead of folding inside it"
+    )
+    _assert_fits(_fit_failures(phone_page, "a finding whose argument names the widest candidate"))
+
+    # And the check is not vacuous. Take the permission away and the same page reports.
+    without = phone_page.evaluate(_WITHOUT_THE_BREAK)
+    assert without["ink"] > without["column"], (
+        "with the anywhere-break withdrawn the paragraph still fits its column, so the "
+        "assertion above was never at risk on this row and proves nothing about the class"
+    )

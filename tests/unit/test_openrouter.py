@@ -1,22 +1,57 @@
-"""The one hosted boundary: what it offers, what it puts on the wire, and how it fails.
+"""The hosted boundary: what it offers, what it puts on the wire, and what it keeps of the
+answer.
 
 Nothing here talks to OpenRouter. What is worth testing is the part that is ours — which
-catalogue rows become choices, the request contract, the embedding join, and the one thing
+catalogue rows become choices, the request contract, the embedding join, and the two things
 the transport does that the SDK's own client will not: notice an error delivered inside a
-200.
+200, and keep the one field on a completion that says which endpoint served it.
+
+The wire tests drive a real `ChatOpenAI` over an `httpx.MockTransport` and read the request
+it produced. That is the only form that can catch this class of defect: a parameter is
+removed from a body by deleting one line, and every test asserting on a helper's return
+value goes on passing while the request loses it.
 """
 
 from __future__ import annotations
 
+import json
+import threading
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any, cast
 
 import httpx
 import pytest
+from langchain_core.tools import StructuredTool
 
 from archcompass.configuration import ReasoningModelConfig
+from archcompass.domain import (
+    ArchitectureCase,
+    Candidate,
+    Participant,
+    Policy,
+    PolicyScope,
+    PolicyStrength,
+    RepositoryAtlas,
+    RepositoryRef,
+)
 from archcompass.domain.errors import ProviderError
+from archcompass.ports.capabilities import ReviewedSubject
+from archcompass.ports.policy_retrieval import (
+    PolicySelection,
+    RetrievalProvenance,
+    RetrievedPolicySet,
+)
 from archcompass.reasoning.adapters import openrouter
 from archcompass.reasoning.adapters.factory import build_chat_model
+from archcompass.reasoning.adapters.review_tools import OfferedTools
+from archcompass.reasoning.adapters.selected import (
+    SelectedLangChainChatModel,
+    SelectedLangChainJudge,
+)
+from archcompass.reasoning.model_catalog import reasoning_config
+from archcompass.reasoning.records import model_identity
 from archcompass.retrying import is_transient
 
 
@@ -150,6 +185,10 @@ def test_the_request_carries_the_ceiling_openrouter_can_route_on(
     seven declare `max_tokens`. `ChatOpenAI`'s own field normalises to the first whichever
     name it is given, so the ceiling goes through `extra_body`, which the SDK passes
     verbatim.
+
+    Asserted as the whole `extra_body` rather than as one key, so that a parameter added here
+    without a reason written beside it fails a test rather than quietly ranking the endpoints
+    differently. `temperature` is the other member of that body; `request_body` argues it.
     """
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -166,7 +205,7 @@ def test_the_request_carries_the_ceiling_openrouter_can_route_on(
     built = cast("Any", build_chat_model(config))
     body = cast("dict[str, Any]", built.extra_body)
 
-    assert body == {"max_tokens": 8_000}
+    assert body == {"max_tokens": 8_000, "temperature": 0}
 
 
 def test_no_provider_routing_preference_is_sent_at_all() -> None:
@@ -192,33 +231,480 @@ def test_a_depth_is_sent_only_when_one_was_asked_for() -> None:
 
     Every parameter in the body narrows the endpoints that can serve the request, so one
     sent to mean "no preference" would be availability spent to say nothing.
+
+    Only `None` earns that silence. This test used to assert it for `False` as well, which
+    read as the same decision and was not one: it left "do not reason" and "reason however
+    you like" as the same request. A switch is now sent as the ends of the effort scale —
+    `request_body` argues the approximation, and `test_provider_conformance.py` asserts on
+    the wire that the three states stay three requests.
     """
 
     assert "reasoning" not in openrouter.request_body(1)
-    assert "reasoning" not in openrouter.request_body(1, False)
+    assert openrouter.request_body(1, True)["reasoning"] == {"effort": "high"}
+    assert openrouter.request_body(1, False)["reasoning"] == {"effort": "minimal"}
     assert openrouter.request_body(1, "medium")["reasoning"] == {"effort": "medium"}
 
 
-def test_temperature_is_not_sent_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
-    """It was pinned to 0 for a determinism this path does not have.
+def _completion(
+    content: str,
+    *,
+    provider: str | None = "Google AI Studio",
+    calls: Sequence[tuple[str, Mapping[str, object]]] = (),
+) -> dict[str, Any]:
+    """One chat completion, shaped the way OpenRouter answers.
 
-    Measured over three runs of one candidate set on identical input: the same candidate
-    came back `material`, `cleared` and `held`. What the parameter did buy was a narrower
-    route — three of `google/gemini-3.5-flash-lite`'s seven endpoints declare it — and on a
-    reasoning-only model it bought a wall: none of `openai/gpt-5.6-luna-pro`'s five accept
-    it, so every request 404'd before a candidate was read.
+    `provider` is the field this whole exercise turns on: OpenRouter names the endpoint that
+    served the request at the top level of the body, beside `model`. `None` builds the body
+    a vendor of this API that has no such notion would send, which has to stay readable.
+
+    `calls` makes the completion a turn that asks for tools instead of one that answers,
+    which is what a judgement that looks things up actually consists of. The shape is the
+    OpenAI one because that is what OpenRouter speaks and what `langchain-openai` parses:
+    arguments are a JSON *string*, not an object, and a message carrying tool calls carries
+    a null content and a `tool_calls` finish reason.
     """
 
-    from archcompass.reasoning.adapters.factory import build_chat_model
-    from archcompass.reasoning.model_catalog import reasoning_config
+    message: dict[str, Any] = {"role": "assistant", "content": content or None}
+    if calls:
+        message["tool_calls"] = [
+            {
+                "id": f"call-{index}",
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(arguments)},
+            }
+            for index, (name, arguments) in enumerate(calls)
+        ]
+    body: dict[str, Any] = {
+        "id": "gen-1",
+        "model": "google/gemini-3.5-flash-lite",
+        "object": "chat.completion",
+        "created": 1,
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": "tool_calls" if calls else "stop",
+                "message": message,
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    }
+    if provider is not None:
+        body["provider"] = provider
+    return body
+
+
+def _served_over(
+    handler: Callable[[httpx.Request], httpx.Response], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Give `build_chat_model` a transport that answers from `handler`.
+
+    The client is built here rather than by monkeypatching a socket, and it installs
+    `_RESPONSE_HOOKS` rather than a copy of that list — so a hook added to the real transport
+    later is exercised by these tests instead of quietly falling outside the only place that
+    watches one run. The single line these tests then do not cover is `http_client`'s own
+    `event_hooks=` argument, and it is the same expression.
+    """
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "not-a-real-key")
-    config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", None)
-    model = build_chat_model(config)
+    monkeypatch.setattr(
+        openrouter,
+        "http_client",
+        lambda timeout: httpx.Client(
+            timeout=timeout,
+            transport=httpx.MockTransport(handler),
+            event_hooks={"response": list(openrouter._RESPONSE_HOOKS)},
+        ),
+    )
 
-    assert "temperature" not in openrouter.request_body(1)
-    # `ChatOpenAI` sends its own field too, so the absence has to hold there as well.
-    assert getattr(model, "temperature", None) is None
+
+def test_a_judge_asks_for_greedy_decoding_and_the_request_carries_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole body, asserted as one value, because that is what went wrong.
+
+    `temperature=0` sat in the Ollama branch of `build_chat_model` and nowhere else, so every
+    hosted judgement this product has ever made was sampled at whatever the endpoint's default
+    is. Nothing failed and nothing said so: the only assertion on the subject was that the
+    parameter was absent, which is a test of the helper rather than of the request.
+
+    So this reads the request a real `ChatOpenAI` produced. Asserting the body as a whole
+    rather than one key at a time is deliberate in both directions — a parameter silently
+    dropped fails here, and so does one smuggled in, which matters on a path where every
+    parameter is a routing preference.
+
+    It does not assert that judging is reproducible, and nothing here should. Temperature
+    removes a source of variance from each token; the loop's variance is a sampled tool call
+    at the end of a sampled reasoning trace, and no parameter in this body reaches that.
+    """
+
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(cast("dict[str, Any]", json.loads(request.content)))
+        return httpx.Response(200, json=_completion("ready"))
+
+    _served_over(handler, monkeypatch)
+    config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", "medium")
+
+    build_chat_model(config).invoke("judge this")
+
+    assert sent == {
+        "messages": [{"content": "judge this", "role": "user"}],
+        "model": "google/gemini-3.5-flash-lite",
+        "stream": False,
+        "max_tokens": config.max_output_tokens,
+        "temperature": 0,
+        "reasoning": {"effort": "medium"},
+    }
+
+
+def test_no_sampling_parameter_is_sent_that_temperature_has_already_settled() -> None:
+    """`top_p` and `seed` are absent, and their absence is a decision rather than an omission.
+
+    Every parameter in this body is a routing preference, so one that says nothing ranks the
+    endpoints for nothing. At temperature 0 `top_p` chooses from a distribution that has
+    collapsed onto a single token. `seed` is the parameter to reach for if the record shows
+    this model family ignores `temperature` — `Finding.served_by` is what will show it — and
+    until then it is declared by fewer endpoints while buying no more reproducibility.
+    """
+
+    body = openrouter.request_body(1, "medium")
+
+    assert "top_p" not in body
+    assert "seed" not in body
+
+
+def test_the_endpoint_that_answered_is_kept_off_a_body_nothing_else_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hook, on its own, because it is the only place the field ever exists.
+
+    `langchain-openai` builds `response_metadata` from a fixed set of keys and `provider` is
+    not one of them, so a completion that arrives naming "Google AI Studio" reaches the
+    application as an `AIMessage` that cannot say where it came from. Asserted here as well:
+    a body from a vendor of this API with no such notion records nothing rather than
+    something empty, and a body arriving with nothing recording records nothing at all.
+    """
+
+    def answered(provider: str | None) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=_completion("ready", provider=provider),
+            headers={"content-type": "application/json"},
+        )
+
+    with openrouter.observed_route() as route:
+        openrouter._observe_route(answered("Google AI Studio"))
+        openrouter._observe_route(answered("Vertex"))
+        openrouter._observe_route(answered("Google AI Studio"))
+        openrouter._observe_route(answered(None))
+
+    # First seen first, each endpoint once: a judgement that made twenty-six calls to one
+    # endpoint must not store that name twenty-six times in a field a person reads.
+    assert route.served_by == "Google AI Studio,Vertex"
+
+    # Outside a record there is nothing to write into, and that has to be silent rather than
+    # fatal: the same transport carries the catalogue probe and the embedding calls.
+    openrouter._observe_route(answered("Google AI Studio"))
+
+
+def _judged(tmp_path: Path) -> tuple[Candidate, ArchitectureCase, RetrievedPolicySet]:
+    candidate = Candidate.identified(
+        pattern="sole_implementation",
+        summary="Port has one implementation",
+        participants=(Participant("Port", "interface"),),
+    )
+    policy = Policy(
+        "policy-a",
+        "Delay abstraction",
+        "Keep a boundary only when it hides meaningful variation.",
+        PolicyScope.GENERAL,
+        PolicyStrength.GUIDANCE,
+        "hash-a",
+    )
+    del tmp_path
+    return (
+        candidate,
+        ArchitectureCase.create(),
+        RetrievedPolicySet(
+            str(candidate.id),
+            (PolicySelection(policy),),
+            RetrievalProvenance(candidate.id, "test", "1", "corpus", (policy.id,)),
+        ),
+    )
+
+
+class _Selected:
+    """A workspace whose selected model is this hosted one, as the transport reads it."""
+
+    def __init__(self, config: ReasoningModelConfig) -> None:
+        self._config = config
+
+    def current(self) -> ReasoningModelConfig:
+        return self._config
+
+    def record_failure(self, detail: str) -> None:
+        raise AssertionError(f"nothing here reaches OpenRouter: {detail}")
+
+
+def test_a_finding_records_every_endpoint_that_served_the_judgement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record that turns the open question in the diagnosis into a query.
+
+    One candidate's verdict swung cleared → material → cleared → material across four
+    revisions of one branch on byte-identical input, and nothing stored could say whether the
+    cause was the sampler or which of `google/gemini-3.5-flash-lite`'s seven endpoints
+    answered. `model_identity` is the same string either way. Now the finding carries the
+    answer the gateway itself gave.
+
+    Two calls in one judgement, and both endpoints on the finding, because that is the case
+    a simpler record gets wrong: the first answer here fails the schema, `structured_output`
+    asks once more, and the gateway routes the second request somewhere else. Keeping only
+    the last would report a judgement as served by "Vertex" when half of it was not.
+
+    Offline throughout — the transport is a mock and the two bodies are written here.
+    """
+
+    answers = iter(
+        [
+            (_completion(json.dumps({"verdict": "definitely"}), provider="Google AI Studio")),
+            (
+                _completion(
+                    json.dumps(
+                        {
+                            "verdict": "cleared",
+                            "reasoning": "The boundary earns its keep.",
+                            "policy_bearings": [
+                                {"policy_id": "policy-a", "reasoning": "It applies."}
+                            ],
+                        }
+                    ),
+                    provider="Vertex",
+                )
+            ),
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, json=next(answers))
+
+    _served_over(handler, monkeypatch)
+    config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", None)
+    judge = SelectedLangChainJudge(
+        SelectedLangChainChatModel(cast("Any", _Selected(config)))
+    )
+    candidate, case, policies = _judged(tmp_path)
+
+    finding = judge.judge(candidate, case, policies)
+
+    assert finding.served_by == "Google AI Studio,Vertex"
+    # The provenance beside it is unaffected: which endpoint answered is not part of what the
+    # judgement was asked, and nothing that compares two judgements may start reading it.
+    assert finding.model_identity == model_identity(config)
+
+
+def test_a_provider_with_one_endpoint_records_nothing_rather_than_something(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Empty is the answer for Ollama and for the deterministic stand-in, and it is stored.
+
+    A local runner has no endpoint to name and no gateway choosing between several, so there
+    is nothing true to put here. The field has to read as absent rather than as a route
+    somebody could compare, which is also what every finding stored before the field existed
+    reads as.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            json=_completion(
+                json.dumps(
+                    {
+                        "verdict": "cleared",
+                        "reasoning": "The boundary earns its keep.",
+                        "policy_bearings": [
+                            {"policy_id": "policy-a", "reasoning": "It applies."}
+                        ],
+                    }
+                ),
+                provider=None,
+            ),
+        )
+
+    _served_over(handler, monkeypatch)
+    config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", None)
+    judge = SelectedLangChainJudge(
+        SelectedLangChainChatModel(cast("Any", _Selected(config)))
+    )
+    candidate, case, policies = _judged(tmp_path)
+
+    finding = judge.judge(candidate, case, policies)
+
+    assert finding.served_by == ""
+
+
+def test_two_judgements_in_flight_at_once_keep_their_routes_apart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The shape a review actually runs in, and the one a simpler record gets wrong.
+
+    The graph dispatches every selected candidate at once — forty-six of them is an ordinary
+    number for a real repository — and all of those branches judge through one
+    `SelectedLangChainJudge` over one `httpx.Client`. So the obvious place to hang "which
+    endpoint answered", an attribute on the transport or on the judge, is shared by every
+    judgement in flight, and the value it holds when a branch finishes is whatever answered
+    last anywhere. That is wrong exactly when a review is busy, which is the only time the
+    field is interesting. This test fails against that design and passes against the
+    `ContextVar` in `openrouter`.
+
+    The barrier is what makes it a test of isolation rather than of sequencing: neither
+    request is answered until both are on the wire, so the two judgements genuinely overlap
+    rather than happening to take turns. Each thread is handed its own endpoint, and each
+    finding must come back naming one endpoint — its own — rather than two, or the other's.
+
+    Offline: the transport is a mock, the two bodies are written here, and the only thing
+    concurrent is this process.
+    """
+
+    both_in_flight = threading.Barrier(2, timeout=30)
+    endpoints = iter(("Google AI Studio", "Vertex"))
+    routed: dict[int, str] = {}
+    handing_out = threading.Lock()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        with handing_out:
+            endpoint = routed.setdefault(threading.get_ident(), next(endpoints))
+        both_in_flight.wait()
+        return httpx.Response(
+            200,
+            json=_completion(
+                json.dumps(
+                    {
+                        "verdict": "cleared",
+                        "reasoning": "The boundary earns its keep.",
+                        "policy_bearings": [
+                            {"policy_id": "policy-a", "reasoning": "It applies."}
+                        ],
+                    }
+                ),
+                provider=endpoint,
+            ),
+        )
+
+    _served_over(handler, monkeypatch)
+    config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", None)
+    judge = SelectedLangChainJudge(
+        SelectedLangChainChatModel(cast("Any", _Selected(config)))
+    )
+    first = _judged(tmp_path)
+    second = _judged(tmp_path)
+
+    with ThreadPoolExecutor(max_workers=2) as branches:
+        findings = list(
+            branches.map(lambda judged: judge.judge(*judged), (first, second))
+        )
+
+    # One name each, and not the same name: a leak in either direction shows up here as a
+    # comma-joined pair or as two findings claiming the same endpoint.
+    assert sorted(finding.served_by for finding in findings) == ["Google AI Studio", "Vertex"]
+
+
+class _Grep:
+    """A toolbox offering one tool, so a judgement really runs the gathering loop."""
+
+    def for_review(self, repository: RepositoryRef, atlas: RepositoryAtlas) -> OfferedTools:
+        del repository, atlas
+
+        def grep(pattern: str) -> str:
+            del pattern
+            return "src/sinks.py:12: class FileSink"
+
+        return OfferedTools(
+            tools=(
+                StructuredTool.from_function(
+                    func=grep,
+                    name="grep",
+                    description="Search the reviewed source.",
+                    args_schema={
+                        "type": "object",
+                        "properties": {"pattern": {"type": "string"}},
+                        "required": ["pattern"],
+                        "additionalProperties": False,
+                    },
+                ),
+            )
+        )
+
+
+def test_the_route_is_seen_from_inside_the_gathering_loop_as_well(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The production path, which is the one every other test here goes around.
+
+    A hosted judgement is a `DeepArchitectureJudge` running a LangGraph agent, and every
+    request it makes is made from inside that graph rather than from the frame that opened
+    `observed_route`. The record is a `ContextVar`, so this asserts the assumption the whole
+    design rests on: LangGraph copies the calling context into the tasks it schedules, the
+    copy carries the same mutable record, and a completion arriving three frames down is
+    written into the record the judgement will read when it returns. If that were false,
+    `served_by` would be silently empty for every hosted judgement that used a tool — which
+    is most of them, and exactly the ones worth knowing the route of.
+
+    The script is a real gathering: the model asks for a grep, the tool runs, and the second
+    turn answers with the structured verdict. The gateway routes the two requests to
+    different endpoints, as it is free to do, and the finding names both.
+
+    Offline: an `httpx.MockTransport`, two bodies written here, and a tool that reads
+    nothing.
+    """
+
+    answers = iter(
+        [
+            _completion("", provider="Google AI Studio", calls=[("grep", {"pattern": "Sink"})]),
+            _completion(
+                "",
+                provider="Vertex",
+                calls=[
+                    (
+                        "FindingOutput",
+                        {
+                            "verdict": "cleared",
+                            "reasoning": "The boundary earns its keep.",
+                            "policy_bearings": [
+                                {"policy_id": "policy-a", "reasoning": "It applies."}
+                            ],
+                        },
+                    )
+                ],
+            ),
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, json=next(answers))
+
+    _served_over(handler, monkeypatch)
+    config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", None)
+    judge = SelectedLangChainJudge(
+        SelectedLangChainChatModel(cast("Any", _Selected(config))), cast("Any", _Grep())
+    )
+    candidate, case, policies = _judged(tmp_path)
+    repository = RepositoryRef("repo", tmp_path, "branch", "content")
+    subject = ReviewedSubject(
+        repository=repository, atlas=RepositoryAtlas("atlas", repository)
+    )
+
+    finding = judge.judge(candidate, case, policies, subject=subject)
+
+    # The loop really ran — a judgement that fell through to the toolless branch would name
+    # one endpoint and would prove nothing about where the record can be seen from.
+    assert [item.tool for item in subject.lookups] == ["grep"]
+    assert finding.served_by == "Google AI Studio,Vertex"
 
 
 def test_a_model_that_cannot_reason_offers_only_its_own_default() -> None:
@@ -414,6 +900,56 @@ def test_a_stream_is_never_read_here() -> None:
     openrouter._raise_inline_error(
         _http_response(200, b"data: {}\n\n", content_type="text/event-stream")
     )
+
+
+def test_a_body_that_was_served_and_then_errored_still_names_who_served_it() -> None:
+    """The order of `_RESPONSE_HOOKS`, over the case that order was chosen for.
+
+    Both hooks read the same body and only one of them is allowed to end the request, so
+    which runs first is a decision rather than a listing. `_raise_inline_error` raises out
+    of the hook chain: put it first and every hook after it is skipped for exactly the
+    responses where something went wrong. Those are the responses whose route is worth most
+    — a judgement that failed mid-generation is the one where "which of the seven endpoints
+    answered" is a question somebody will actually ask — so recording has to happen before
+    refusing, and nothing else in this file makes that ordering fail when it is reversed.
+
+    Driven through a real `httpx.Client` over a mock transport, reaching for
+    `_RESPONSE_HOOKS` itself rather than naming the two hooks here, for the reason
+    `_served_over` gives: a hook added later is then covered by this ordering rather than
+    quietly outside it.
+
+    The body is the shape OpenRouter sends when a provider accepted the request and then
+    failed part way through producing output — `provider` at the top level beside an
+    `error` object, and no `choices` at all, because there is no completion to carry.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            json={
+                "id": "gen-1",
+                "provider": "Google AI Studio",
+                "model": "google/gemini-3.5-flash-lite",
+                "error": {"code": 429, "message": "Rate limit exceeded"},
+            },
+        )
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        event_hooks={"response": list(openrouter._RESPONSE_HOOKS)},
+    )
+
+    with (
+        openrouter.observed_route() as route,
+        pytest.raises(openrouter.InlineProviderError) as refused,
+    ):
+        client.post(f"{openrouter.BASE_URL}/chat/completions", json={})
+
+    # The refusal still carries what the body claimed, so the retry layer waits on it. Both
+    # things have to be true at once: recording first must not cost the interception.
+    assert is_transient(refused.value), "a 429 in the body must still be waited on"
+    assert route.served_by == "Google AI Studio"
 
 
 def test_the_client_carries_the_hook_and_the_timeout() -> None:

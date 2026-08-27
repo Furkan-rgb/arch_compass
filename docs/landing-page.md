@@ -247,7 +247,7 @@ field:
 Three consequences worth stating separately, because each is a thing somebody will want to
 add back:
 
-- **`6 retrieved · 2 bore on the judgement` is the most honest number on the page** and both
+- **`6 found · 2 applied` is the most honest number on the page** and both
   halves have to stay. Printing only the first overstates how much of the corpus was
   weighed. `landing.test.tsx` asserts the exact string.
 - **The policy has to be one that ships.** `landing.test.tsx` names

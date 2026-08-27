@@ -127,7 +127,7 @@ class ReviewToolbox:
             return OfferedTools(withheld=offered.withheld)
         searched: list[Policy] = []
         return OfferedTools(
-            tools=(*_atlas_tools(offered.investigator), _policy_tool(self._corpus, searched)),
+            tools=(*_atlas_tools(offered.investigator), policy_tool(self._corpus, searched)),
             middleware=(
                 FilesystemMiddleware(
                     backend=ReviewedRevisionBackend(offered.source),
@@ -168,8 +168,13 @@ def _atlas_tools(investigator: SourceInvestigator) -> tuple[BaseTool, ...]:
     return tuple(bind(name) for name in ATLAS_TOOLS if name in offered)
 
 
-def _policy_tool(corpus: Sequence[Policy], searched: list[Policy]) -> BaseTool:
-    """Search the corpus, and remember what it showed so the citation check can use it."""
+def policy_tool(corpus: Sequence[Policy], searched: list[Policy]) -> BaseTool:
+    """Search the corpus, and remember what it showed so the citation check can use it.
+
+    Public because `prompt_inventory` builds one to read the name, the description and the
+    argument schema off it. Reading them off a built tool rather than quoting them is what
+    keeps the digest and the offer from being two copies of the same prose.
+    """
 
     def search_policies(query: str) -> str:
         terms = [term for term in query.casefold().split() if len(term) > 2]

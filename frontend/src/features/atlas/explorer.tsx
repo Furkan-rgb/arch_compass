@@ -1,7 +1,9 @@
 import { type FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { cn } from "../../lib/cn";
 import { plural } from "../../lib/format";
 import { isPlainShortcut } from "../../lib/keyboard";
+import { useIsTabletUp } from "../../lib/media";
 import { Mono } from "../../ui/meta";
 import { AtlasCanvas, type AtlasEmptyAnswer } from "./canvas";
 import { ExplorationStrip, LensControls, LensPicker, ViewportToolbar } from "./controls";
@@ -59,6 +61,24 @@ export function AtlasExplorer({
    * one" — a different and much less useful question than the one the box asks.
    */
   const [matches, setMatches] = useState<{ ids: string[]; index: number }>({ ids: [], index: 0 });
+  /**
+   * A term that found nothing on the map and was sent to the atlas instead.
+   *
+   * Kept so that when the answer arrives as new cards, the search can ring them and count
+   * them — the local path gives the reader "3 of 9 match" and the `n` key, and a query-backed
+   * search used to give neither, over cards it had just put on the map itself.
+   */
+  const [queriedTerm, setQueriedTerm] = useState("");
+  /**
+   * Whether the lens was moved out from under the reader to draw what they asked for.
+   *
+   * Forcing it is right — a path drawn on a lens with no dependency edges would be invisible —
+   * but the surface's own rule is that every exploration writes back one sentence, and
+   * replacing every verdict card on screen with a dependency mesh is a large thing to do
+   * silently.
+   */
+  const [lensForced, setLensForced] = useState(false);
+  const roomy = useIsTabletUp();
   const selected = selectedNodeId
     ? nodes.find((node) => node.id === selectedNodeId)
     : undefined;
@@ -106,7 +126,15 @@ export function AtlasExplorer({
   }, [matches, nodes]);
   const matchIndex = matchIds.length ? Math.min(matches.index, matchIds.length - 1) : 0;
   const matchedNodes = useMemo(() => new Set(matchIds), [matchIds]);
-  const view = useAtlasViewport({ layout, graphSignature, selected, onSelectNode });
+  const view = useAtlasViewport({
+    layout,
+    graphSignature,
+    selected,
+    onSelectNode,
+    // The same breakpoint the layout uses, so a phone opens without an overlay sitting on its
+    // cards and a desk opens with the overview. The chip still works either way.
+    initialMinimap: roomy,
+  });
   const definitionId = useId().replaceAll(":", "");
   const gridId = `atlas-grid-${definitionId}`;
   const arrowId = `atlas-arrow-${definitionId}`;
@@ -117,21 +145,48 @@ export function AtlasExplorer({
     writePulse(next);
   };
 
+  /** Every card on the map whose name, path or kind contains the term. */
+  const findOnMap = (term: string) =>
+    nodes.filter((node) =>
+      `${node.label} ${node.qualified} ${node.path} ${node.kind}`
+        .toLocaleLowerCase()
+        .includes(term),
+    );
+
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
     const term = searchValue.trim().toLocaleLowerCase();
     if (!term) return;
     // What is already on the map is found on the map. Only a term that matches nothing here
     // becomes a query, because a query brings back cards the reader did not ask to add.
-    const found = nodes.filter((node) =>
-      `${node.label} ${node.qualified} ${node.path} ${node.kind}`
-        .toLocaleLowerCase()
-        .includes(term),
-    );
+    const found = findOnMap(term);
     setMatches({ ids: found.map((node) => node.id), index: 0 });
-    if (found.length) onSelectNode(found[0].id);
-    else onSearch?.(searchValue.trim());
+    if (found.length) {
+      setQueriedTerm("");
+      onSelectNode(found[0].id);
+    } else {
+      setQueriedTerm(term);
+      onSearch?.(searchValue.trim());
+    }
   };
+
+  /**
+   * The cards a query-backed search brought back, matched the moment they land.
+   *
+   * A term the map could not answer goes to the atlas, and the caller adds whatever comes back
+   * as new nodes. Until this ran, that answer was a set of unringed cards with no counter and
+   * no `n` key — a search that had done the work and then said nothing about it. Runs once per
+   * term: the term is cleared as soon as it has matched, and editing the box clears it too.
+   */
+  useEffect(() => {
+    if (!queriedTerm) return;
+    const found = findOnMap(queriedTerm);
+    if (!found.length) return;
+    setQueriedTerm("");
+    setMatches({ ids: found.map((node) => node.id), index: 0 });
+    onSelectNode(found[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, queriedTerm]);
 
   /** Round the matches, forwards or back, selecting each one as it lands on it. */
   const stepMatch = (backwards = false) => {
@@ -158,6 +213,24 @@ export function AtlasExplorer({
     return () => document.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchIds, matchIndex]);
+
+  /**
+   * The one sentence the strip above the map says, composed from every part that has one.
+   *
+   * The caller owns what came back — it is what made the request — and the explorer owns the
+   * fact that it moved the lens to draw it, because the explorer is what moved it.
+   */
+  const exploreAnswer = [
+    exploreNote,
+    traceNote,
+    // Said only where it happened, and only until the reader chooses a lens of their own. A
+    // path or a cycle can only be drawn along dependency edges, so asking for one moves the
+    // map — and a reader who was on the Judged lens has just had every verdict card on screen
+    // replaced by a dependency mesh.
+    lensForced ? "Shown on the Dependencies lens, which is where those edges are drawn." : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const toggleEdgeKind = (kind: string) => {
     setHiddenEdgeKinds((current) => {
@@ -250,9 +323,20 @@ export function AtlasExplorer({
   }, [emptyMessage, edges, hiddenEdgeKinds, hideTests, lens, nodes, publicOnly, visibleGraph]);
 
   // A traced path is drawn along dependency edges, so the lens that draws none of them would
-  // answer the request with an unchanged picture.
+  // answer the request with an unchanged picture. Recorded when it actually moves the reader,
+  // because the strip below has to say so — pressing "Surface cycles" while reading the Judged
+  // lens replaces every verdict card on screen, and none of the notes mentioned it.
   useEffect(() => {
-    if (highlightedEdgeIds.length) setLens("dependencies");
+    if (!highlightedEdgeIds.length) {
+      setLensForced(false);
+      return;
+    }
+    if (lens === "dependencies") return;
+    setLens("dependencies");
+    setLensForced(true);
+    // The highlight is what forces this; the lens is read, not reacted to, or choosing Judged
+    // back again would be undone on the next render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightedEdgeIds]);
 
   /**
@@ -294,18 +378,32 @@ export function AtlasExplorer({
     <section
       ref={view.panelRef}
       className={`atlas-panel ${view.fullscreen ? "atlas-panel--fullscreen" : ""}`}
-      aria-label="The repository's structure"
+      /* Not "the repository's structure". This component is handed a graph and knows nothing
+         about where it came from — the caller's own header is where a claim about a repository
+         or a review belongs, and `experience.md`'s hard rule for this surface is that a map
+         must never let a reader believe it shows the repository as it stands now. */
+      aria-label="The structure this map was given"
     >
       {header}
 
-      <LensPicker lens={lens} onLens={setLens} />
+      <LensPicker
+        lens={lens}
+        onLens={(next) => {
+          setLens(next);
+          // A lens the reader picked is theirs; the note saying the map was moved for them is
+          // about a lens they did not pick.
+          setLensForced(false);
+        }}
+      />
 
       <LensControls
         searchValue={searchValue}
         onSearchValue={(value) => {
           setSearchValue(value);
-          // The count belongs to the term that was submitted, so editing the box retires it.
+          // The count belongs to the term that was submitted, so editing the box retires it —
+          // and with it any query still waiting to answer the old term.
           if (matches.ids.length) setMatches({ ids: [], index: 0 });
+          if (queriedTerm) setQueriedTerm("");
         }}
         onSubmitSearch={submitSearch}
         matches={{ count: matchIds.length, index: matchIndex }}
@@ -327,9 +425,56 @@ export function AtlasExplorer({
         <ExplorationStrip explorations={explorations} onReset={onResetExplorations} />
       ) : null}
 
-      <ViewportToolbar instructionsId={instructionsId} view={view} />
+      {/**
+       * What the last request came back with, above the map it was made about.
+       *
+       * These sentences lived inside the detail panel's "Explore from here" section, which
+       * exists only while a card is selected — so a search that matched nothing on the map
+       * answered into a block that was not rendered, and the state the surface opens in is the
+       * state with nothing selected. The reader pressed Find and got nothing at all, which is
+       * exactly the failure `experience.md` names: an empty answer is an answer, and every
+       * exploration writes back one sentence, including "nothing came back".
+       *
+       * The per-card Explore buttons stay where they are; only the answer moved.
+       *
+       * Always in the document and parked out of the flow until there is something to say,
+       * which is the same shape the fit notice in `ViewportToolbar` argues for: a live region
+       * inserted at the moment its content appears is a live region most screen readers never
+       * announce.
+       */}
+      <p
+        aria-live="polite"
+        className={cn(
+          "border-b border-rule px-3 py-2 text-[12px] leading-5 text-ink",
+          !exploreAnswer && "sr-only border-b-0",
+        )}
+      >
+        {exploreAnswer}
+      </p>
 
-      <div className="atlas-layout">
+      <ViewportToolbar
+        instructionsId={instructionsId}
+        minimapAvailable={visibleGraph.nodes.length > 1}
+        view={view}
+      />
+
+      {/**
+       * The column beside the map, given back to the map while there is nothing to put in it.
+       *
+       * The detail panel's empty branch is one instruction paragraph in a fixed 20rem column,
+       * so on arrival — which is every arrival, since nothing is selected — the surface spent
+       * its second-largest region, and the brightest large shape on screen, telling the reader
+       * to do something rather than helping them do it, beside a map already cutting cards off
+       * both edges. That is 320px, or about 1.7 cards.
+       *
+       * Written here rather than as a modifier class in `styles.css` because the condition is a
+       * piece of this component's state: a stylesheet cannot know whether a card is selected,
+       * and a class that only exists to be toggled from here is the same decision in two files.
+       */}
+      <div
+        className="atlas-layout"
+        style={roomy && !selected ? { gridTemplateColumns: "minmax(0, 1fr)" } : undefined}
+      >
         <AtlasCanvas
           graph={visibleGraph}
           layout={layout}
@@ -358,19 +503,21 @@ export function AtlasExplorer({
           pathStartNodeId={pathStartNodeId}
           onSetPathStart={onSetPathStart}
           onTracePath={onTracePath}
-          exploreNote={exploreNote}
-          traceNote={traceNote}
+          collapsed={roomy && !selected}
           loading={loading}
         />
       </div>
 
       {/* Never silently. A bounded view that does not say it is bounded reads as a complete
           one, and a reader would take "nothing else touches this" from a picture that is
-          simply drawing one lens of it. */}
-      <Mono
-        className="border-t border-rule bg-surface-2 px-3 py-2 text-[10px] uppercase tracking-[0.13em] text-ink-3"
-        aria-live="polite"
-      >
+          simply drawing one lens of it.
+
+          Not a live region, though. The count changes on selection — the judged and dependency
+          lenses add the selected card to the drawn set — so with `aria-live` an arrow-key walk
+          produced two announcements per keystroke, against a panel that had deliberately
+          narrowed its one polite region to the single sentence naming the card. This is
+          orientation a reader can go and read. */}
+      <Mono className="border-t border-rule bg-surface-2 px-3 py-2 text-[10px] uppercase tracking-[0.13em] text-ink-3">
         {visibleGraph.nodes.length} of {plural(nodes.length, "element")} ·{" "}
         {visibleGraph.edges.length} of {plural(edges.length, "relationship")} · {lens} lens
       </Mono>

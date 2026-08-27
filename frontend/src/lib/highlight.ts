@@ -83,6 +83,14 @@ export function escapeHtml(value: string): string {
  *
  * The path is evidence and a guess is not: a `.py` file is Python, and a file this list does
  * not name is left uncoloured rather than approximated.
+ *
+ * Every value here has to be a language `LANGUAGES` registers, and "every mapping resolves to
+ * a grammar" in `highlight.test.ts` is what holds that. It did not hold: `toml` mapped to
+ * `ini`, which is registered nowhere, so `isSupported` was false and `languageForPath` fell
+ * through to `undefined` — a row that read as support for `.toml` and delivered none. Harmless
+ * and a lie, which is the pair worth deleting rather than papering over. Registering `ini`
+ * was the other repair and it is the wrong one: a grammar is bundle weight, and the reason to
+ * spend it is a file somebody reads, not a typo that needs vindicating.
  */
 const BY_EXTENSION: Record<string, string> = {
   py: "python",
@@ -100,8 +108,16 @@ const BY_EXTENSION: Record<string, string> = {
   bash: "bash",
   html: "xml",
   xml: "xml",
-  toml: "ini",
 };
+
+/**
+ * The extensions the table above claims, so a test can walk them.
+ *
+ * Exported for that and read by nothing else: the guard has to be able to enumerate the
+ * claims, and a mapping to an unregistered grammar is invisible from outside — it resolves
+ * to `undefined`, which is also the honest answer for a file the table never named.
+ */
+export const COLOURED_EXTENSIONS = Object.keys(BY_EXTENSION);
 
 export function languageForPath(path: string | null | undefined): string | undefined {
   if (!path) return undefined;

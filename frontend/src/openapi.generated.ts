@@ -263,6 +263,7 @@ export interface components {
     "recommended_response": string | null;
     "reused_from_review_id": string | null;
     "model_identity": string;
+    "served_by"?: string;
     "prompt_identity": string;
     "retrieval_identity": string;
     "investigation_identity": string;
@@ -551,8 +552,6 @@ export interface components {
     "investigation_manifest": Array<components["schemas"]["RecordedInvestigationResponse"]>;
     "synopsis": string | null;
     "synopsis_identity": string;
-    "model_identity": string;
-    "prompt_identity": string;
     "started_at": string;
     "finished_at": string | null;
     "failure": string | null;

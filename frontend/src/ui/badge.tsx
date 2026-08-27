@@ -119,14 +119,39 @@ export function Tag({ children, className }: { children: ReactNode; className?: 
   );
 }
 
-/** A live dot for provider/model availability. Paired with text, never used alone. */
-export function StatusDot({ tone = "neutral", pulse }: { tone?: Tone; pulse?: boolean }) {
-  const fill: Record<Tone, string> = {
+/**
+ * A live dot for provider/model availability. Paired with text, never used alone.
+ *
+ * `running` is the one value here that is not on the severity scale, and it is deliberately
+ * not on it: work being in flight is not a grade, and `lib/format`'s `Tone` stays the closed
+ * five-value union so nothing can hand `Badge` or `ui/meta.tsx` a sixth. It lives in this
+ * prop's own type instead, which is as far as it can travel.
+ *
+ * It paints `bg-accent` — the accent, said out loud, rather than `bg-material`, which is the
+ * same red through a name that claims a verdict. The rail already spends `material` on a
+ * recorded provider failure a few centimetres away, so borrowing it would put two identical
+ * dots in one bar meaning "your reasoning provider returned 401" and "a review is running".
+ * That widens the accent's budget from four jobs to five; `ui/design-system.test.ts` and
+ * `docs/design-system.md` both record the widening rather than hide it.
+ *
+ * `bg-accent` and not the lifted band value, because this dot also renders on a page surface
+ * in the phone drawer, where `#f27166` measures 2.63:1. `.on-band` is what lifts it for the
+ * one ground that never inverts; see `styles.css`.
+ */
+export function StatusDot({
+  tone = "neutral",
+  pulse,
+}: {
+  tone?: Tone | "running";
+  pulse?: boolean;
+}) {
+  const fill: Record<Tone | "running", string> = {
     neutral: "bg-ink-3",
     marked: "bg-ink",
     material: "bg-material",
     held: "bg-held",
     cleared: "bg-cleared",
+    running: "bg-accent",
   };
   return (
     <span
