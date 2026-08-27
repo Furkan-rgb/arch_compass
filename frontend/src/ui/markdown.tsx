@@ -7,19 +7,53 @@ import { highlight, isSupported } from "../lib/highlight";
 import { INLINE_CODE } from "./prose";
 
 /**
- * The measure this document is read at, and why it is not the number the system used to say.
+ * The measure this document is read at: one width, for every block in it.
  *
- * `ch` is the advance width of the digit zero, and Onest's digits are wide — about `0.65em` —
- * so the `62ch` the type scale asked for resolved to roughly 650px at the reading size and
- * admitted about 89 lowercase characters a line. The document and the render disagreed about
- * the same number while both were called `62ch`, which is why nobody caught it: 46ch is the
- * same 30em a typographer means by "a measure", said in the unit that keeps it proportional
- * to the size it is set at.
+ * `ch` is the advance width of the digit zero, and Onest's is 0.665em at the 400 weight body
+ * text is set in — 0.6618em at the 600 the headings here are set in, which is the next
+ * paragraph's subject. Two things follow that the type scale asking for `62ch` had neither of in
+ * mind. A zero is not an average character — it is 0.665em against the 0.509em a character of
+ * this face costs on a full line, which is `ui/prose.tsx`'s measured 617.12px over 75.7 — so a
+ * measure of 62 zeros holds about 81 characters and not 62. And 62 of them is a different width
+ * on every row of the scale: 577.22px on this document's 14px paragraph, 984.76px on its
+ * `font-semibold` 24px title. The document and the render disagreed about the same number while
+ * both were called `62ch`, which is why nobody caught it. 30em is what a typographer means by
+ * "a measure", and at 14px that is 428px.
+ *
+ * Which is why this is no longer said in `ch`. A `ch` is relative to the font size of the
+ * element it is set on — and to its weight, since Onest ships as one variable file and a
+ * heavier instance has a narrower zero — and this one string goes on seven renderers at four
+ * sizes, three of them `font-semibold`. `max-w-[46ch]` was 730.63px on the document title at
+ * 24px, 547.97px on a section heading at 18px, 456.64px at 15px, and 428.26px on the
+ * paragraphs, the lists and a blockquote — four measures wearing one name. The cost is not
+ * theoretical. `h2` draws the hairline that opens a section *across the measure*, "because a
+ * section opens where the text opens" — and that rule overshot the text beneath it by 119.71px
+ * on every section of every report and policy in the product, with the title 302.37px past it
+ * again. A rule that stops in the wrong place is the one kind of misalignment a reader cannot
+ * read past.
+ *
+ * Every figure in that paragraph is recomputed, not copied: `ui/markdown.test.tsx` puts `46ch`
+ * back onto these very class lists and asserts all six in "resolves the one name `46ch` used to
+ * carry to four different widths". Change one here and nothing catches it, which is why the
+ * argument is here and the arithmetic is there. The 734 / 551 / 459 / 122 / 306 this paragraph
+ * used to carry is the same sum with a 400-weight zero applied to three headings set at 600.
+ *
+ * The two advances themselves are in `ui/onest.test-metrics.ts`, once, with the `fontTools`
+ * recipe that reads them off the shipped `onest.woff2`. They were kept in two test files, and a
+ * measurement kept in two places is the same defect as a measurement kept in prose — it drifts,
+ * and the second copy is what tells you it drifted, after.
+ *
+ * `rem` because it is the only unit here that does not move when the font size does. The value
+ * is the paragraph's own 46ch at 14px to within a quarter of a pixel — 428px against 428.26px,
+ * rounded to a quarter-rem so the class list reads as a value somebody chose rather than as the
+ * residue of a division. The paragraph is the row the others come down to, because it is the
+ * block a document is actually read in: the headings come down to the body rather than the body
+ * going up to them.
  *
  * It lives on the text renderers rather than on the wrapper, because the wrapper is also what
  * a fence and a table are laid out inside, and those want the panel's full width to scroll in.
  */
-const MEASURE = "max-w-[46ch]";
+const MEASURE = "max-w-[26.75rem]";
 
 /**
  * A heading's own anchor, so the contents strip on the report surface can reach it.
@@ -140,8 +174,20 @@ export function Markdown({ children, className }: { children: string; className?
               {children}
             </h4>
           ),
+          // The fourth level carries `MEASURE` like the other six, and it did not: it was the
+          // one text renderer in this file left running to the panel's edge, so a `####` label
+          // set 1168px wide sat over paragraphs stopping at 428px. Nobody saw it because the
+          // guard next door counted the renderers that had a measure instead of requiring one
+          // of every renderer that sets text, and eight of nine agreeing on an edge is what
+          // that count reports as correct. It is `text-sm`, the same 14px the paragraphs are
+          // set at, so 26.75rem is this element's own 46ch and no number moves by adding it.
           h4: ({ children }) => (
-            <h5 className="mt-4 mb-1.5 text-sm font-semibold uppercase tracking-[0.08em] text-ink-3 first:mt-0">
+            <h5
+              className={cn(
+                "mt-4 mb-1.5 text-sm font-semibold uppercase tracking-[0.08em] text-ink-3 first:mt-0",
+                MEASURE,
+              )}
+            >
               {children}
             </h5>
           ),
@@ -226,11 +272,17 @@ export function Markdown({ children, className }: { children: string; className?
               {children}
             </pre>
           ),
-          // `text-mark` is ink now, and the paragraph around it is `text-ink-2`, so what
-          // used to be a hue is half a step of lightness against its own sentence. The
-          // weight is what replaces it — the underline was always here and was never
-          // carrying this on its own. It rests at half strength and goes to full ink on
-          // hover, so the link still answers the pointer.
+          // `text-mark` is the accent, not ink, and the comment that stood here said the
+          // opposite: `styles.css` declares `--mark: var(--accent)` in all three of its theme
+          // blocks, so this is the deep red in light and `#f27166` in dark. The sentence it
+          // taught — "the hue is gone, the weight replaces it" — would have licensed the next
+          // `text-mark` somebody added on the strength of it being neutral.
+          //
+          // The hue is correct and is the design system's third job for the accent: an authored
+          // document links out to a source, which is exactly what `--mark` is budgeted for. What
+          // the weight and the underline add is that the link is still findable against
+          // `text-ink-2` for a reader who cannot separate the two hues. The underline rests at
+          // half strength and goes to full on hover, so it still answers the pointer.
           a: ({ children, href }) => (
             <a
               href={href}
