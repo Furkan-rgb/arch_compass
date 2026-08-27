@@ -115,6 +115,32 @@ def create_app(
         candidate = (STATIC_DIR / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(STATIC_DIR.resolve()):
             return FileResponse(candidate, headers=_static_cache_headers(candidate))
+        # A build asset that is not there is a 404, not the application.
+        #
+        # Falling through to `index.html` is right for `/reviews/abc`, which is a screen this
+        # single-page app draws, and wrong for `/assets/run-page-CNwucsBs.js`, which is a
+        # file. A tab open across a build asks for the chunk names it remembers, and a name
+        # the build has removed is not there: answering it with 200 and a page of HTML is a
+        # false statement about a resource, and it is the statement every cache, proxy and
+        # access log downstream then reasons from.
+        #
+        # It is not what makes the reader's recovery work, which is what this comment used to
+        # claim. Driven with this branch taken out: the browser writes `Failed to load module
+        # script: Expected a JavaScript-or-Wasm module script but the server responded with a
+        # MIME type of "text/html"` to the *console*, and the promise React sees still rejects
+        # with `TypeError: Failed to fetch dynamically imported module: <url>` — which
+        # `isChunkLoadError` in `frontend/src/app/error-boundary.tsx` matches either way, so
+        # the same screen comes up offering the same "Reload the page" with the branch or
+        # without it. What the 404 changes is the console: it names the file that is missing,
+        # where the MIME complaint sends whoever is reading it after a content type instead.
+        if path.startswith("assets/"):
+            return JSONResponse(
+                status_code=404,
+                content=ProblemDetail(
+                    code="not_found",
+                    message=f"Build asset /{path} was not found",
+                ).model_dump(mode="json"),
+            )
         index = STATIC_DIR / "index.html"
         if index.is_file():
             return FileResponse(index, headers=_static_cache_headers(index))
@@ -132,12 +158,17 @@ def create_app(
 def _static_cache_headers(served: Path) -> dict[str, str]:
     """How long a browser may keep a built file.
 
-    The build gives every asset a content hash and empties the output directory, so an
-    asset's name changes the moment its bytes do and the old name stops existing. That
-    makes the assets safe to keep forever — and makes `index.html`, which is the only
-    file that knows the current names, the one file that must never be kept: a stale copy
-    asks for hashed names that were deleted by the build, so the app half-loads from a
-    cache the user cannot see and a plain reload does not clear.
+    The build gives every asset a content hash, so an asset's name changes the moment its
+    bytes do and two builds' outputs can never collide. That is what makes the assets safe
+    to keep forever — and makes `index.html`, which is the only file that knows the current
+    names, the one file that must never be kept: a stale copy asks for hashed names the
+    build has since removed, so the app half-loads from a cache the user cannot see and a
+    plain reload does not clear.
+
+    The hash is doing the work here on its own; the output directory is no longer emptied
+    wholesale. `graceWindow` in `frontend/vite-plugins/grace-window.ts` keeps the previous build's
+    chunks beside the new ones so a tab open across a build can still fetch what it asks
+    for, which the content hash is precisely what permits.
     """
 
     if served.parent.name == "assets":

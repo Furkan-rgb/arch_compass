@@ -89,7 +89,10 @@ function notify() {
  */
 const store = new Map<string, string>();
 
-Object.defineProperty(window, "localStorage", {
+// `globalThis`, matching the `matchMedia` definition above. Under jsdom the two are the same
+// object, so this changes nothing for a component test; it is what keeps the file working
+// under `@vitest-environment node`, where `window` is not defined at all.
+Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
     get length() {

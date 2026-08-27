@@ -12,5 +12,8 @@
     "noEmit": true,
     "strict": true
   },
-  "include": ["vite.config.ts"]
+  // `vite-plugins/` holds the Vite plugins the config composes. Both run in Node against the
+  // filesystem rather than in the browser, so they belong to this project rather than to
+  // `tsconfig.app.json`.
+  "include": ["vite.config.ts", "vite-plugins"]
 }

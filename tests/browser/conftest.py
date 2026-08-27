@@ -30,9 +30,9 @@ import pytest
 
 from archcompass.bootstrap import Runtime
 from tests.browser.harness import (
-    BUNDLE,
     DESKTOP,
     PHONE,
+    assert_bundle_is_current,
     run_review,
     serve,
     workspace_runtime,
@@ -55,7 +55,10 @@ def workspace_url(workspace: Runtime) -> Iterator[str]:
 @pytest.fixture(scope="session")
 def browser():  # type: ignore[no-untyped-def]
     playwright = pytest.importorskip("playwright.sync_api")
-    assert BUNDLE.is_file(), "run `make frontend-build` before the browser test"
+    # Before the browser rather than inside any one module: every module here reads the built
+    # bundle, so a stale one is a wrong answer for all of them at once. `harness.py` carries
+    # the argument for checking the age and not only the existence.
+    assert_bundle_is_current()
     with playwright.sync_playwright() as driver:
         instance = driver.chromium.launch()
         try:

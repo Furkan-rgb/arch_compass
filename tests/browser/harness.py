@@ -40,6 +40,29 @@ ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = ROOT / "examples/cases/boundary-review/repository"
 BUNDLE = ROOT / "src/archcompass/presentation/web/static/index.html"
 
+#: Everything the emitted bundle is made of, for the staleness check below.
+#:
+#: `frontend/src` is the obvious one and was for a while the only one, which left the check
+#: silent about four more, each of which the build reads:
+#:
+#: * `frontend/index.html` is the entry document. Adding one `<meta>` to it put that `<meta>`
+#:   in the emitted `static/index.html` on the next build, measured.
+#: * `frontend/vite.config.ts` decides the output names, the plugins and the aliases. Setting
+#:   `entryFileNames` and `chunkFileNames` to `.mjs` renamed every emitted chunk, measured.
+#: * `frontend/vite-plugins/` is the code that config composes, and one of those plugins
+#:   decides which files survive in the output directory at all — `grace-window.test.ts`.
+#: * `frontend/package.json` pins the version of every dependency that lands in a chunk.
+#:
+#: Editing any of the four without rebuilding left this check green, which is what makes a
+#: stale bundle answer the browser tests in the wrong bytes.
+BUNDLE_INPUTS = (
+    ROOT / "frontend/src",
+    ROOT / "frontend/index.html",
+    ROOT / "frontend/vite.config.ts",
+    ROOT / "frontend/vite-plugins",
+    ROOT / "frontend/package.json",
+)
+
 #: Long enough for a full deterministic review of the example repository on a cold workspace.
 REVIEW_TIMEOUT_MS = 180_000
 
@@ -66,6 +89,72 @@ TABLET = {
 
 #: The width the rest of the suite already used. A laptop, not a monitor.
 DESKTOP = {"viewport": {"width": 1440, "height": 960}}
+
+
+def _is_test_only(name: str) -> bool:
+    """Whether a file under `frontend/` is one no build ever reads.
+
+    Two shapes, and the second is the one this check got wrong. `*.test.ts` and `*.test.tsx`
+    are the suites themselves. `test-setup.ts` and `test-fixtures.ts` are the vitest
+    environment and its fixtures: named by prefix rather than by suffix, imported by
+    `vite.config.ts` under `test.setupFiles` and by the suites, and reachable from no module
+    the browser build emits. Editing either cannot change a byte of the bundle, and a guard
+    that fails when you edit a test is a guard people delete — which is the reason the whole
+    exclusion exists, and the reason it has to cover both spellings.
+    """
+
+    return name.endswith((".test.ts", ".test.tsx")) or name.startswith("test-")
+
+
+def _newer_than(built: float) -> list[Path]:
+    """The files the bundle is built from that have changed since it was built.
+
+    The list rather than the newest time, because the failure message is the useful half: a
+    reader who has just edited three files wants to know which one this is about.
+    """
+
+    stale: list[Path] = []
+    for source in BUNDLE_INPUTS:
+        entries = source.rglob("*") if source.is_dir() else [source]
+        for entry in entries:
+            if not entry.is_file() or _is_test_only(entry.name):
+                continue
+            if entry.stat().st_mtime > built:
+                stale.append(entry)
+    return sorted(stale)
+
+
+def assert_bundle_is_current() -> None:
+    """Refuse to drive a browser against a bundle older than the code it is made of.
+
+    A stale bundle is what makes this whole directory worse than nothing. Every module here
+    drives whatever is on disk, and `test_first_load.py` now *weighs* what is on disk, so a
+    build from before the change under test answers every question about the wrong bytes —
+    and answers them green. That has produced false findings on this branch more than once,
+    which is why the check is here rather than in anybody's head.
+
+    `make check` and `make test-browser` both run `frontend-build` first, so this never fires
+    on the ordinary paths. It is for `uv run pytest -m browser` typed by hand after an edit,
+    which is the path that has actually gone wrong.
+
+    This is the part of `frontend/entry-graph.test.ts` that outlived it, and it measures the
+    one thing a browser cannot see: whether the bundle it is looking at is the bundle the
+    source describes. The note left here when that file went said the rest of it was an
+    approximation of what `test_first_load.py` measures in a browser directly. That was true of
+    most of it and false of three assertions — the Markdown renderer's reach, and the two that
+    kept its fingerprints from matching nothing at all — which had no replacement anywhere
+    until `test_first_load.py` grew named Markdown checks of its own. A deletion note that
+    accounts for a file it does not account for is how an assertion goes missing quietly.
+    """
+
+    assert BUNDLE.is_file(), f"no build at {BUNDLE.parent} — run `make frontend-build`"
+    stale = _newer_than(BUNDLE.stat().st_mtime)
+    assert not stale, (
+        f"{len(stale)} of the files {BUNDLE} is built from are newer than it — "
+        f"{', '.join(str(entry.relative_to(ROOT)) for entry in stale[:5])} — so the browser "
+        "would be driving a bundle from before the change under test — run "
+        "`make frontend-build`"
+    )
 
 
 def free_port() -> int:

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api";
 import { workspaceFixture } from "../test-fixtures";
-import { ErrorBoundary } from "./error-boundary";
+import { ErrorBoundary, isChunkLoadError } from "./error-boundary";
 import { AppShell } from "./shell";
 
 /**
@@ -17,6 +17,14 @@ import { AppShell } from "./shell";
 function Thrower({ boom }: { boom: boolean }): React.ReactElement {
   if (boom) throw new Error("Cannot read properties of undefined (reading 'verdict')");
   return <p>The review</p>;
+}
+
+/** What Chrome rejects a `lazy()` loader with when the chunk it names is no longer served. */
+const CHUNK_MESSAGE =
+  "Failed to fetch dynamically imported module: http://127.0.0.1:8765/assets/review-page-KnL_iWzE.js";
+
+function ChunkThrower(): React.ReactElement {
+  throw new Error(CHUNK_MESSAGE);
 }
 
 function wrap(boom: boolean, entry = "/reviews") {
@@ -73,5 +81,62 @@ describe("the error boundary", () => {
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText("The policies")).toBeInTheDocument();
+  });
+});
+
+/**
+ * The two `lazy()` routes in `App.tsx` are the whole population of this fallback, and it exists
+ * because the generic one is wrong twice over about them. They are not the only chunks fetched
+ * by name — `/` fetches its own docket that way — but the landing page catches that failure in
+ * `ExhibitBoundary` and it never reaches this screen. "This screen stopped part way through" describes a render that threw; this screen
+ * never started. And "Try this screen again" cannot work: React records a rejected `lazy()`
+ * payload and re-throws it without calling the loader again, so the button that leads here has
+ * to be the reload.
+ */
+describe("a chunk that never arrived", () => {
+  function chunkWrap() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return (
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/reviews"]}>
+          <AppShell>
+            <ErrorBoundary>
+              <ChunkThrower />
+            </ErrorBoundary>
+          </AppShell>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  it("says the tab is running an older build, and does not offer the button that cannot work", () => {
+    render(chunkWrap());
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("This page is running an older copy of the workbench");
+    expect(alert).toHaveTextContent(CHUNK_MESSAGE);
+    expect(screen.getByRole("button", { name: "Reload the page" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try this screen again" })).not.toBeInTheDocument();
+  });
+
+  /**
+   * Four wordings for one fault, because the browsers disagree and none of them offers an
+   * error type to match on instead. They are quoted from the engines and from Vite's preload
+   * helper; the last case is the one that matters most, since reading an ordinary render error
+   * as a stale chunk would tell a reader their tab is out of date when it is not, and would
+   * take away the retry that for that fault is the button that works.
+   */
+  it.each([
+    ["Chrome", CHUNK_MESSAGE],
+    ["Firefox", "error loading dynamically imported module"],
+    ["Safari", "Importing a module script failed."],
+    ["Vite's preload helper", "Unable to preload CSS for /assets/index-4IIXmz-r.css"],
+  ])("is recognised from what %s says", (_engine, message) => {
+    expect(isChunkLoadError(new Error(message))).toBe(true);
+  });
+
+  it("is not confused with a render error, which keeps the retry the reload would waste", () => {
+    expect(isChunkLoadError(new TypeError("x.map is not a function"))).toBe(false);
+    expect(isChunkLoadError(new SyntaxError("Unexpected end of JSON input"))).toBe(false);
   });
 });
