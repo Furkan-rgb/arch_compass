@@ -62,11 +62,28 @@ export function LookupResult({ item }: { item: InvestigationLookup }) {
 /**
  * The box every result sits in, which is the one the fold already had.
  *
- * `--sunken`, which is the ramp's name for a code block, rather than `--surface`. Its container
- * is a fold body on `--surface-2`, and `--surface` is five values *above* that in light and
- * seven *below* it in dark — so one block read as raised in one theme and as a hole cut into
- * the fold in the other. `--sunken` steps away from the ground in the theme's own direction in
- * both.
+ * **A hairline and no fill**, which is the shape a block takes when its container has already
+ * spent the ground it would have used. This carried `bg-sunken` — the ramp's name for a code
+ * block — while the fold it renders in was `--surface-2`. The fold body is `--sunken` now, so
+ * the same declaration became a fill on an identical fill: 1.00:1, with a `--rule` hairline at
+ * 1.28:1 light and 1.46:1 dark left as the entire boundary. That is the "outlines around
+ * nothing" defect the design system's own diagnosis names, arriving from the other direction —
+ * not a chip painted the colour of its container, but a container repainted the colour of its
+ * chip.
+ *
+ * There is no fill that would have worked, and that is worth saying rather than leaving the
+ * reader to hunt for one. In dark `--sunken` is the *top* of the neutral ramp, so nothing steps
+ * up from it; `--surface` and `--surface-2` are both below it there and above it in light, which
+ * is the theme-inverting step this comment used to reject. And this box has two containers, not
+ * one: a finding's fold at `--sunken` and a conversation bubble that is not. A boundary is the
+ * only device that reads the same on both.
+ *
+ * So `--rule-strong`, which the system holds a grouping boundary to 1.6:1 for and which measures
+ * 1.67:1 on `--sunken` and 1.69:1 on `--surface` in light, 2.32 and 2.34 in dark. `--rule` is
+ * under that floor on every one of those grounds, and the rule for a rule that low is to delete
+ * it and use space — which is not available here, because the cap and the scroll below need a
+ * box with an edge to be clipped by. The policy cards one fold over took the same decision for
+ * the same reason.
  *
  * `max-h-64` and `scrollbar-slim` are the other half and neither is negotiable. A 13,111-
  * character result still needs its cap, and the slim scrollbar exists because a Mac hides an
@@ -91,7 +108,7 @@ function ResultBox({
   return (
     <div
       className={cn(
-        "scrollbar-slim mt-1 max-h-64 overflow-auto rounded-md border border-rule bg-sunken",
+        "scrollbar-slim mt-1 max-h-64 overflow-auto rounded-md border border-rule-strong",
         !bare && "px-3 py-2",
       )}
     >
@@ -114,7 +131,7 @@ function ResultBox({
  */
 function ResultNote({ children }: { children: ReactNode }) {
   return (
-    <p className="mt-2 border-t border-rule pt-2 text-[11px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+    <p className="mt-2 border-t border-rule pt-2 text-[11px] leading-5 text-ink-2 [overflow-wrap:anywhere]">
       {children}
     </p>
   );
@@ -122,7 +139,7 @@ function ResultNote({ children }: { children: ReactNode }) {
 
 /** A result that says nothing came back — a state, not a line of text. */
 function NoResult({ children }: { children: ReactNode }) {
-  return <p className="text-[11px] leading-5 text-ink-3">{children}</p>;
+  return <p className="text-[11px] leading-5 text-ink-2">{children}</p>;
 }
 
 /**

@@ -112,7 +112,7 @@ export function RunPage() {
   if (run.isLoading) {
     return (
       <Panel>
-        <PanelBody className="flex items-center gap-2 text-sm text-ink-3">
+        <PanelBody className="flex items-center gap-2 text-sm text-ink-2">
           <Spinner label="" /> Finding the review…
         </PanelBody>
       </Panel>
@@ -260,7 +260,7 @@ export function RunPage() {
               {/* A failed poll is a fact about the connection, not about the run. It is said
                   here, in one line, and nothing on the page is removed for it. */}
               {run.isError ? (
-                <p className="mb-4 flex items-center gap-2 text-xs text-ink-3">
+                <p className="mb-4 flex items-center gap-2 text-xs text-ink-2">
                   <Spinner label="" /> Lost contact with the workspace. Still trying — what is
                   below is the last thing it said.
                 </p>

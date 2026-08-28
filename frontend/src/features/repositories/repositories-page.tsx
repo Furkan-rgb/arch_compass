@@ -280,7 +280,7 @@ function AtlasPreview({ repository }: { repository: RepositorySummary }) {
         <div className="mt-4 border-t border-rule pt-4">
           <Label>Most depended upon</Label>
           {hotspots.isLoading ? (
-            <div className="mt-2 flex items-center gap-2 text-sm text-ink-3">
+            <div className="mt-2 flex items-center gap-2 text-sm text-ink-2">
               <Spinner label="" /> Reading the atlas…
             </div>
           ) : hotspots.error ? (
@@ -328,7 +328,7 @@ function AtlasPreview({ repository }: { repository: RepositorySummary }) {
               })}
             </ul>
           ) : (
-            <p className="mt-2 text-sm text-ink-3">
+            <p className="mt-2 text-sm text-ink-2">
               Nothing in this snapshot is depended on by more than one other node.
             </p>
           )}

@@ -170,7 +170,7 @@ function ReviewCounts({
           No tint, no rule, no button: the answer is given inside the item that holds the
           question, which is the only place it is asked for. */}
       {waiting ? (
-        <p className="mt-1 text-[12px] leading-[1.45] text-ink-3">
+        <p className="mt-1 text-[12px] leading-[1.45] text-ink-2">
           {blocked
             ? `${blocked === outstanding && blocked > 1 ? "All " : ""}${plural(
                 blocked,

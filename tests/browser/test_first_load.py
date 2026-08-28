@@ -38,8 +38,9 @@ can walk past it.
 
 **Every response, not every script.** This weighed only responses whose path ended `.js`,
 which made the noun in "first-load ceiling" false: on a clean build it was blind to 133,657 of
-the 766,070 bytes a cold `/` downloads — the 77,030-byte stylesheet, three woff2 faces
-totalling 52,428, and the 4,199-byte document. Weight moved into any of those was weight the
+the 766,070 bytes a cold `/` downloaded when this was written — the 77,030-byte stylesheet,
+three woff2 faces totalling 52,428, and the 4,199-byte document. (The face has moved since; see
+`COLD_LANDING_CEILING`.) Weight moved into any of those was weight the
 ceiling could not see, and the extension was not even the build's to keep: pointing
 `build.rollupOptions.output.entryFileNames` and `chunkFileNames` at `.mjs` renamed every
 emitted chunk, which under the old definition summed to 0 bytes on a page that downloads
@@ -96,15 +97,32 @@ pytestmark = pytest.mark.browser
 
 #: The most a cold `/` may download, in bytes, and where the number comes from.
 #:
-#: A cold `/` measures 766,070 bytes on this build: the 4,199-byte document, the entry chunk
-#: at 528,204, the three chunks the landing page's own `lazy()` boundary pulls behind it in a
-#: second round trip — `exhibit` at 15,713, `finding-detail` at 29,618 and the syntax
-#: highlighter at 58,878, which `finding-detail` reaches through the evidence excerpt it draws
-#: — the 77,030-byte stylesheet and three woff2 faces at 52,428. It fetches no API. (Summed by
-#: this module's own `weighed()` against a Chromium load of `/`; the chunk figures also match
-#: `vite build`'s report and `stat` on `presentation/web/static/assets`.)
+#: A cold `/` measured 766,070 bytes when this ceiling was set: the 4,199-byte document, the
+#: entry chunk at 528,204, the three chunks the landing page's own `lazy()` boundary pulls
+#: behind it in a second round trip — `exhibit` at 15,713, `finding-detail` at 29,618 and the
+#: syntax highlighter at 58,878, which `finding-detail` reaches through the evidence excerpt it
+#: draws — the 77,030-byte stylesheet and three woff2 faces at 52,428. It fetches no API.
+#: (Summed by this module's own `weighed()` against a Chromium load of `/`; the chunk figures
+#: also match `vite build`'s report and `stat` on `presentation/web/static/assets`.)
 #:
-#: 850,000 is 83,930 bytes of headroom, about eleven percent, for ordinary growth. It also
+#: **The font half of that has changed and has not been re-measured against a browser.** The
+#: v2 design pass replaced Onest — one variable woff2 covering 400–700 — with IBM Plex Sans,
+#: which has no variable release and therefore ships four static latin cuts and four extended
+#: ones. `stat` on a clean build gives: sans 400 at 22,588, 500 at 24,184, 600 at 24,252, 700
+#: at 22,832, and mono 400 at 10,052, 500 at 14,888, 600 at 10,120, with the four `-ext`
+#: subsets between 15,980 and 16,456. The rest of the page moved by very little — the document
+#: is 4,415, the entry chunk 528,346, `exhibit` 15,713, `finding-detail` 29,772, the
+#: highlighter 60,021, the stylesheet 80,453 — so everything but the fonts sums to 718,720.
+#:
+#: Which faces a cold `/` actually pulls is the open question, because `unicode-range` means a
+#: face is fetched only if a glyph in its range is drawn, and only a browser can answer it. The
+#: bounds are wide: sans 400 and 600 with mono 400 is 775,612, and every latin cut with all
+#: three mono weights is 847,636 — under this ceiling by 2,364 bytes. **So the ceiling may be
+#: intact with almost no headroom, and it may already be breached; run this test.** The number
+#: to fix if it is breached is the preload set in `index.html` or the ceiling itself, in a
+#: diff, which is the point of having one.
+#:
+#: 850,000 was 83,930 bytes of headroom, about eleven percent, for ordinary growth. It also
 #: sits 78,200 bytes below 928,200 — a cold `/` plus the Markdown renderer, at 162,130 bytes
 #: the *smallest* of the chunks that have to stay off this page. So any of them arriving trips
 #: this whatever it is called and however it was imported: the review page is 193,380 bytes

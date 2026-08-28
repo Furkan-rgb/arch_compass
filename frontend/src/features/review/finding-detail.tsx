@@ -101,38 +101,42 @@ function policiesSummary(finding: Finding, retrieval?: RetrievalProvenance): str
  * A fact that supports the block above it, said in one line.
  *
  * `46ch`, not the `62ch` this and every other measured block in the product used to carry.
- * `ch` is the width of Onest's zero, which is about `0.65em` — so `62ch` resolved to roughly
- * 650px at the reading size and admitted 89 lowercase characters, forty per cent more than
- * the number implied. The unit is kept, because it keeps the measure proportional to the size
- * the block is set at; the number is corrected to the 30em a measure actually is.
+ * `ch` is the width of the used font's zero — 0.600em in IBM Plex Sans, 0.665em in the Onest
+ * this replaced — so `62ch` resolved to well over 600px at the reading size and admitted far
+ * more lowercase characters than the number implied. The unit is kept, because it keeps the
+ * measure proportional to the size the block is set at; the number is corrected to the 30em a
+ * measure actually is.
  *
  * It is the supporting measure now, and no longer the only one. The model's argument left
  * `46ch` for `58ch`, because that same proportionality cuts the other way at the reading
  * size: `ch` scales with the type, so an equal `ch` on a 16px paragraph and on this 12px
  * footnote gives them the same *character count* at two different widths — and the block set
- * largest then held the fewest words on the surface. The count, counted in a browser over the
- * recorded corpus rather than assumed, is **59**: 46ch is 367.08px here, and on that measure a
- * line that is not the last of its block carries 59.0 characters. Fifty-nine is a footnote's
- * line and **75.7** is an argument's, which is the `58ch` next door — measured the same way, and
- * the two are stated in one quantity on purpose, because the whole subject of this comment is a
- * pair of numbers that meant different things while wearing the same words. A footnote is a
- * line under a block and wants the shorter measure; an argument is read and wants the longer.
+ * largest then held the fewest words on the surface. The counts, counted in a browser over the
+ * recorded corpus rather than assumed, were **59** here and **75.7** for the `58ch` argument
+ * next door — measured the same way, and stated in one quantity on purpose, because the whole
+ * subject of this comment is a pair of numbers that meant different things while wearing the
+ * same words. A footnote is a line under a block and wants the shorter measure; an argument is
+ * read and wants the longer. **Both counts are Onest's** and neither has been re-swept since
+ * the face moved to IBM Plex Sans; what they establish is the ordering, which is a property of
+ * the two measures rather than of the face, and the ordering is what the paragraph argues from.
+ * `docs/known-defects.md` carries the re-sweep.
  *
  * "The same way" is now a method rather than a promise, because this pair has been re-measured
- * five times and moved three. Serve the built bundle, so the face is the shipped `onest.woff2`
- * and the CSS is the real one. Load both Onest weights with `document.fonts.load` and assert
- * them with `document.fonts.check` before reading anything — `font-display: swap` otherwise
- * answers with a fallback zero and every width is five per cent wrong. Render all 375 recorded
- * strings through the real `ModelProse` with its quoted names drawn as chips. Cluster a Range
- * per character on the vertical **centre** of its box, not its top, since a mono chip is taller
- * than the Onest beside it and shares its baseline. Then average the lines that are not the last
- * of their block. The 59 has held every one of the five runs: 59.01 over 2,846 such lines.
+ * five times and moved three. Serve the built bundle, so the face is the shipped woff2 and the
+ * CSS is the real one. Load every weight involved with `document.fonts.load` and assert them
+ * with `document.fonts.check` before reading anything — `font-display: swap` otherwise answers
+ * with a fallback zero and every width is five per cent wrong. Render all 375 recorded strings
+ * through the real `ModelProse` with its quoted names drawn as chips. Cluster a Range per
+ * character on the vertical **centre** of its box, not its top, since a mono chip is taller than
+ * the sans beside it and shares its baseline. Then average the lines that are not the last of
+ * their block. The 59 held every one of the five Onest runs: 59.01 over 2,846 such lines. The
+ * method is what carries over; the number is what has to be read again.
  *
  * **The 73 that used to stand beside it was wrong twice over, and the second way is the one
  * worth recording.** It was said to be this sweep taken over the *string* rather than over the
- * render, on the grounds that a string loses the width a mono chip adds. Onest is *narrower*
+ * render, on the grounds that a string loses the width a mono chip adds. The sans is *narrower*
  * than the chip that replaces it, so measuring the string can only push the count up. Re-run:
- * flatten every chip back to Onest body text and the same sweep gives **76.07**; draw the
+ * flatten every chip back to body text and the same sweep gives **76.07**; draw the
  * recorded string literally, backticks and all, and it gives **76.24**. Both sit above the
  * render's 75.7, so the diagnosis had the direction backwards as well as the digit. 73.1 is this
  * sweep at 56ch, which is the likeliest place a 73 came from at all. It is deleted rather than
@@ -148,16 +152,22 @@ function policiesSummary(finding: Finding, retrieval?: RetrievalProvenance): str
  * both perfectly defensible numbers, and not these ones. That is the whole reason this comment
  * has moved three times.
  *
- * 46ch here is 367.08px because a footnote declares no weight and so inherits 400. It is not
- * the 395.76px the same 46ch resolves to twenty lines up on the 13px `font-semibold` lede, and
- * it is not the 397.67px it resolves to on the 13px policy note below — same count, same size,
- * two different widths, because Onest's zero is 665 units on a 1000-unit em at 400 and 661.8 at
- * 600. Neither figure is worked out by hand: "resolves every `46ch` this surface declares, and
- * none of them from an ancestor" in `features/review/finding-detail.test.tsx` computes them off
- * these class lists, and it also says the thing this comment cannot — that `max-w-[46ch]` is
- * written on four blocks in this file at four sizes, and therefore stops at four different
- * edges, 61.18px apart end to end. That is defect 9 alive here, and `docs/known-defects.md`
- * carries the table.
+ * 46ch here is 331.20px, because a footnote is set at 12px and a `ch` follows the size of the
+ * block it is written on. It is not the 358.80px the same 46ch resolves to on the 13px lede
+ * twenty lines up or on the 13px policy note below — same count, one pixel of size, two
+ * different widths. No figure here is worked out by hand: "resolves every `46ch` this surface
+ * declares, and none of them from an ancestor" in `features/review/finding-detail.test.tsx`
+ * computes them off these class lists, and it also says the thing this comment cannot — that
+ * `max-w-[46ch]` is written on four blocks in this file at four sizes, and therefore stops at
+ * four different edges, 55.20px apart end to end. That is defect 9 alive here, and
+ * `docs/known-defects.md` carries the table.
+ *
+ * Under Onest that spread was 61.18px and it had a second cause: one variable file whose zero
+ * narrowed from 665 units on a 1000-unit em at 400 to 661.8 at 600, so the same `46ch` at the
+ * same 13px landed on two widths depending on weight alone. IBM Plex Sans ships four static
+ * cuts that all advance the zero at 600 units, so weight has dropped out of the question and
+ * size is the whole of what is left. That makes the defect smaller and not different, which is
+ * why the number moved and the paragraph did not.
  *
  * The number is spelled out because this comment's own subject is a number in a comment that
  * drifted. The one it replaces said "sixty", which is what `ch` is worth if you take it as
@@ -194,11 +204,21 @@ function BlockLabel({ children, className }: { children: ReactNode; className?: 
  *
  * `-my-3 py-3` is `PathRef`'s trick, and this is the other half of the same promise: a
  * finding has two ways out to the source a claim came from, and only the one going to a file
- * was tappable. This one was a bare line of 11px type with no box at all — well under the
- * 24px minimum, let alone the 44px floor the rest of the product holds. The padding makes the
- * touch box; the matching negative margin hands those pixels straight back to the layout, so
- * nothing moves. A call site that wants to space it does so on a wrapper — `cn` is
- * tailwind-merge, and a `mt-*` passed here sits beside the `-my-3` rather than replacing it.
+ * was tappable. This one was a bare line of type with no box at all — well under the 24px
+ * minimum, let alone the 44px floor the rest of the product holds. The padding makes the touch
+ * box; the matching negative margin hands those pixels straight back to the layout, so nothing
+ * moves. A call site that wants to space it does so on a wrapper — `cn` is tailwind-merge, and
+ * a `mt-*` passed here sits beside the `-my-3` rather than replacing it.
+ *
+ * **The rest of the class list is `PathRef`'s too, and it was not.** The two are the same
+ * promise said about two kinds of source, so a reader who has followed one should recognise the
+ * other, and this one was a size and an underline away from it: 11px against the evidence tier's
+ * 12.5/500, and `decoration-rule-strong` — a neutral hairline — under a word painted `--mark`.
+ * The system splits each signal in two on the WCAG line, so the word takes the text tier and the
+ * underline takes `--mark-edge`, which is exactly what `ui/meta.tsx` draws. `hover:decoration-mark`
+ * rather than `hover:decoration-current`: `currentColor` here *is* `--mark`, so the two happen to
+ * agree, and naming the token says the strengthening is a tier change rather than a coincidence
+ * of what the text is painted.
  */
 export function PolicyRef({ id, className }: { id: string; className?: string }) {
   return (
@@ -206,7 +226,9 @@ export function PolicyRef({ id, className }: { id: string; className?: string })
       to={`/policies?open=${encodeURIComponent(id)}`}
       title={`Read the policy ${id}`}
       className={cn(
-        "-my-3 inline-block py-3 font-mono text-[11px] text-mark underline decoration-rule-strong underline-offset-2 transition hover:decoration-current [overflow-wrap:anywhere]",
+        "-my-3 inline-block py-3 font-mono text-[12.5px] font-medium text-mark",
+        "underline decoration-mark-edge underline-offset-2 transition hover:decoration-mark",
+        "[overflow-wrap:anywhere]",
         className,
       )}
     >
@@ -252,12 +274,29 @@ export function Attribution({ voice, by, className }: { voice: string; by?: Reac
  * Nine rows of 64-character hashes, and until there was a clipboard in this product the only
  * way to take one anywhere was to select it by hand across three wrapped lines. The tick is
  * the confirmation and it costs no width until it is earned.
+ *
+ * `text-ink`, against the `--ink-3` the `Label` beside it is set in. The hash is the content
+ * of the row and the key is the caption on it, and under the v1 ramp those two measured
+ * **1.22:1 against each other** — both passing comfortably against the ground they sat on,
+ * thirteen levels apart, so a key and its value were one colour with two names. This block is
+ * the one `docs/design-system.md` names when it says a contrast test cannot see two passing
+ * inks landing on top of one another. The v2 ink tiers step 0.100 apart in OKLCH lightness, so
+ * the two ends of the ramp this row uses measure 3.01:1 in light and 2.84:1 in dark against
+ * each other, and the darkest thing in the row is now the thing worth copying.
+ *
+ * The size is `Mono`'s own default and not a class written here. The evidence tier moved to
+ * 12.5px at 500 — this fold sets the product's longest strings and was setting them at its
+ * smallest size, in the face whose stems are thinnest there — and a size written back on at a
+ * call site is the drift that component's docstring exists to stop.
+ *
+ * `py-0`, because the rows are held apart by the list's own gap now rather than by their own
+ * padding and a hairline between them. The argument is on the `MetaList` in `Provenance`.
  */
 function HashRow({ label, value }: { label: string; value: string }) {
   return (
-    <MetaRow label={label}>
+    <MetaRow label={label} className="py-0">
       <span className="flex min-w-0 items-start gap-1">
-        <Mono className="min-w-0 flex-1 [overflow-wrap:anywhere]">{value}</Mono>
+        <Mono className="min-w-0 flex-1 text-ink [overflow-wrap:anywhere]">{value}</Mono>
         <CopyButton
           value={value}
           label={`Copy the ${label.toLowerCase()}`}
@@ -293,9 +332,13 @@ function Disclosure({
    * Every summary used to be set in mono, which is the face this system reserves for names,
    * paths and ids. That is right for Provenance, whose closed state really is two hashes, and
    * wrong for the other two: "The corpus was searched · nothing came back above the
-   * threshold" in 11px monospace reads as an identifier that has gone wrong — the failure
+   * threshold" in monospace reads as an identifier that has gone wrong — the failure
    * `surfaces.tsx` names by hand a few files over. So the caller says which voice its own
    * summary is in, and English goes at the footnote step in sans.
+   *
+   * The machine half sits at the evidence tier — 12.5px at 500 — rather than a step below the
+   * sentence it stands in for. Two shortened hashes are the longest string this row ever
+   * carries and they were the smallest type on it.
    */
   machine?: boolean;
   children: ReactNode;
@@ -307,28 +350,62 @@ function Disclosure({
           that said so was 16px wide at the far right of a 1168px row, more than a thousand
           pixels from the word it opens. In front of the label it sits twelve pixels from it.
 
-          `hover:bg-sunken`, not `hover:bg-surface-2`: `#ffffff` to `#fafafa` is five values,
-          which is a division a reader is not asked to notice and nowhere near a state that
-          appears under a pointer. `--surface-2` is also what the open body is filled with,
-          so a hover in it would have been the row previewing its own contents.
+          **The whole row is the control, and one word in it was drawn like one.** The label
+          is full ink; the chevron and the sentence beside it were both `--ink-3`, which the
+          ramp gives to labels and meta and explicitly not to a sentence — and two of the three
+          summaries here are sentences. Both move to `--ink-2`, the reading tier, and the
+          chevron takes full ink under the pointer so the row has a state as well as a rest.
+          Nothing here takes a hue: an affordance in this system is a weight, an underline or
+          an edge, and `--mark` is spent on something that goes somewhere. Opening a fold goes
+          nowhere.
+
+          That pointer state hangs off a named group on the `summary` rather than the `group`
+          on the `details`, which covers the open body as well — under it, running a pointer
+          across the hashes would have lit the control that closes them.
+
+          `hover:bg-sunken`, and the open body below is `--sunken` too. The last pass rejected
+          `--surface-2` for this hover because `#ffffff` to `#fafafa` was five values; the v2
+          ramp widens that step into a real one and it is still the wrong one here, at 1.08:1
+          against `--sunken`'s 1.25:1 — a division a reader can be shown, not a state that
+          arrives under a pointer. What that leaves is the objection the old comment raised
+          against exactly this, that a hover in the body's own fill is the row previewing its
+          contents. It is a fair description and a poor complaint: the ramp gives one tone to
+          *a hover, a code block, an opened fold* on purpose, the summary is what closes an
+          open fold, and a fold answering as one block under the pointer is a true statement
+          about what a click there does.
 
           `sm:px-5` rather than `sm:px-6`, so the left edge of an open finding stops stepping
           in and out: the argument, the readings, the evidence and the decision bar all resolve
           to 16px below `sm` and 20px above it, and four pixels is enough to read as a
           misalignment against a hairline and not enough to read as an indent. */}
-      <summary className="flex min-h-11 list-none items-start gap-3 px-4 py-3 transition hover:bg-sunken focus-visible:-outline-offset-2 sm:px-5">
-        <ChevronDown className="mt-0.5 size-4 shrink-0 text-ink-3 transition group-open:rotate-180" />
+      <summary className="group/summary flex min-h-11 list-none items-start gap-3 px-4 py-3 transition hover:bg-sunken focus-visible:-outline-offset-2 sm:px-5">
+        <ChevronDown className="mt-0.5 size-4 shrink-0 text-ink-2 transition group-hover/summary:text-ink group-open:rotate-180" />
         <Label className="shrink-0 leading-5 text-ink">{label}</Label>
         <span
           className={cn(
-            "min-w-0 flex-1 text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]",
-            machine && "font-mono text-[11px]",
+            "min-w-0 flex-1 text-[12px] leading-5 text-ink-2 [overflow-wrap:anywhere]",
+            machine && "font-mono text-[12.5px] font-medium",
           )}
         >
           {summary}
         </span>
       </summary>
-      <div className="border-t border-rule bg-surface-2 px-4 py-4 sm:px-5">{children}</div>
+      {/* A ground step, and no hairline drawn over it. `--sunken` is what the ramp calls an
+          opened fold, and this is the first fill in the finding that says *you are inside
+          something* by being a different colour rather than a different white: `--surface-2`
+          on `--surface` is 1.08:1, and `--sunken` on it is 1.25:1 in light and 1.28:1 in dark.
+          The `border-t border-rule` that used to draw this seam goes with the change — the
+          order is space, then a rule, then a fill, then a border, stopping at the first that
+          works, and a fill that separates does not want a rule laid on top of it.
+
+          **Neutral, and that is the rule rather than the absence of a decision.** This is the
+          fold that holds nothing but provenance and `--mark` is the hue that means provenance,
+          so tinting the body with it is the obvious move and the wrong one: it would be the
+          largest chromatic region in the product, and a hue that fills a region has stopped
+          signalling and started decorating. The four wash tokens are a badge fill and nothing
+          else. Colour in a fold like this is one word wide: an id or a path that leads
+          somewhere, painted `--mark`, and nothing around it. */}
+      <div className="bg-sunken px-4 py-4 sm:px-5">{children}</div>
     </details>
   );
 }
@@ -500,7 +577,7 @@ export function FindingBody({
           voice="Judged"
           by={`${finding.model_identity} · ${retrievalLabel(finding, retrieval)}`}
         />
-        {/* `mt-2.5` is the gap under a 10px attribution label, and `gap-y-3.5` is the gap
+        {/* `mt-2.5` is the gap under an 11px attribution label, and `gap-y-3.5` is the gap
             between the two paragraphs now inside this grid — the verdict's sentence and the
             argument under it. Those were `mt-2.5` on the sentence and `mt-3.5` on the grid when
             the sentence stood outside it, so the same two distances are drawn; only what
@@ -513,10 +590,14 @@ export function FindingBody({
             the point. The sentence is inside the argument's own track, so no width it declares
             can take it past the argument's right edge at any viewport. It used to sit above the
             whole grid with a `38.5rem` cap standing in for that edge, and two numbers agreeing
-            is not the same as one number: 38.5rem is 616px and the argument's column is
-            `1fr` — 582px at a 1024px viewport, 600px at 1040, and only from about 1060 up is it
-            wide enough for the cap to be the narrower of the two. Measured at 1024 the sentence
-            was capped 34.00px past the argument it stands over. Latent, because the three
+            is not the same as one number: 38.5rem was 616px against an argument column of
+            `1fr` — 582px at a 1024px viewport, 600px at 1040, and only from about 1060 up wide
+            enough for the cap to be the narrower of the two. Measured at 1024 the sentence was
+            capped 34.00px past the argument it stands over. (Those figures are Onest's, from
+            when the argument's `58ch` drew 617.12px; the cap is `34.8rem` now and the overhang
+            would not reproduce. They are kept because the defect is the arrangement, not the
+            arithmetic — two caps agreeing at one viewport is not one edge at every viewport,
+            whatever the two numbers happen to be.) Latent, because the three
             descriptions in `lib/format` are 51, 60 and 60 characters and none of them reaches
             580px — which means the guarantee was being held by the length of three strings.
 
@@ -605,29 +686,37 @@ export function FindingBody({
               `lg:col-start-1 lg:row-start-1` is what actually holds this line inside the
               argument's right edge, and the grid comment above says why it had to.
 
-              `max-w-[38.5rem]` is a guard, not a measure, and now a guard against one thing
+              `max-w-[34.8rem]` is a guard, not a measure, and now a guard against one thing
               rather than two. The three descriptions in `lib/format` are 51, 60 and 60
-              characters, so at 13px the line is about 390px and wraps only below `sm`. What the
-              cap still buys is the wide end: at 1440 the argument's column is about 700px, and
-              a fourth verdict with a long description would set a 13px line wider than the 16px
-              paragraph under it, which reads as the small text being the important text. What
-              it no longer has to buy is the narrow end, where it was quietly failing — the
-              column does that, at every width, by construction. The `46ch` it replaced was
-              395.76px against a string needing 390 — one character from wrapping a one-line
-              sentence.
+              characters, so at 13px the line wraps only below `sm`. What the cap still buys is
+              the wide end: at 1440 the argument's column is about 700px, and a fourth verdict
+              with a long description would set a 13px line wider than the 16px paragraph under
+              it, which reads as the small text being the important text. What it no longer has
+              to buy is the narrow end, where it was quietly failing — the column does that, at
+              every width, by construction.
 
               In `rem`, and that is the correction rather than the value. This carried the same
               `max-w-[58ch]` the argument below it does, which reads as the two sharing a right
               edge and is not what it means: a `ch` is the advance of the used font's zero, so it
-              follows the element's size *and its weight*. This line is 13px `font-semibold` and
-              the argument is 16px at 400, and Onest's zero is 665 units on a 1000-unit em at
-              wght 400 but 661.8 at wght 600 — so 58 of them is 617.12px there and 499.00px here,
-              a gap of 118.12px. One class, two elements, two widths, twenty lines apart — the
-              exact trap `ui/prose.tsx` spends four paragraphs warning about. Both figures on
-              this line were wrong until the seventh pass, at 398px and 501px, because both were
-              taken at 400 on a block set at 600; `docs/design-system.md` carries the weights and
-              `ui/markdown.test.tsx` recomputes the arithmetic. 38.5rem is 616px whatever this
-              block is set at, and it stays that if somebody changes the size of this line.
+              follows the element's size. This line is 13px and the argument is 16px, so 58 of
+              them is 556.80px there and 452.40px here — one class, two elements, two widths,
+              twenty lines apart, the exact trap `ui/prose.tsx` spends four paragraphs warning
+              about. `34.8rem` is 556.80px whatever this block is set at, and it stays that if
+              somebody changes the size of this line.
+
+              **The number moved with the face and the guard did not, which is the third round of
+              this same mistake.** It was `38.5rem` — 616px, the round number just under Onest's
+              58ch at 16px, which was 617.12px. Plex Sans's zero is 0.600em against Onest's
+              0.665em, so the argument's own edge came in 60px and the guard stayed where it was,
+              capping this line 59.2px past the paragraph it exists to line up with. Nothing
+              rendered wrong, because the three strings are short; the test next door is what
+              caught it, by resolving both edges from the class lists rather than trusting either
+              figure. A `ch` under Onest also followed *weight* — 665 units on a 1000-unit em at
+              400 against 661.8 at 600 — and the pair of figures on this line were wrong for six
+              passes for that reason alone. Plex Sans ships static cuts that all advance at 600
+              units, so weight drops out and size is the whole of it.
+              `ui/font.test-metrics.ts` holds the advance and
+              `features/review/finding-detail.test.tsx` recomputes every figure above.
 
               13px semibold is the scale's secondary-body row, and `text-ink-2` keeps it under
               the 16px argument. It is promoted in size and weight and never in hue, and never to
@@ -642,7 +731,7 @@ export function FindingBody({
               on the opposite verdict; a lede taken from the prose would print a claim the
               paragraph goes on to reverse, in the largest type on the page. */}
           <p
-            className="max-w-[38.5rem] text-[13px] font-semibold leading-6 text-ink-2 lg:col-start-1 lg:row-start-1"
+            className="max-w-[34.8rem] text-[13px] font-semibold leading-6 text-ink-2 lg:col-start-1 lg:row-start-1"
           >
             {descriptor.description}
           </p>
@@ -793,7 +882,7 @@ export function FindingBody({
                        The arrow is drawn. It was `&rarr;`, the forbidden glyph written as an
                        entity: the guard scans source for the character and an entity contains
                        none, while the browser renders U+2192 out of whatever the operating
-                       system has, since neither Onest nor Plex Mono ships it. */
+                       system has, since neither of this product's latin subsets carries it. */
                     <Button
                       variant="link"
                       size="md"
@@ -1054,41 +1143,41 @@ export function FindingBody({
       {/* ── The audit, folded away, each with a closed state that says what is inside ── */}
       <Disclosure label="Policies" summary={policiesSummary(finding, retrieval)}>
         {finding.policies.length ? (
-          /* `26.75rem`, and neither half of that number is `46ch`.
+          /* `24.3rem`, and neither half of that number is `46ch`.
               A `ch` is the advance of the zero of the element's **own** used font, and this
               `ul` declares no font size, so `max-w-[46ch]` resolved against the 16px it
-              inherited from the root and drew **489.44px** — while the note inside it is
-              `text-[14px]`, whose own 46ch is 428.26px. The name said one measure and the
-              layout drew another, which is the defect `ui/markdown.tsx` carries a paragraph
-              about, in a second file.
+              inherited from the root — a whole size larger than the `text-[14px]` note inside
+              it. The name said one measure and the layout drew another, which is the defect
+              `ui/markdown.tsx` carries a paragraph about, in a second file.
               The second half is subtler and survives fixing the first. The cap is on the
               *card*, and a measure is a property of the text: the card spends 30px on its own
-              `px-3.5` and its two hairlines, so at 489.44px the note was reading at 459.44px —
-              65.47 characters a line, measured over all 514 recorded notes with a `Range` per
-              character in a headless Chromium serving the built stylesheet. Writing the text's
-              measure on the box around it is off by whatever that box costs.
+              `px-3.5` and its two hairlines, so whatever is written here the note reads 30px
+              narrower. Writing the text's measure on the box around it is off by whatever that
+              box costs.
               So the cap is the note's measure plus the card: `46ch` at the 13px the note is
-              now set in is 397.67px, and 397.67 + 30 is 427.67, rounded to a quarter-rem the
-              way `ui/markdown.tsx` rounds its own.
+              now set in is 358.80px, and 358.80 + 30 is 388.80px, which is `24.3rem` exactly.
 
-              **`46ch` is 46 advances of Onest's zero, and not 46 characters.** The sentence
-              this replaces said characters, and the two are a third apart: 397.67 is
-              46 x 13 x 0.665, the zero read off the shipped `onest.woff2`, while a character
-              of this face on a full line costs 6.57px at 13px. Swept the way
-              `docs/design-system.md` says to — a `Range` per character over all 514 recorded
-              notes in a headless Chromium serving the built stylesheet, each line counted from
-              its own first visible character to the next line's, averaged over full lines only
-              — the note at 398.00px reads at **60.58 characters a line** over 1,531 full
-              lines. The same sweep at the 459.44px and 14px it read at before this change
-              gives 65.51 against the 65.47 `docs/known-defects.md` records, so the method here
-              is that document's own and it was only the word that was wrong. No pixel moves:
-              46 zeros is a good measure for this block and 60.58 characters is a good line. The note then draws at
-              **398.00px** and stops within a third of a pixel of the "No policy applied here"
-              paragraph below, which is this list's own empty state at
-              `max-w-[46ch] text-[13px]` — the two answers to one question, ending in one
-              place. That `ui/markdown.tsx` arrives at the same 26.75rem from 46ch at 14px on
-              the block itself is a coincidence of two derivations, not a shared constant, and
-              the two must not be made into one.
+              **`46ch` is 46 advances of the zero, and not 46 characters.** The sentence this
+              replaces said characters, and the two are well apart: 358.80 is 46 x 13 x 0.600,
+              the advance read off the shipped `plex-sans-400.woff2` and held once in
+              `ui/font.test-metrics.ts`, while a character of body text on a full line costs
+              less than a zero does. The note then stops in the same place as the "No policy
+              applied here" paragraph below, which is this list's own empty state at
+              `max-w-[46ch] text-[13px]` — the two answers to one question, ending in one place.
+              That `ui/markdown.tsx` arrives at a similar figure from 46ch at 14px on the block
+              itself is a coincidence of two derivations, not a shared constant, and the two
+              must not be made into one.
+
+              **The character counts this paragraph used to carry were Onest's, and they are
+              gone rather than converted.** It said the note read at 60.58 characters a line
+              over 1,531 full lines, and 65.47 at the width and size it had before — both real
+              measurements, both a `Range` per character over all 514 recorded notes in a
+              headless Chromium, and both properties of a face this product no longer
+              downloads. A zero advance is four bytes of `hmtx` and could be re-read here; an
+              average character on a full line needs the built bundle, a browser and a
+              `workspace.sqlite3` that is not checked in. `docs/known-defects.md` carries the
+              re-sweep as an open item. Converting them by ratio would have been the eighth
+              round of a number in prose being a copy of a measurement.
 
               **That number is now the width of a column rather than the width of the list**,
               and it is the same number for the same reason. It was written as `max-w` on the
@@ -1096,13 +1185,13 @@ export function FindingBody({
               there is a great deal of row. The docket runs in a `max-w-[76rem]` column, so this
               fold body measures **1,126px at a 1280px viewport and at every width above it**,
               which is the same 1126 this file already argues from twice. Two policies therefore
-              spent two rows and 428px of 1,126, and left 62% of the fold empty, while each note
-              read at exactly the measure derived above.
-              `repeat(auto-fill,minmax(0,26.75rem))` moves the cap on to the track, which is
+              spent two rows and one card's width of 1,126, and left most of the fold empty,
+              while each note read at exactly the measure derived above.
+              `repeat(auto-fill,minmax(0,24.3rem))` moves the cap on to the track, which is
               what the paragraph above says it should have been on all along — the cap belongs
               to the card, and a measure is a property of the text inside it. Each card is at
-              most 428px, the note inside it still draws at **398.00px**, and the browser test
-              named below measures both rather than trusting this sentence.
+              most 388.80px, the note inside it draws at 358.80px, and the browser test named
+              below measures both rather than trusting this sentence.
 
               **Intrinsic sizing rather than a container query or a breakpoint**, and the choice
               is available rather than clever. Tailwind is 4.3.3, so `@container` is in core and
@@ -1125,7 +1214,7 @@ export function FindingBody({
               stored findings — those 148 plus the 231 in `core_finding_cache` — and the shape
               holds: 33 with none, 178 with one, 163 with two, and **5 with three, which is the
               most any of them has ever held**. Two columns is therefore the whole of the case,
-              and it is also all the fold has room for: `floor((1126 + 8) / 436)` is 2, so no
+              and it is also all the fold has room for: `floor((1126 + 8) / 396.8)` is 2, so no
               width this docket reaches offers a third track. That is the answer to the question
               a hand-written `grid-cols-3` would have got wrong from both ends — it would leave
               a third of its row empty on the 53% that carry two, and it would not fit. One
@@ -1139,33 +1228,49 @@ export function FindingBody({
               nothing against nothing. And the notes are genuinely unequal: over the 168 stored
               findings holding more than one policy the two notes differ by 43 characters at the
               median and 70.6 at the mean, but 10 of them differ by more than 200 and the worst
-              real pair is **1,080 characters against 340**. Drawn side by side at this measure
-              those are a 504.00px card and a 195.50px one, so stretching would hand the short
-              one **308.50px** of nothing — and because the fold body is `--surface-2` and the
-              card has no fill of its own, that emptiness is the same colour on both sides of
-              the rule it is enclosed by. It reads as a box drawn too big rather than as a card.
+              real pair is **1,080 characters against 340**. Drawn side by side at the measure
+              this fold had under Onest those were a 504.00px card and a 195.50px one, so
+              stretching would have handed the short one 308.50px of nothing — and because the
+              fold body is `--sunken` and the card has no fill of its own, that emptiness is the
+              same colour on both sides of the rule it is enclosed by. It reads as a box drawn
+              too big rather than as a card. The two heights are a browser reading of a face
+              this product no longer downloads and both grow at the narrower measure Plex Sans
+              gives; the character counts they come from are a property of the store and are
+              what the argument rests on.
               A ragged lower edge on two bordered columns is the cheaper failure, and at the
               median difference of 43 characters it is under one line of it.
 
-              The `Footnote` under the list keeps its own `max-w-[46ch]`, which is 367.08px at
+              The `Footnote` under the list keeps its own `max-w-[46ch]`, which is 331.20px at
               its 12px, and it stays at the fold's left edge under the first column. It is the
               caption for the whole fold rather than for a card, and letting a 12px line run the
-              864px two columns occupy would be 40% past **617.12px**, which is where the model's
-              own paragraph stops and is the widest reading measure in the product.
-              `features/review/finding-detail.test.tsx` holds that 367.08 as one of the four
+              two columns' full width would put it well past **556.80px**, which is where the
+              model's own paragraph stops and is the widest reading measure in the product.
+              `features/review/finding-detail.test.tsx` holds that 331.20 as one of the four
               widths this surface is allowed to resolve a `46ch` to, so it is not free to move.
 
               Geometry, so jsdom can see none of it:
               `tests/browser/test_policies_grid.py` is what fails when this stops being true. */
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(0,26.75rem))] items-start gap-2">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(0,24.3rem))] items-start gap-2">
             {/* A hairline card with no fill, for the reason `EvidenceBlock` has none: the
-                fold body it sits in is `--surface-2`, and `--surface` is above it in light
-                and below it in dark, so the same card read as raised in one theme and as a
-                hole in the other. And the id at the 11px mono step the scale contains rather
-                than at 10.5px, which it does not — the size was there to keep a link that had
-                no touch box from looking heavy, and the link has a touch box now. */}
+                fold body it sits in is `--sunken`, and every other ground in the ramp is above
+                it in light and below it in dark, so a filled card would read as raised in one
+                theme and as a hole in the other. The body moving from `--surface-2` to
+                `--sunken` did not weaken that argument, it widened it — `--surface` and
+                `--surface-2` now sit on the same side of this card in each theme.
+
+                `--rule-strong`, because with no fill the hairline is the entire boundary. A
+                boundary that groups clears 1.6:1 and `--rule` measures 1.28:1 on this ground,
+                which is a card outlined rather than edged; `--rule-strong` is 1.67:1 in light
+                and 2.32:1 in dark.
+
+                And the id at 11px rather than at 10.5px — the size was there to keep a link
+                with no touch box from looking heavy, and the link has a touch box now. The v2
+                scale puts the mono evidence tier at 12.5px/500 and this call site has not
+                moved to it; neither have `Attribution`'s identity line, the participant names,
+                the detection fingerprint or the evidence file count, and that pass wants
+                taking over the file in one go rather than four. */}
             {finding.policies.map((bearing) => (
-              <li key={bearing.policy_id} className="rounded-md border border-rule px-3.5 py-3">
+              <li key={bearing.policy_id} className="rounded-md border border-rule-strong px-3.5 py-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <span className="text-[13px] font-semibold text-ink">{bearing.policy_title}</span>
                   <PolicyRef id={bearing.policy_id} />
@@ -1191,7 +1296,7 @@ export function FindingBody({
                     are carried by. Judged is three things at once — the reading size, a block
                     alone in a band, and a `JUDGED · <model>` line naming who wrote it. A note
                     here is none of them: it is one card among several, the fold body under it
-                    is `--surface-2`, and the line above it names a **policy** and its id. A
+                    is `--sunken`, and the line above it names a **policy** and its id. A
                     second 16px full-ink block on this page would tell a reader there are two
                     judgements in the finding, which is the one thing the size is spent saying.
                     What was wrong was the size, and it was wrong by being a fourth one. The sentences
@@ -1254,7 +1359,26 @@ export function FindingBody({
             : `Prompt ${shortId(finding.prompt_identity, 12)} · no retrieval recorded for this candidate`
         }
       >
-        <MetaList>
+        {/* Space, not nine hairlines. This is the block `docs/design-system.md` reaches for
+            when it says the structural order was backwards in practice: nine rows of a
+            definition list held apart by `--rule`, which measures 1.28:1 on this ground and
+            separates nothing — it adds eight grey bands to a block already made of grey.
+            Separate with space, then a rule, then a fill, then a border, and stop at the first
+            that works. Space works here, at any contrast, in both themes, and costs only
+            height.
+
+            20px of gap against the 24px line box a value sits in — under a line, which is far
+            enough to find the next key and not far enough to read as nine blocks. `py-0` moves
+            the row's own padding into that gap rather than adding to it, so the rows are one
+            distance apart rather than two summed. Nine rows and eight gaps come out 8px taller
+            than the same nine rows with their own `py-2` and eight hairlines between them, and
+            the first and last now sit 8px closer to the fold's own `py-4`. That is the whole
+            cost of the change.
+
+            Turned off at this call site rather than in `ui/meta.tsx`. `MetaList` also draws
+            the context rail, where the rows are single lines under a panel header and a rule
+            still has a job to do. This fold is the one where nine of them stack. */}
+        <MetaList className="flex flex-col gap-5 divide-y-0">
           <HashRow label="Candidate" value={finding.candidate.id} />
           <HashRow label="Judge" value={finding.model_identity} />
           <HashRow label="Prompt" value={finding.prompt_identity} />
@@ -1263,26 +1387,64 @@ export function FindingBody({
             <HashRow label="Investigation" value={finding.investigation_identity} />
           ) : null}
           {retrieval ? (
-            <MetaRow label="Retriever">
-              <Mono className="[overflow-wrap:anywhere]">
+            /* `text-ink` for the reason `HashRow` gives above: every value in this list is the
+               content of its row and every key is the caption on it, and a retriever's name is
+               not the one exception to that. */
+            <MetaRow label="Retriever" className="py-0">
+              <Mono className="text-ink [overflow-wrap:anywhere]">
                 {retrieval.retriever}/{retrieval.version}
               </Mono>
             </MetaRow>
           ) : null}
           {retrieval ? <HashRow label="Corpus" value={retrieval.corpus_fingerprint} /> : null}
           {measurements.length ? (
-            <MetaRow label="Measured as">
+            <MetaRow label="Measured as" className="py-0">
+              {/* The chips lift off their ground, and the fold body moving to `--sunken` is
+                  what does it rather than anything written here. `Tag` is filled with
+                  `--surface-2` and this fold body used to be `--surface-2` as well: four boxes
+                  at 1.00:1 against what they sat on, held off it by a `--rule` hairline alone.
+                  That is the "outlines around nothing" `docs/design-system.md` names this
+                  surface for, and it was a pair of declarations agreeing rather than a value
+                  being wrong. On `--sunken` the same fill is a real step: 1.16:1 in light and
+                  1.15:1 in dark.
+
+                  `--rule-strong`, because a step that small is not a boundary and `--rule` is
+                  not one either. A boundary that groups — a chip, a table head — clears 1.6:1;
+                  on this ground `--rule` is 1.28:1 against `--rule-strong`'s 1.67:1 in light
+                  and 2.32:1 in dark.
+
+                  The fill runs the opposite way in each theme, because `--sunken` is the top of
+                  the dark ramp and near the bottom of the light one, so a chip reads as raised
+                  in light and recessed in dark. That is the objection the policy cards in the
+                  fold above answer by carrying no fill at all, and it is answered differently
+                  here on purpose: at card size the direction is what a reader reads, and at
+                  pill size the shape has already said what the box is.
+
+                  Everything the `Mono` inside used to declare — the size, the ink tier, the
+                  wrapping — is now what `Mono` declares, and the machine name goes to the
+                  evidence tier with the hashes above it. */}
               <span className="flex flex-wrap gap-1.5">
                 {measurements.map((item) => (
-                  <Tag key={item.name}>
-                    <Mono className="text-[11px] text-ink-2 wrap-anywhere">{item.name}</Mono>
+                  <Tag key={item.name} className="border-rule-strong">
+                    <Mono>{item.name}</Mono>
                   </Tag>
                 ))}
               </span>
             </MetaRow>
           ) : null}
           {firstLocation ? (
-            <MetaRow label="First location">
+            /* The one thing in this fold that goes somewhere, and therefore the only thing in
+               it allowed a hue. `--mark` is provenance and the route back to a source — a file
+               path is the first example the design system gives — and it is what `PolicyRef`
+               already spends in the fold above.
+
+               It is not spent here yet, and the reason is one file over: `PathRef` paints its
+               own button `text-ink` from the v1 position that `--mark` *was* ink, which its
+               doc comment in `ui/meta.tsx` still argues. v2 gives the mark a hue of its own, so
+               that line is the change, and it has to be made there rather than overridden here
+               — `PathRef` is the product's single device for "this is the way back to the
+               source" and it is drawn in six files. */
+            <MetaRow label="First location" className="py-0">
               <PathRef
                 path={firstLocation.path}
                 line={firstLocation.start_line}

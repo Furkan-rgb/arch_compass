@@ -89,7 +89,7 @@ export function RepositoryPicker({
       <div className="mt-3">
         <TabPanel id="recent" active={tab}>
           {repositories.isLoading ? (
-            <div className="flex items-center gap-2 py-4 text-sm text-ink-3">
+            <div className="flex items-center gap-2 py-4 text-sm text-ink-2">
               <Spinner label="" /> Loading indexed repositories…
             </div>
           ) : !hasRecent ? (
@@ -187,7 +187,7 @@ export function RepositoryPicker({
               Browse or the palette exists. One line, pointing at the affordance that lists
               every repository by name rather than adding a second list here. */}
           {indexed.length > RECENT_LIMIT ? (
-            <p className="mt-2 text-xs leading-5 text-ink-3">
+            <p className="mt-2 text-xs leading-5 text-ink-2">
               {indexed.length - RECENT_LIMIT} more, indexed earlier. Press{" "}
               <kbd className="inline-flex items-center rounded-xs border border-rule px-1 font-mono text-[10.5px] font-semibold leading-4 text-ink-2">
                 ⌘K
@@ -279,11 +279,11 @@ function DirectoryBrowser({
           className="scroll-edge scrollbar-slim max-h-56 overflow-y-auto p-1.5"
         >
           {listing.isLoading ? (
-            <li className="flex items-center gap-2 px-2 py-3 text-sm text-ink-3">
+            <li className="flex items-center gap-2 px-2 py-3 text-sm text-ink-2">
               <Spinner label="" /> Reading…
             </li>
           ) : !listing.data?.directories.length ? (
-            <li className="px-2 py-3 text-sm text-ink-3">No sub-folders here.</li>
+            <li className="px-2 py-3 text-sm text-ink-2">No sub-folders here.</li>
           ) : (
             listing.data.directories.map((entry) => (
               <li key={entry.path}>
@@ -542,7 +542,7 @@ function CloneForm({ onCheckedOut }: { onCheckedOut: (root: string) => void }) {
         </Button>
       </div>
       {answered && remoteBranches.isError ? (
-        <p className="text-xs leading-5 text-ink-3">
+        <p className="text-xs leading-5 text-ink-2">
           The workspace could not read{" "}
           <Mono className="text-[11px] wrap-anywhere">{probed}</Mono> —{" "}
           {remoteBranches.error instanceof Error
@@ -551,7 +551,7 @@ function CloneForm({ onCheckedOut }: { onCheckedOut: (root: string) => void }) {
           Clone it anyway if the address is right; name a branch if you know one.
         </p>
       ) : answered && !offered.length ? (
-        <p className="text-xs leading-5 text-ink-3">
+        <p className="text-xs leading-5 text-ink-2">
           <Mono className="text-[11px] wrap-anywhere">{probed}</Mono> published no branch list.
           A private remote, a wrong address and a deployment with no git all look like this,
           so the clone is still worth trying — name a branch if you know one, or leave it on
@@ -600,7 +600,7 @@ function ExampleList({ value, onChange }: { value: string; onChange: (root: stri
 
   if (examples.isLoading) {
     return (
-      <div className="flex items-center gap-2 py-4 text-sm text-ink-3">
+      <div className="flex items-center gap-2 py-4 text-sm text-ink-2">
         <Spinner label="" /> Loading bundled examples…
       </div>
     );
@@ -653,7 +653,7 @@ function ExampleList({ value, onChange }: { value: string; onChange: (root: stri
                 <Tag>example</Tag>
               )}
             </div>
-            <p className="mt-1 text-xs leading-5 text-ink-3">{example.description}</p>
+            <p className="mt-1 text-xs leading-5 text-ink-2">{example.description}</p>
           </button>
         );
       })}

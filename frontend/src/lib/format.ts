@@ -119,9 +119,12 @@ const STATUSES: Record<string, Descriptor> = {
  * workbench where that exact red means "a material architectural concern was found".
  *
  * The first answer gave the strongest policy the indigo accent, on the argument that the
- * accent meant "the thing to look at" everywhere else. That argument was right and its
- * answer is gone: there is no accent hue in this system, because chroma is spent on
- * verdicts and nothing else.
+ * accent meant "the thing to look at" everywhere else. That argument was right and its answer
+ * is gone. The reason it is gone has changed once already and is worth stating in its current
+ * form: it used to be that there was no accent hue at all, chroma being spent on verdicts and
+ * nothing else. There are four hues now — the three verdicts and `--mark` — and `--accent`
+ * resolves to `--material`, so an accent is not a fifth colour a policy could borrow. The set is
+ * closed, and none of the four means "read this one first".
  *
  * So the step is carried by weight and rule instead. `marked` is ink on a stronger border,
  * the other two recede to the neutral, and the glyph and the word carry the distinction —

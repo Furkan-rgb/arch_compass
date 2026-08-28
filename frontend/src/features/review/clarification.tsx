@@ -245,7 +245,7 @@ export function useRoundAnswers(): RoundAnswers {
  * The ring is gone rather than fixed. `design-system.md` killed a ring around a circle by
  * name — it is two concentric circles and says nothing — and the present is marked by taking
  * emphasis off everything else: the open row is the only expanded one on screen, it carries
- * `aria-current="step"`, and its question is full ink where a closed row's is `--ink-3`.
+ * `aria-current="step"`, and its question is full ink where a closed row's is `--ink-2`.
  */
 function Marker({ standing }: { standing: Standing }) {
   return (
@@ -359,7 +359,7 @@ function RoundRow({
           <span
             className={cn(
               "block max-w-[54ch] text-sm leading-6",
-              standing === "open" ? "text-ink" : "text-ink-3",
+              standing === "open" ? "text-ink" : "text-ink-2",
             )}
           >
             <Prose>{question.text}</Prose>
@@ -775,10 +775,12 @@ export function ClarificationRound({
         </ol>
       </fieldset>
 
-      {/* `bg-surface-2`, not `bg-sunken/40`. Forty per cent of `#ebebeb` over the card
-          composites to `#f7f7f7` in light — a sixth grey belonging to no ramp — and to
-          `#141414` in dark, which is `--surface-2` arrived at by accident. A footer is a
-          static strip set into a panel, which is the job the token is named for. */}
+      {/* `bg-surface-2`, not `bg-sunken/40`. Forty per cent of `--sunken` over the card
+          composites to `#f5f5f2` in light — a fifth grey belonging to no ramp, and only 0.016
+          in OKLCH lightness off the card, under the 0.020 every real step on this ramp clears —
+          while the identical declaration in dark lands on `#201e1c`, a value the eye reads
+          perfectly well. A tone that works in one theme is not a tone. A footer is a static
+          strip set into a panel, which is the job the token is named for. */}
       <footer className="border-t border-rule bg-surface-2 px-4 py-3.5 sm:px-5">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           {/* Three sentences, because there are three things the press can cost and the copy
@@ -787,7 +789,7 @@ export function ClarificationRound({
               The third belongs to the button beside it — *Conclude with remaining uncertainty*
               seals the case without another round, and it stood here with no sentence saying
               what it ends while the reversible button beside it had one. */}
-          <p className="max-w-[62ch] text-xs leading-5 text-ink-3">
+          <p className="max-w-[62ch] text-xs leading-5 text-ink-2">
             Anything left blank is recorded as skipped. Nothing is inferred on
             your behalf. Skip anything that should stay explicitly unknown; concluding files
             the review as it stands, with these questions unanswered.

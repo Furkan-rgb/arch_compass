@@ -117,7 +117,7 @@ export function AtlasDetailPanel({
       ) : (
         <>
           <div>
-            <Mono className="block text-[10px] uppercase tracking-[0.13em] text-ink-3">
+            <Mono className="block text-[11px] uppercase tracking-[0.08em] text-ink-3">
               {humanise(node.kind)}
             </Mono>
             <h3
@@ -210,7 +210,7 @@ export function AtlasDetailPanel({
                     <p className="mt-0.5 text-[13px] leading-5 text-ink-2">{signal.message}</p>
                     {/* What a signal *is* travels with it. A count of obscurity signals a reader
                         cannot qualify is a number they will read as meaning more than it does. */}
-                    <Mono className="mt-1 block text-[10px] uppercase tracking-[0.13em] text-ink-3">
+                    <Mono className="mt-1 block text-[11px] uppercase tracking-[0.08em] text-ink-3">
                       {signal.nature === "structural_proxy"
                         ? "Structural proxy"
                         : "Objective signal"}
@@ -246,7 +246,7 @@ export function AtlasDetailPanel({
                   strip above the canvas now, where the request was made from. */}
               {/* Every one of those is a query against the atlas this review pinned, so what comes
                   back is what the repository held when it was read — never a fresh look. */}
-              <p className="mt-2 text-[11px] leading-4 text-ink-3">
+              <p className="mt-2 text-[11px] leading-4 text-ink-2">
                 Answered from the atlas this review was judged against, not from the repository
                 as it stands now.
               </p>
@@ -282,7 +282,7 @@ export function AtlasDetailPanel({
           )}
 
           {/* No "Relationships" heading over "Reaches · 4" and "Reached by · 2": all three were
-              the same 10px uppercase recipe, so the panel's deepest nesting was its
+              the same uppercase label recipe, so the panel's deepest nesting was its
               flattest-looking, and the outer label added no fact the two inner ones did not
               already carry. The section rule is what says a block starts here. */}
           <Section>
@@ -310,17 +310,17 @@ export function AtlasDetailPanel({
              * relationships and the map is drawing none of them.
              */}
             {!relationships.length ? (
-              <p className="text-[13px] leading-5 text-ink-3">
+              <p className="text-[13px] leading-5 text-ink-2">
                 The atlas recorded nothing reaching it and nothing it reaches.
               </p>
             ) : !drawn ? (
-              <p className="text-[13px] leading-5 text-ink-3">
+              <p className="text-[13px] leading-5 text-ink-2">
                 None of its {plural(relationships.length, "relationship")} is drawn under this
                 lens. They are listed above; the lens and the relationship filters decide which
                 the map draws.
               </p>
             ) : drawn < relationships.length ? (
-              <Mono className="block text-[10px] uppercase tracking-[0.13em] text-ink-3">
+              <Mono className="block text-[11px] uppercase tracking-[0.08em] text-ink-3">
                 {drawn} of {relationships.length} drawn under this lens
               </Mono>
             ) : null}
@@ -336,7 +336,7 @@ function Section({ title, children }: { title?: string; children: React.ReactNod
   return (
     <section className="border-t border-rule pt-3">
       {title ? (
-        <Mono className="mb-2 block text-[10px] uppercase tracking-[0.13em] text-ink-3">
+        <Mono className="mb-2 block text-[11px] uppercase tracking-[0.08em] text-ink-3">
           {title}
         </Mono>
       ) : null}
@@ -373,7 +373,7 @@ function RelationshipGroup({
   );
   return (
     <div className="mb-3 last:mb-0">
-      <Mono className="mb-1 block text-[10px] uppercase tracking-[0.13em] text-ink-3">
+      <Mono className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-ink-3">
         {title} · {relationships.length}
       </Mono>
       <ul>{listed.map(row)}</ul>
@@ -386,7 +386,7 @@ function RelationshipGroup({
           keyboard path and the expanded state announced to a screen reader are free. */}
       {rest.length > 0 && (
         <details className="group">
-          <summary className="flex min-h-8 pointer-coarse:min-h-11 cursor-pointer list-none items-center px-1.5 font-mono text-[10px] uppercase tracking-[0.13em] text-ink-3 hover:text-ink [&::-webkit-details-marker]:hidden">
+          <summary className="flex min-h-8 pointer-coarse:min-h-11 cursor-pointer list-none items-center px-1.5 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3 hover:text-ink [&::-webkit-details-marker]:hidden">
             <span className="group-open:hidden">List the other {rest.length}</span>
             <span className="hidden group-open:inline">Hide the other {rest.length}</span>
           </summary>
@@ -429,7 +429,7 @@ function RelationshipRow({
         <span className="truncate text-[13px] font-medium">
           {other?.label || truncate(otherId, 18)}
         </span>
-        <Mono className="shrink-0 text-[10px] uppercase tracking-[0.13em] text-ink-3">
+        <Mono className="shrink-0 text-[11px] uppercase tracking-[0.08em] text-ink-3">
           {edge.kind}
         </Mono>
       </button>

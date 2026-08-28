@@ -106,7 +106,7 @@ const isWorkspaceRoute = (pathname: string) =>
 //
 // `relative` so the nav link can hang its "you are here" underline off the control's own box.
 const railControl =
-  "relative inline-flex min-h-9 min-w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 items-center justify-center gap-2 rounded-sm px-2.5 text-[13px] font-medium text-band-ink-2 transition hover:bg-white/8 hover:text-band-ink focus-visible:outline-band-ink";
+  "relative inline-flex min-h-9 min-w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 items-center justify-center gap-2 rounded-sm px-2.5 text-[13px] font-medium text-band-ink-2 transition hover:bg-band-hover hover:text-band-ink focus-visible:outline-band-ink";
 
 /**
  * The same control, painted for the page rather than for the rail.
@@ -380,7 +380,7 @@ function WorkspacePath() {
             : workspace.data?.workspace || "not recorded"}
       </div>
       {workspace.data?.hosted ? (
-        <div className="mt-2 px-1 text-[11px] leading-4 text-ink-3">
+        <div className="mt-2 px-1 text-[11px] leading-4 text-ink-2">
           Hosted demo — repositories are fetched from allowed hosts.
         </div>
       ) : null}
@@ -503,11 +503,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                     railControl,
                     "shrink-0 whitespace-nowrap",
                     // An underline, never a container. The fill was white at 10% over the
-                    // band — #222222, which is 1.24:1 against the bar — and the hover state
-                    // was the same fill at 8%, so while the pointer rested anywhere in the nav
-                    // two items looked alike and with it away the current one was barely a
-                    // shape. `--band-ink` on `--band` is 18.97:1, so the underline is not in
-                    // doubt, and the hover keeps the fill as its own separate gesture.
+                    // band — `#2f2d2c`, 1.32:1 against the bar — and the hover state was the
+                    // same fill at 8%, so while the pointer rested anywhere in the nav two
+                    // items looked alike and with it away the current one was barely a shape.
+                    // `--band-ink` on `--band` is 16.76:1, so the underline is not in doubt,
+                    // and the hover keeps the fill as its own separate gesture — now through
+                    // `--band-hover`, which is where that 8% is argued.
                     isActive &&
                       "text-band-ink after:absolute after:inset-x-2.5 after:bottom-0 after:h-0.5 after:bg-band-ink",
                   )

@@ -292,14 +292,14 @@ function PolicyCard({
           <div className="mt-5 border-t border-rule pt-4">
             <Label>Cited by</Label>
             {citations.pending ? (
-              <p className="mt-1.5 flex items-center gap-2 text-sm text-ink-3">
+              <p className="mt-1.5 flex items-center gap-2 text-sm text-ink-2">
                 {/* The label is printed right beside it. */}
                 <Spinner label="" /> Reading the stored reviews…
               </p>
             ) : citations.failed ? (
               // An explicit unknown outranks an implied one, and "none" is the wrong answer
               // to a question that was not asked successfully.
-              <p className="mt-1.5 text-sm text-ink-3">
+              <p className="mt-1.5 text-sm text-ink-2">
                 The stored reviews could not be read, so this is unknown.
               </p>
             ) : citations.reviews.length ? (
@@ -322,7 +322,7 @@ function PolicyCard({
             ) : (
               // An explicit unknown outranks an implied one: a blank here reads as a page
               // that failed to load rather than as a policy nothing has weighed yet.
-              <p className="mt-1.5 text-sm text-ink-3">
+              <p className="mt-1.5 text-sm text-ink-2">
                 No stored review has weighed this policy.
               </p>
             )}
@@ -354,7 +354,7 @@ function PolicyCard({
                 </Button>
                 {confirming ? (
                   <>
-                    <span className="text-xs text-ink-3">
+                    <span className="text-xs text-ink-2">
                       Delete permanently?
                     </span>
                     <Button
@@ -384,7 +384,7 @@ function PolicyCard({
                 )}
               </div>
             ) : (
-              <p className="text-xs text-ink-3">
+              <p className="text-xs text-ink-2">
                 Read from a registered source — edit it where it is authored.
               </p>
             )}
@@ -950,7 +950,7 @@ function SourcesPanel({
       />
       <PanelBody className="grid gap-3">
         {sources.isLoading ? (
-          <p className="text-sm text-ink-3">Loading sources…</p>
+          <p className="text-sm text-ink-2">Loading sources…</p>
         ) : sources.error ? (
           <ErrorNotice
             error={sources.error}
@@ -965,7 +965,7 @@ function SourcesPanel({
             }
           />
         ) : !sources.data?.length ? (
-          <p className="text-sm text-ink-3">
+          <p className="text-sm text-ink-2">
             Only the bundled corpus and anything authored here.
           </p>
         ) : (
@@ -992,7 +992,7 @@ function SourcesPanel({
         )}
 
         {hosted ? (
-          <p className="text-sm leading-6 text-ink-3">
+          <p className="text-sm leading-6 text-ink-2">
             This is the hosted demo, so a folder on the server cannot be
             registered. Policies you write here are kept in your own workspace
             and read by every review you run.

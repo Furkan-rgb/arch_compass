@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Finding, Review } from "../../api";
 import { verdictOf } from "../../lib/format";
-import { FULL_LINE_CHARACTER, chMeasure, zeroAdvanceFor } from "../../ui/onest.test-metrics";
+import { FULL_LINE_CHARACTER, chMeasure, zeroAdvanceFor } from "../../ui/font.test-metrics";
 import { plainProse } from "../../ui/prose";
 import { WIDEST_UNBREAKABLE_TOKEN_PX } from "../../ui/prose.test-corpus";
 import { spacingPx } from "../../ui/tailwind.test-spacing";
@@ -32,12 +32,13 @@ import { FindingBody } from "./finding-detail";
  */
 
 /**
- * Onest's font model — the zero advance, which is what a `ch` is, and the weight it follows.
+ * The shipped face's font model — the zero advance, which is what a `ch` is, and the weight it
+ * follows.
  *
- * None of it is here. `ui/onest.test-metrics.ts` owns the advance per weight, the nine weight
+ * None of it is here. `ui/font.test-metrics.ts` owns the advance per weight, the nine weight
  * utilities, and `zeroAdvanceFor`, which turns a class list into one advance or throws rather
  * than answer for a weight nobody has measured. It carries the `fontTools` recipe that reads
- * them off the shipped `onest.woff2` and the Chromium reading that confirms them.
+ * them off the shipped woff2.
  *
  * It is not here because it was here *and* in `ui/markdown.test.tsx`, character for character,
  * while `ui/markdown.tsx` explained the same numbers again in prose. That is the defect these
@@ -45,12 +46,14 @@ import { FindingBody } from "./finding-detail";
  * the second copy is what tells you, afterwards. Seven rounds of wrong figures have shipped on
  * this surface and the seventh was written by the sixth round's own repair.
  *
- * The weight matters *here* because the block this file compares the argument against is the
- * lede, and the lede is 13px **semibold**. One `58ch` written on both is a different width on
- * each, and the difference is a weight and not a size — a 400-weight reading of the lede
- * overstates it by two and a half pixels, which is small enough to survive six passes.
+ * The weight mattered *here* under Onest, because the block this file compares the argument
+ * against is the lede and the lede is 13px **semibold**: one variable file gives a heavier
+ * instance a narrower zero, so a 400-weight reading of the lede overstated it by two and a half
+ * pixels — small enough to survive six passes. IBM Plex Sans advances its zero identically at
+ * all four cuts it ships, so today the lede and the argument differ by size alone and the weight
+ * is carried in the class lists as a guard rather than as a term.
  * "resolves one `58ch` on the lede and the argument to two different widths" computes both, and
- * `ui/onest.test-metrics.test.ts` holds them beside every other `ch` figure in the repository.
+ * `ui/font.test-metrics.test.ts` holds them beside every other `ch` figure in the repository.
  * Every bound below derives from the same call, so a face change moves the arithmetic and the
  * bounds keep meaning what they say.
  */
@@ -60,9 +63,18 @@ import { FindingBody } from "./finding-detail";
  * the advance of a lowercase letter nor the average of every line drawn.
  *
  * **75.7**, and here is how to get it again. Serve the built bundle, so the face is the shipped
- * `onest.woff2` and the CSS is the real one. Render all 375 recorded strings through the real
+ * woff2 and the CSS is the real one. Render all 375 recorded strings through the real
  * `ModelProse` — chips and all, because a backticked name is drawn as a mono chip a little wider
- * than the Onest it displaces. Measure each `<p>` with a Range per character and cluster the
+ * than the sans it displaces.
+ *
+ * **The 75.7 itself is Onest's and the page is set in IBM Plex Sans.** Every figure in this
+ * docblock is a browser reading of a face this product no longer downloads, and the measure they
+ * were read at — `58ch` on a 16px block — resolved to 617.12px then and resolves to 556.80px
+ * now. What survives is the method and the ordering it establishes; the numbers want a re-sweep,
+ * which needs the built bundle, a headless browser and a `workspace.sqlite3` that is not checked
+ * in. `docs/known-defects.md` carries it. `AVERAGE_CHARACTER_PX` below is derived from these
+ * readings, so the `charactersPerLine` bound this file asserts is currently a Plex Sans measure
+ * divided by an Onest character. Measure each `<p>` with a Range per character and cluster the
  * boxes on their vertical centres, one cluster to a line. That comes to 3,248 line boxes, of
  * which 2,082 are not the last of their block, and those 2,082 carry 75.7 characters on average.
  *
@@ -86,11 +98,11 @@ import { FindingBody } from "./finding-detail";
  * well as the digit — under *either* reading of "the string", which is the part worth writing
  * down, because "measured the string instead" turns out to name two different sweeps.
  *
- * Flatten every chip back to Onest body text — `plainProse` first, so a backticked name is drawn
+ * Flatten every chip back to body text — `plainProse` first, so a backticked name is drawn
  * as the name — pack it with the real `sentences` and set it in the real paragraph class list,
  * and the same sweep gives 3,237 line boxes and **76.07** characters. Draw the recorded string
  * literally instead, backticks and all, and it gives the same 3,237 boxes and **76.24**. Both are
- * *above* the render's 75.7, and they have to be: Onest is narrower than the mono chip it
+ * *above* the render's 75.7, and they have to be: the sans is narrower than the mono chip it
  * replaces, so narrower text fits more of it on a line. Measuring the string reads between a
  * third and half a character **generous**, never eleven characters short. The eleven line boxes
  * it loses is the one part of that sentence that was true.
@@ -101,9 +113,9 @@ import { FindingBody } from "./finding-detail";
  * nobody can check, and this surface has shipped seven rounds of those.
  */
 /*
- * Read from `ui/onest.test-metrics.ts` rather than divided again here. The division stood in
+ * Read from `ui/font.test-metrics.ts` rather than divided again here. The division stood in
  * this file while a second reading of the same quantity — the same sweep over the 514 policy
- * notes — stood in `ui/onest.test-metrics.ts` and a third, in em, in `ui/markdown.tsx`, with
+ * notes — stood in `ui/font.test-metrics.ts` and a third, in em, in `ui/markdown.tsx`, with
  * nothing saying the three were one method over three corpora. That is the copies-that-drift
  * shape this file exists to catch, arriving in the file that exists to stop it.
  */
@@ -134,8 +146,10 @@ const AVERAGE_CHARACTER_PX = FULL_LINE_CHARACTER.judgements.px;
  * 541.7px, which clears the column by 217px; 48 is a description of the tail, not a threshold.
  *
  * Set in Onest, which is the half of the number that gets lost, and the half a re-measurement
- * of this file kept trying to put back. The corpus holds two names of 74 characters that
- * measure **601.95px** and **583.42px** as Onest body text — a Range over the paragraph's own
+ * of this file kept trying to put back — and which is now the half that dates it, because the
+ * face has moved to IBM Plex Sans and this floor has not been re-swept. The corpus holds two
+ * names of 74 characters that measure **601.95px** and **583.42px** as Onest body text — a
+ * Range over the paragraph's own
  * text node, agreeing to three decimals with a bare `<span>` and with `canvas.measureText`, and
  * not the 601.3 / 583.1 an earlier pass wrote — and neither is a candidate for this floor:
  * both are backticked in every string they appear in, so `INLINE_CODE` draws them as mono
@@ -378,9 +392,16 @@ describe("the Judged band", () => {
    * The verdict's sentence sits directly above the argument, so the two read as sharing a right
    * edge — and for as long as this band existed they were written as though they did: the lede
    * carried the argument's own `max-w-[58ch]`. A `ch` is relative to the font size of the
-   * element it is on, so 58 of them is 617.1px on the 16px argument and 501.3px on this 13px
-   * line. One class, two elements twenty lines apart, two widths. The correction is `38.5rem`,
-   * which is 616px whatever this line is ever set at.
+   * element it is on, so 58 of them is 556.8px on the 16px argument and 452.4px on this 13px
+   * line. One class, two elements twenty lines apart, two widths. The correction is `34.8rem`,
+   * which is that same 556.8px whatever this line is ever set at.
+   *
+   * **This is also the test that caught the face change.** The guard was `38.5rem` — 616px,
+   * chosen as the round number just under Onest's 58ch at 16px — and when the face moved to IBM
+   * Plex Sans the argument's edge came in to 556.8px while the guard stayed put, 59.2px past the
+   * paragraph it exists to line up with. Nothing rendered wrong, because the three descriptions
+   * are short enough never to reach either edge; what failed is the assertion below, because it
+   * resolves both numbers from the class lists instead of trusting either.
    *
    * Nothing in this file could see that. `typeset` reads the argument and only the argument, so
    * putting `58ch` back keeps all ten of these green — which is exactly what a guard for one
@@ -388,10 +409,13 @@ describe("the Judged band", () => {
    * on the lede.
    *
    * Two assertions, because two things are wrong with `58ch` here and only one of them is the
-   * width. The edges have to agree — within a pixel and a bit, since 38.5rem is 616px against
-   * the argument's 617.12 and the guard is deliberately the round number rather than a matching
-   * `ch` count. And the unit has to be one that does not move with the type, because a measure
-   * that follows the font size is a promise this line cannot keep for the block below it.
+   * width. The edges have to agree — within a pixel and a bit, which under this face they do
+   * exactly, since Plex Sans's 0.600em advance puts 58ch at 16px on a whole number of rem. The
+   * tolerance stays at 2px rather than tightening to zero: what the guard has to be is a fixed
+   * unit landing on the argument's edge, not a figure that happens to divide, and a face whose
+   * advance is less obliging should move this line rather than fail it. And the unit has to be
+   * one that does not move with the type, because a measure that follows the font size is a
+   * promise this line cannot keep for the block below it.
    */
   it("caps the lede at the argument's own edge, in a unit that does not follow the type", () => {
     const review = reviewFixture();
@@ -421,9 +445,11 @@ describe("the Judged band", () => {
    * What `58ch` on both blocks actually drew, recomputed rather than quoted.
    *
    * The comment beside the lede in `finding-detail.tsx` argues from this pair, and both halves
-   * of it were wrong for six rounds — 501px, because the lede is `font-semibold` and a `ch` was
-   * being resolved at 400 on a block set at 600. A number in a comment is a copy of a
-   * measurement and copies drift, so the copy is here where it can fail.
+   * of it were wrong for six rounds under Onest — 501px, because the lede is `font-semibold`,
+   * that face's zero narrowed with the instance, and a `ch` was being resolved at 400 on a block
+   * set at 600. Under IBM Plex Sans's four static cuts the weight no longer enters into it and
+   * the pair differ by size alone. A number in a comment is a copy of a measurement and copies
+   * drift, so the copy is here where it can fail.
    *
    * The classes are written out because this is a counterfactual: neither block carries `58ch`
    * any more, and putting it back on a live class list would be asserting about a document that
@@ -436,14 +462,16 @@ describe("the Judged band", () => {
       className: "max-w-[58ch] text-[13px] font-semibold",
     } as Element)!;
 
-    // 58 x 16 x 0.665 and 58 x 13 x 0.6618, which is the resolved cap. Chromium draws 617.11
-    // and 498.98 against the shipped face, each snapped down to a 1/64px layout unit — so a
-    // rectangle measured in a browser reads up to 0.02px under the figure asserted here, and
-    // that is the snap rather than a disagreement.
-    expect(Number(argumentEdge.px.toFixed(2))).toBe(617.12);
-    expect(Number(ledeEdge.px.toFixed(2))).toBe(499.0);
-    // 118.12, not the 115.70 that reading the semibold lede at 400 gives.
-    expect(Number((argumentEdge.px - ledeEdge.px).toFixed(2))).toBe(118.12);
+    // 58 x 16 x 0.600 and 58 x 13 x 0.600, which is the resolved cap. Chromium draws each
+    // snapped down to a 1/64px layout unit — so a rectangle measured in a browser reads up to
+    // 0.02px under the figure asserted here, and that is the snap rather than a disagreement.
+    expect(Number(argumentEdge.px.toFixed(2))).toBe(556.8);
+    expect(Number(ledeEdge.px.toFixed(2))).toBe(452.4);
+    // 58 zeros of the 3px between the two sizes. The lede keeps `font-semibold` in the class
+    // list on purpose: under Onest that was the whole of the difference between 118.12 and the
+    // 115.70 a reading at 400 gave, and leaving it in is what would notice a face bringing the
+    // weight axis back.
+    expect(Number((argumentEdge.px - ledeEdge.px).toFixed(2))).toBe(104.4);
   });
 
   /**
@@ -454,8 +482,8 @@ describe("the Judged band", () => {
    * in `finding-detail.tsx` at several sizes: the footnote at `text-[12px]`, the "How it was
    * detected" rationale at `text-[12.5px]`, the policy list's empty state at `text-[13px]`, the
    * question's answer at `text-[14px]`. A `ch` is the advance of the digit zero in the element's **own**
-   * used font, so one string is one width per size — 367.08px, 382.38px, 397.67px and 428.26px,
-   * sixty-one pixels between the ends of that range.
+   * used font, so one string is one width per size — 331.20px, 345.00px, 358.80px and 386.40px,
+   * fifty-five pixels between the ends of that range.
    *
    * That is defect 9 — the one `ui/markdown.tsx` was repaired for, where `46ch` across its
    * renderers meant five widths — alive on the surface this session has spent seven rounds
@@ -474,7 +502,7 @@ describe("the Judged band", () => {
    * worst of them, a measure whose width an ancestor decided. Every width these resolve to must
    * be one of the four already understood, so removing a declaration passes and introducing a
    * fifth size fails. And the footnote — the block `Footnote`'s own comment argues from — must
-   * still be the 367.08px one.
+   * still be the 331.20px one.
    */
   it("resolves every `46ch` this surface declares, and none of them from an ancestor", () => {
     // The component is this file without the `.test`, resolved off this file's own path rather
@@ -508,11 +536,13 @@ describe("the Judged band", () => {
         "by whatever ancestor happens to set one",
     ).toEqual([]);
 
-    // 46 x 12 x 0.665, 46 x 12.5 x 0.665, 46 x 13 x 0.665, 46 x 14 x 0.665 — all four the 400
-    // entry, because every one of these blocks inherits the document's weight. This set differs
-    // by size alone, where the `58ch` pair above differs by weight alone; between them they are
-    // the whole of what a `ch` follows.
-    const understood = [367.08, 382.38, 397.67, 428.26];
+    // 46 x 12 x 0.600, 46 x 12.5 x 0.600, 46 x 13 x 0.600, 46 x 14 x 0.600 — all four the 400
+    // entry, because every one of these blocks inherits the document's weight, and under four
+    // static cuts that would be the same number in any case. This set differs by size alone,
+    // which under IBM Plex Sans is the whole of what a `ch` follows; the `58ch` pair above keeps
+    // its weight difference in the class list so a face that puts the other axis back is caught
+    // there rather than here.
+    const understood = [331.2, 345.0, 358.8, 386.4];
     const widths = resolved.map((row) => Number(row.edge!.px.toFixed(2)));
     for (const [index, width] of widths.entries()) {
       expect(
@@ -526,16 +556,19 @@ describe("the Judged band", () => {
     // taken by position.
     const footnote = resolved.find((row) => /text-\[12px\]/.test(row.classes));
     expect(footnote, "no 12px block declares `max-w-[46ch]`, so `Footnote` has changed").toBeDefined();
-    expect(Number(footnote!.edge!.px.toFixed(2))).toBe(367.08);
+    expect(Number(footnote!.edge!.px.toFixed(2))).toBe(331.2);
 
-    // The same `46ch` on the 13px semibold lede: 46 x 13 x 0.6618 — advances of the zero and not
-    // characters, which is a third fewer than a `ch` count suggests and is argued where the
-    // number is used, in `finding-detail.tsx`. It is not 397.67, which
-    // is what the 13px policy note resolves to — same count, same size, different weight, and a
-    // comment that quotes one of them for the other is round seven all over again.
+    // The same `46ch` at the 13px the lede and the policy note are set in: 46 x 13 x 0.600 —
+    // advances of the zero and not characters, which is fewer than a `ch` count suggests and is
+    // argued where the number is used, in `finding-detail.tsx`. Under Onest this line also had
+    // to say which *weight* it was resolving at, because the semibold lede and the 400-weight
+    // note landed on 395.76px and 397.67px from the same count and the same size; IBM Plex Sans
+    // advances its zero identically at all four cuts, so the two now agree and the class list
+    // below keeps `font-semibold` to prove it rather than to distinguish it.
     const onTheLede = chMeasure(46, 13, "font-semibold").resolved;
-    expect(Number(onTheLede.toFixed(2))).toBe(395.76);
-    expect(Number((onTheLede - 367.08).toFixed(2))).toBe(28.68);
+    expect(Number(onTheLede.toFixed(2))).toBe(358.8);
+    expect(Number(chMeasure(46, 13, "").resolved.toFixed(2))).toBe(358.8);
+    expect(Number((onTheLede - 331.2).toFixed(2))).toBe(27.6);
   });
 
   /**

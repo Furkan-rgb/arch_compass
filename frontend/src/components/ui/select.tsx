@@ -113,7 +113,7 @@ function SelectLabel({ className, ...props }: React.ComponentProps<typeof Select
     <SelectPrimitive.Label
       data-slot="select-label"
       className={cn(
-        "px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.13em] text-ink-3",
+        "px-2 py-1.5 font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3",
         className,
       )}
       {...props}

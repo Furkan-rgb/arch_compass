@@ -205,10 +205,12 @@ changes **0 of the 375**. The only rule that could shorten the opening block of 
 string would cut inside a sentence, and every part `sentences()` returns is a raw slice of what
 the model wrote — the one thing this surface may not do is edit a judgement.
 
-**What is left, measured rather than estimated.** All 375 strings rendered through the real
-`ModelProse` in a headless Chromium against the built stylesheet, at the 617.12px measure, with
-both Onest weights and IBM Plex Mono asserted through `document.fonts.check` before anything is
-read; a Range per character of each block's rendered text, clustered on the vertical centre of
+**What is left, measured rather than estimated** — and measured under Onest, at the 617.12px
+that `58ch` resolved to in that face. IBM Plex Sans brings the same declaration in to 556.80px,
+so every line-box count in this section is a lower bound on what the page draws today and the
+sweep wants re-running; see the entry at the end of this file. All 375 strings rendered through
+the real `ModelProse` in a headless Chromium against the built stylesheet, with both sans weights
+and IBM Plex Mono asserted through `document.fonts.check` before anything is read; a Range per character of each block's rendered text, clustered on the vertical centre of
 each rect at a 0.6px tolerance, one cluster to a line. That is 3,248 line boxes over 1,166
 blocks. Of those:
 
@@ -248,12 +250,15 @@ type that block declares:
 
 | block | type | `46ch` resolves to |
 | --- | --- | --- |
-| `Footnote` | `text-[12px]` | 367.08px |
-| the "How it was detected" rationale | `text-[12.5px]` | 382.38px |
-| the policy list's empty state | `text-[13px]` | 397.67px |
-| the question's answer | `text-[14px]` | 428.26px |
+| `Footnote` | `text-[12px]` | 331.20px |
+| the "How it was detected" rationale | `text-[12.5px]` | 345.00px |
+| the policy list's empty state | `text-[13px]` | 358.80px |
+| the question's answer | `text-[14px]` | 386.40px |
 
-61.18px between the narrowest and the widest. This is the same fault `ui/markdown.tsx` was
+55.20px between the narrowest and the widest — and 61.18px under Onest, whose zero also followed
+*weight* and put the same `46ch` at the same 13px on two different widths. IBM Plex Sans ships
+four static cuts that advance the zero identically, so size is the whole of what is left. The
+defect is smaller and unchanged in kind. This is the same fault `ui/markdown.tsx` was
 repaired for in the same pass — one `46ch` on seven renderers that meant five widths — and it
 went unseen here because every guard on this surface reads the model's argument and the lede,
 which are the two blocks somebody had already suspected.
@@ -261,34 +266,31 @@ which are the two blocks somebody had already suspected.
 **The fifth is fixed.** It was `<ul className="grid max-w-[46ch] gap-2">` on the policy list,
 and it was the worst of the five rather than one more of them: a `ch` on a block that declares
 no font size resolves against whatever it inherited, which here is the root's 16px, so it drew
-**489.44px** while the note inside it was `text-[14px]` whose own 46ch is 428.26px. It also
-capped the wrong box — the card spends 30px on `px-3.5` and two hairlines, so the note was
-reading at 459.44px, 65.47 characters a line measured over all 514 recorded notes. The cap is now
-the grid track — `grid-cols-[repeat(auto-fill,minmax(0,26.75rem))]` — rather than a `max-w` on
+a width resolved against whatever it inherited, which here is the root's 16px, against a note
+inside it set at `text-[14px]`. It also capped the wrong box — the card spends 30px on `px-3.5`
+and two hairlines, so the note read 30px narrower than the number written on the list. The cap is
+now the grid track — `grid-cols-[repeat(auto-fill,minmax(0,24.3rem))]` — rather than a `max-w` on
 the `ul`, so it sits on the card it was always a property of and the fold lays two cards across
-the 1,126px it has instead of spending one column of 428px and two rows. The number and its
-derivation did not move: the note's own `46ch` at the 13px it is now set in, 397.67px,
-plus the 30px the card costs, rounded to a quarter-rem. The note draws at **398.00px** and stops
-within a third of a pixel of the empty state that replaces it, which is the third row above.
+the 1,126px it has instead of spending one column and two rows. The derivation did not move: the
+note's own `46ch` at the 13px it is now set in, 358.80px, plus the 30px the card costs, which is
+`24.3rem` exactly.
 
 **`46ch` is 46 advances of the zero, not 46 characters, and this section said characters until
-now.** The two are a third apart. 397.67px is `46 x 13 x 0.665`, the zero's advance; a character
-of Onest on a full line costs 6.57px at 13px, so the note at 398.00px reads at **60.58 characters
-a line** — the same `Range`-per-character sweep as the 65.47 above, over the same 514 notes,
-1,531 full lines, averaged over full lines only. Re-run at the old 459.44px and 14px that sweep
-gives 65.51 against the 65.47 recorded, so the two figures in this section are one method rather
-than a `ch` count standing beside a character count and contradicting it. No pixel moves: 46
-zeros is the measure and 60.58 characters is what it holds.
+now.** The two are well apart: 358.80px is `46 x 13 x 0.600`, the zero's advance, and a character
+of body text on a full line costs less than a zero does. **The character figures this section
+carried are Onest's and have been removed rather than converted** — 60.58 a line at the note's
+measure, 65.47 at the width and size it had before, both a `Range`-per-character sweep over all
+514 recorded notes. They were real measurements of a face this product no longer downloads, and a
+ratio is not a measurement. The re-sweep is the last entry in this file.
 
-**How the figures were produced.** `46 x size x advance`, where the advance is Onest's zero at
-the weight each block declares: 0.665em at 400, read off the `hmtx` table of the shipped
-`onest.woff2`. All four blocks inherit 400, so this set differs by size alone. Nothing above is
-typed in by hand — "resolves every `46ch` this surface declares, and none of them from an
-ancestor" in `features/review/finding-detail.test.tsx` reads the class lists out of the
-component's own source and computes them. It asserts a property rather than a count, so
-repairing one of these four passes and introducing a fifth *width* fails. The drawn widths are
-rectangles from a headless Chromium serving the built stylesheet, with both Onest weights
-asserted through `document.fonts.check` before anything was read.
+**How the figures were produced.** `46 x size x advance`, where the advance is IBM Plex Sans's
+zero: 0.600em, read off the `hmtx` table of each of the four shipped cuts. All four agree, so
+this set differs by size alone; under Onest's single variable file it did not, which is why the
+column above used to have to say which weight each block declared. Nothing above is typed in by
+hand — "resolves every `46ch` this surface declares, and none of them from an ancestor" in
+`features/review/finding-detail.test.tsx` reads the class lists out of the component's own source
+and computes them. It asserts a property rather than a count, so repairing one of these four
+passes and introducing a fifth *width* fails.
 
 **Why the remaining four are recorded rather than fixed.** Closing it means deciding which edge
 these four blocks should share, and whether the answer is one shared `rem` (which is what
@@ -349,3 +351,70 @@ only the shape it has (`probe_ollama` reports `(True, False)` or `(None,)`; Open
 it fails at model construction, loudly, before a token is spent. `test_provider_conformance.py`
 covers the three states `ReasoningModelConfig` specifies and deliberately does not pin this
 one, because a test of the current behaviour here would be a test that the defect is present.
+
+## OPEN — every corpus sweep in the tree is Onest's, and the product is set in IBM Plex Sans
+
+The face changed in the v2 design pass. A `ch` is the advance of the used font's zero, and that
+number moved from Onest's `0.665em` (narrowing to `0.6618em` at weight 600, because it was one
+variable file) to IBM Plex Sans's `0.600em` at all four static cuts it ships. Everything that is
+*arithmetic* moved with it: `ui/font.test-metrics.ts` holds the advance, read off the `hmtx` of
+`plex-sans-{400,500,600,700}.woff2`, and every `ch` figure and `rem` cap in the tree was
+recomputed against it — `26.75rem` to `24.15rem` on the Markdown measure, `38.5rem` to `34.8rem`
+on the finding lede, `26.75rem` to `24.3rem` on the policy card track.
+
+**What did not move is everything a browser had to measure**, because it needs the built bundle
+served over HTTP, a headless Chromium waiting on `document.fonts.check`, and a read-only copy of
+`.archcompass/workspace.sqlite3` — none of which a vitest run has. Outstanding, and marked as
+Onest's at every site:
+
+| figure | where it lives | what it is |
+| --- | --- | --- |
+| **541.7px** widest unbreakable qualified name | `ui/prose.test-corpus.ts` | the **floor** the argument's measure is chosen against |
+| **75.7** characters on a full line of a judgement | `features/review/finding-detail.tsx`, `ui/prose.tsx` | the return-sweep **ceiling** on the same measure |
+| **59** characters on a full line of a footnote | `features/review/finding-detail.tsx` | the pair that argues why a footnote's measure is the shorter |
+| **60.58** characters on a full line of a policy note | `features/review/finding-detail.tsx` | removed from `docs/known-defects.md` rather than converted |
+| the nine `ch` rectangles | `ui/font.test-metrics.test.ts` | the *rule* — snap down to 1/64px — is Chromium's and carries; the nine readings are not |
+| 3,248 line boxes / the packing counts | `ui/prose.tsx`, this file | all read at the 617.12px `58ch` used to resolve to |
+
+**Do the floor first, because it is the one that could already be wrong.** `58ch` cleared the
+541.7px floor by 75px under Onest and clears it by 15px under Plex Sans, and the token being
+measured is set in the new face too, so both ends of that subtraction have moved.
+`features/review/finding-detail.test.tsx` asserts `measurePx >= WIDEST_TOKEN_PX` and it passes —
+on one face's measure against the other face's floor. If the floor comes back above 556.80px, the
+argument's measure has to widen, and the ceiling above it is what says by how much.
+
+The method for all of them is written out where each lives and in *Measure* in
+`docs/design-system.md`; nothing about it is face-specific.
+
+## OPEN — the evidence tier is one row in the scale and about a hundred and twenty sizes in the tree
+
+`docs/design-system.md` gives mono two rows: **12.5px at weight 500** for evidence — provenance,
+identities, paths, namespaces, fingerprints — and 15–17px for the review head. `ui/meta.tsx`'s
+`Mono` component was moved onto the first of those in the v2 pass, which is the right half of the
+change and is not the whole of it.
+
+**44 call sites write `text-[11px]` back onto a `<Mono>`.** Until the default moved, that class
+restated it; now it is an override pinning the size the scale moved off, so the evidence tier
+renders at two sizes across the product with nothing to announce it — it compiles, the class
+exists, and no test can tell an override from a restatement. They are concentrated in
+`features/atlas/detail.tsx` (8), `atlas/controls.tsx` (7), `landing/landing-page.tsx` (6),
+`start/repository-picker.tsx` (5) and `policies/policies-page.tsx` (4), with ten more spread over
+eight files. A further ten `<Mono>` call sites pin 12px, 13px or 10.5px, and roughly 69
+hand-rolled `font-mono` spans set eleven different sizes between 10px and 18px.
+
+**It is not a sweep, and that is why it is written down rather than done.** Two different things
+are wearing one face:
+
+* **Evidence** — a path, a hash, a run id, a qualified name — belongs at 12.5/500 and the
+  override should simply go.
+* **A label that happens to be in mono** — an uppercase eyebrow at 11px with `tracking-[0.08em]`,
+  of which the block-label sweep left about twenty — is on the *label* row, not the evidence one,
+  and 12.5px would break it. `docs/design-system.md`'s rule that mono means the machine quoting
+  itself arguably says a word like "Lens" should not be in mono at all, which makes those a
+  design question rather than a size.
+
+So each site needs reading, and the answer is sometimes "delete the override", sometimes "this is
+a `Label`", and sometimes "this should not be mono". `ui/design-system.test.ts` carries the
+matching guard for the label half — *"hunts for the recipe `Label` actually draws"* is live and
+keeps the pattern calibrated, while the `.todo` beside it that would fail on the 30 hand-rolled
+copies stays off until they are decided rather than replaced.

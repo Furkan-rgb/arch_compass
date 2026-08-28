@@ -173,13 +173,13 @@ function Specimen({ bearing, hidden }: { bearing: Bearing; hidden: boolean }) {
       {/* What the verdict rests on. The strength is a glyph and a weight, never a hue: a
           required policy is the one to read first, not an alarm.
 
-          10px at `0.13em` is the bottom row of the type scale, and there is no row under it:
-          this was 9.5px at `0.14em`, half a pixel below the floor at a tracking the scale
+          11px at `0.08em` is the bottom row of the type scale, and there is no row under it:
+          this was 9.5px at `0.14em`, a pixel and a half below the floor at a tracking the scale
           does not name — and at this size letterspacing is most of what a label looks like. */}
       <div className="border-b border-rule bg-surface-2 px-4 py-3">
         <Mono
           className={cn(
-            "flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.13em]",
+            "flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em]",
             strength.tone === "marked" ? "text-ink" : "text-ink-3",
           )}
         >
@@ -225,7 +225,17 @@ function Specimen({ bearing, hidden }: { bearing: Bearing; hidden: boolean }) {
         <p className="mt-2.5 text-[13px] leading-[1.6] text-ink-2">{bearing.reasoning}</p>
 
         {bearing.hinge ? (
-          <p className="mt-3 rounded-md border border-held/30 bg-held-soft px-3 py-2.5 text-[12.5px] leading-[1.55] text-ink-2">
+          /* The amber as an edge on a neutral inset — the device the docket's rows and the
+             clarification card both use. This was `bg-held-soft` inside a `border-held/30`
+             box: a chromatic fill the full width of the card, on the one figure whose whole
+             argument is that a hue arrives as a mark. The wash tokens that replaced the
+             `-soft` ones are capped at the size of a pill for exactly that reason, so the
+             ground goes to `--sunken` — the token named for a quiet inset — and the signal
+             moves to the edge and the word.
+
+             `--held-edge` on the rule and `--held` on the words, and the two do not swap: the
+             graphic tier is the saturated one and is held to 3:1, the text tier to 4.5:1. */
+          <p className="mt-3 rounded-md border-l-[3px] border-l-held-edge bg-sunken px-3 py-2.5 text-[12.5px] leading-[1.55] text-ink-2">
             <span className="font-semibold text-held">Hinges on:</span> {bearing.hinge}
           </p>
         ) : null}
@@ -341,7 +351,7 @@ export function SpecimenPicker({
               // `border` sits in the shared half so the unselected chip reserves the same
               // pixel and nothing shifts as the showcase steps through the three.
               className={cn(
-                "inline-flex min-h-11 items-center gap-1.5 rounded-sm border px-2.5 font-mono text-[10px] uppercase tracking-[0.13em] transition",
+                "inline-flex min-h-11 items-center gap-1.5 rounded-sm border px-2.5 font-mono text-[11px] uppercase tracking-[0.08em] transition",
                 selected
                   ? "border-rule-control bg-control text-ink shadow-rim"
                   : "border-transparent text-ink-3 hover:bg-sunken hover:text-ink",
@@ -377,11 +387,11 @@ export function SpecimenPicker({
             aria-pressed={stopped}
             onClick={onToggleShowcase}
             // A hairline at rest, which the verdict chips do not need and this does: they
-            // carry a Mark and sit in a set of three, and this is one word of 10px uppercase
+            // carry a Mark and sit in a set of three, and this is one word of 11px uppercase
             // grey standing beside a caption in exactly that type. Without a box, the thing
             // that does something and the thing that says something were drawn identically.
             className={cn(
-              "inline-flex min-h-11 items-center rounded-sm border px-2.5 font-mono text-[10px] uppercase tracking-[0.13em] transition sm:ml-auto",
+              "inline-flex min-h-11 items-center rounded-sm border px-2.5 font-mono text-[11px] uppercase tracking-[0.08em] transition sm:ml-auto",
               stopped
                 ? "border-rule-control bg-control text-ink shadow-rim"
                 : "border-rule text-ink-3 hover:border-ink-3 hover:text-ink",
@@ -395,7 +405,7 @@ export function SpecimenPicker({
           Pause toggle it was the same face at the same size in the same ink, so the row read
           as two captions with a wide gap — and a caption is the one thing a control must not
           be mistaken for. `px-2.5` pays back the chips' own padding so the words line up. */}
-      <Mono className="mt-1.5 block px-2.5 text-[10px] uppercase tracking-[0.13em] text-ink-3">
+      <Mono className="mt-1.5 block px-2.5 text-[11px] uppercase tracking-[0.08em] text-ink-3">
         Three verdicts, no score
       </Mono>
     </div>

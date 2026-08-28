@@ -387,9 +387,13 @@ function RevisionRow({
         // The review's own state as a left edge, the device the docket row already uses for a
         // verdict — and a review's state is on the same register, graded rather than
         // described. It costs no horizontal space and is read without being looked at, which
-        // is the question asked of a whole panel at once: which of these is still open. Only
-        // `failed` is red; `awaiting_answers` is full ink and a completed revision recedes to
-        // `--ink-3`, because held and cleared gave up their hues for weight.
+        // is the question asked of a whole panel at once: which of these is still open. The
+        // hue is `statusOf`'s and means here what it means everywhere else: material for a run
+        // that broke, held for one waiting on an answer, cleared for a finished revision, full
+        // ink for one in flight and the neutral rule for a cancelled one. This used to say
+        // that held and cleared had given up their hues for weight — true of the one-hue
+        // system, and not of this one. Giving them back is what lets three settled states
+        // separate down a column instead of arriving as the same grey bar.
         "group flex flex-wrap items-stretch border-t border-l-[3px] border-rule last:rounded-b-lg",
         TONE_EDGE[descriptor.tone],
       )}
@@ -481,7 +485,7 @@ function RevisionRow({
             {/* `role="alert"`, because the question replaces the control that asked it: a
                 reader who is not looking at this row would otherwise be given a new,
                 destructive choice with nothing announcing that it had appeared. */}
-            <span role="alert" className="text-xs text-ink-3">
+            <span role="alert" className="text-xs text-ink-2">
               Delete this review?
             </span>
             <Button size="sm" variant="danger" disabled={deleting} onClick={onDelete}>

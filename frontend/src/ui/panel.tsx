@@ -34,11 +34,16 @@ export function Panel({
         // A sunken or marked region is set *into* a panel, so it gets no rim: a rim on an
         // inset would say the opposite of what the tone is for.
         //
-        // `bg-sunken`, not `bg-sunken/60`. Sixty per cent of `#ebebeb` over a `#f5f5f5` canvas
-        // lands at `#efefef` — six values, an unnamed grey, and a tone that does nothing in
-        // light; the same declaration in dark composites to `#131313`, nineteen values, and
-        // reads correctly. A tone that only works in one theme is not a tone. It stays apart
-        // from `marked` by its border, which is the distinction the pair was always carrying.
+        // `bg-sunken`, not `bg-sunken/60`. Sixty per cent of `#e7e5e2` over the `#f1eeeb`
+        // canvas lands at `#ebe9e6` — 0.016 in OKLCH lightness, under the 0.020 every step in
+        // the ramp is built to clear, so an unnamed grey that does very nearly nothing; the
+        // same declaration in dark composites `#2d2b29` over `#0b0a08` to `#1f1e1c`, which is
+        // 0.090 away and reads correctly. A tone that travels five times as far in one theme
+        // as in the other is not a tone. It stays apart from `marked` by its border, which is
+        // the distinction the pair was always carrying and could not previously make:
+        // `--rule-strong` moved from 15% to 22% in v2, so it measures 1.69:1 on a panel
+        // against `--rule`'s 1.28:1, where the two used to be 1.41 and 1.28 — one boundary
+        // token with a typo.
         tone === "sunken" && "border-rule bg-sunken",
         tone === "marked" && "border-rule-strong bg-sunken",
         className,
@@ -57,10 +62,17 @@ export function Panel({
  * nothing read as a container and nothing read as a target. `--surface-2` is the token the
  * system already had for exactly this and was using almost nowhere: *a strip inside a panel*.
  *
- * The step is deliberately small. `#ffffff` to `#fafafa` is five values, which is enough for
- * a division a reader is not asked to notice and nowhere near enough for a state that has to
- * appear under a pointer — so a row inside a panel hovers to `--sunken` and never to this.
- * The full ramp and the argument for it are at the top of `styles.css`.
+ * The step used to be deliberately small, and that was the defect rather than the restraint it
+ * was written up as. `#ffffff` to `#fafafa` is 0.015 in OKLCH lightness — below the threshold
+ * of sight, so a header, a body and an opened fold were three names for one white and the
+ * strip this component exists to draw was not on screen. v2 widened the ramp: `--surface` to
+ * `--surface-2` is 0.028 in light and 0.043 in dark, and the header now reads as a container
+ * rather than as a hairline with nothing either side of it.
+ *
+ * What has not changed is where a hover goes. A division a reader is not asked to notice is
+ * still a smaller move than a state that has to appear under a pointer, so a row inside a
+ * panel hovers to `--sunken` and never to this. The full ramp and the argument for it are at
+ * the top of `styles.css`.
  *
  * `rounded-t-lg` for the reason `PanelFooter` carries `rounded-b-lg`: this is now the other
  * part of a panel that paints a fill to the edge, and a square fill inside a 14px corner
@@ -135,9 +147,10 @@ export function PanelBody({ children, className }: { children: ReactNode; classN
 export function PanelFooter({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
-      // `bg-surface-2` rather than `bg-sunken/40`: the alpha composited to `#f7f7f7` in light,
-      // a value in neither ramp, and to `#141414` in dark — which is `--surface-2` reached by
-      // accident. A footer is a strip inside a panel, which is what the token is named for.
+      // `bg-surface-2` rather than `bg-sunken/40`: the alpha lands on `#f5f5f2` in light and
+      // `#201e1c` in dark, two values on neither ramp and so two values nothing measured. A
+      // footer is a strip inside a panel, which is what the token is named for — and now that
+      // the ramp steps far enough for the strip to be visible, it is worth having by name.
       className={cn("rounded-b-lg border-t border-rule bg-surface-2 px-4 py-3.5 sm:px-5", className)}
     >
       {children}
@@ -148,11 +161,19 @@ export function PanelFooter({ children, className }: { children: ReactNode; clas
 /**
  * A label above a block of content. Used inside findings, context rails, and forms.
  *
- * `0.13em` is the value the design system's type scale names, and this component is the
- * reason the value is written down once. The recipe — 10px, bold, uppercase, letterspaced —
+ * `0.08em` is the value the design system's type scale names, and this component is the
+ * reason the value is written down once. The recipe — 11px, bold, uppercase, letterspaced —
  * was hand-rolled twenty-one times across fourteen files at five different tracking values,
  * including here, so the one element that is meant to look identical everywhere was the one
  * that drifted. `ui/design-system.test.ts` carries the rule that would catch the next copy.
+ *
+ * Both numbers moved in v2, and each was a legibility defect rather than a preference. 10px
+ * bold uppercase is under the practical floor for a tier that carries every `Label`, every
+ * attribution and every group heading in the product — the smallest type on the page, doing
+ * the most repeated job on it. And `0.13em` was compensating for that size in the wrong
+ * direction: letterspacing buys apparent width, not legibility, and past about `0.1em` it
+ * starts costing word shape, which is the thing a reader recognises a short uppercase label
+ * by. 11px at `0.08em` reads larger and looks tighter.
  */
 export function Label({
   children,
@@ -174,7 +195,7 @@ export function Label({
 }) {
   return (
     <Tag
-      className={cn("text-[10px] font-bold uppercase tracking-[0.13em] text-ink-3", className)}
+      className={cn("text-[11px] font-bold uppercase tracking-[0.08em] text-ink-3", className)}
       {...props}
     >
       {children}

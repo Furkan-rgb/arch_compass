@@ -16,11 +16,18 @@ import { Label } from "./panel";
  * sideways with it. Where an ancestor asks for `truncate` instead, that wins: `truncate`
  * sets `white-space: nowrap`, which inherits, and nothing can wrap under it.
  *
- * 11px, which is the row the type scale gives this component's own job — *provenance, meta
- * lines, identities, namespaces*. It defaulted to 12, the row reserved for footnotes and
- * counts, and 44 of its 80 call sites wrote a smaller size back on by hand. A default nobody
- * chose for the common case is the same drift the `Label` docstring exists to prevent, one
- * component over. The sites that genuinely want 12px or more still say so.
+ * 12.5px at weight 500, which is the row the type scale gives this component's own job —
+ * *evidence: provenance, identities, paths, namespaces, fingerprints*. It sat at 11px, the
+ * smallest size in the product, which is where the product's longest strings were: a
+ * 64-character fingerprint and an absolute path, set in the face whose stems are thinnest at
+ * that size. Contrast is computed on a colour pair and says nothing about stroke, so a mono
+ * at 11px on a 6:1 ground is not the reading a sans at 11px on the same ground is — which is
+ * why this row moves and the sans rows around it do not. The weight is the other half of the
+ * same repair rather than emphasis.
+ *
+ * A call site that genuinely wants a smaller string still says so — but a size written on a
+ * `Mono` is now an override rather than a restatement of this default, which is worth knowing
+ * before reading one as deliberate.
  */
 export function Mono({
   children,
@@ -28,7 +35,10 @@ export function Mono({
   ...props
 }: { children: ReactNode; className?: string } & HTMLAttributes<HTMLSpanElement>) {
   return (
-    <span {...props} className={cn("font-mono text-[11px] text-ink-2 wrap-anywhere", className)}>
+    <span
+      {...props}
+      className={cn("font-mono text-[12.5px] font-medium text-ink-2 wrap-anywhere", className)}
+    >
       {children}
     </span>
   );
@@ -38,14 +48,23 @@ export function Mono({
  * A source path with an optional line span: the way back to the file a claim was measured
  * from, and the one place in this file that has to say "this goes somewhere".
  *
- * It said it with a chip — a border and a fill — on top of `--mark`. `--mark` is ink now, on
- * the argument that a fourth hue beside three verdicts makes a reader work out which of the
- * four carries meaning. That left the box doing the whole job, and a box is what this system
- * puts around a *block*, not around a reference; beside `Mono`, which is the same face at
- * the same size, the only difference was a hairline.
+ * It says it in `--mark`, and this is the component that hue was added for. A route back to a
+ * file is not a grade: under the one-hue system a path wore the accent red, which said *act
+ * on this* about a citation, and the fold that holds nothing but provenance was where a
+ * reader could no longer tell which of the three voices they were in. The fourth signal means
+ * *where this came from* and nothing else, so it can be spent here without competing with a
+ * verdict.
  *
- * So the affordance is an underline and a weight, which is what the rest of the system uses
- * for "this leads to the source" and what survives being the same colour as its neighbours.
+ * The two tiers split on what the paint is doing. The word takes `--mark`, the text tier,
+ * which clears 4.5:1 on every ground; the underline takes `--mark-edge`, which is a graphic
+ * and has only 3:1 to clear — 3.41:1 on `--sunken` in light, the tightest ground it lands on.
+ * Swapping them would be a contrast bug in one direction and a wasted signal in the other.
+ * Hovering moves the rule to the text tier, which is darker in light and brighter in dark:
+ * "more", in whichever direction the theme means it.
+ *
+ * The affordance is still an underline and a weight rather than a chip. A box is what this
+ * system puts around a *block*, not around a reference, and beside `Mono` — the same face at
+ * the same size — a chip added a hairline and nothing else.
  *
  * **And now it leads somewhere.** For a long time this was an underline that went nowhere:
  * it wore the one decoration the system reserves for "this goes to the source" and did
@@ -98,18 +117,21 @@ export function PathRef({
           // string itself reading left to right, and `text-align: left` keeps the row's
           // alignment. The accessible name and the `title` carry the whole path either way.
           "[direction:rtl] [text-align:left]",
-          "block min-w-0 max-w-full truncate font-mono text-[11px] font-medium text-ink",
-          "underline decoration-rule-strong underline-offset-2 transition hover:decoration-ink",
-          // 11px type on a 16px line is a 16px-tall thing to hit with a thumb, and this is a
-          // real control — it copies. The padding makes the touch box 44px; the matching
-          // negative margin takes those 28px straight back out of the layout, so nothing on
-          // the page moves. Every row this sits in aligns on the baseline, which padding
-          // does not shift, so the visual result is identical to the 16px version.
+          "block min-w-0 max-w-full truncate font-mono text-[12.5px] font-medium text-mark",
+          "underline decoration-mark-edge underline-offset-2 transition hover:decoration-mark",
+          // A line of this type is under 20px tall, which is a small thing to hit with a
+          // thumb, and this is a real control — it copies. The padding takes the touch box
+          // past 44px; the matching negative margin takes those 28px straight back out of
+          // the layout, so nothing on the page moves. Every row this sits in aligns on the
+          // baseline, which padding does not shift, so the visual result is unchanged.
           "-my-3.5 py-3.5",
         )}
       >
         <bdi>
           {path}
+          {/* The line span stays neutral while the path carries the hue. It is a quantity
+              rather than the route — the part of the string that says *which file* is the
+              part worth spending a signal on — and a row's colour budget is one thing. */}
           {span ? <span className="text-ink-3">{span}</span> : null}
         </bdi>
       </button>
@@ -137,7 +159,19 @@ export function PathRef({
   );
 }
 
-/** A definition list row: a small dim key, a readable value. */
+/**
+ * A definition list row: a dim key, and the value it is there to carry.
+ *
+ * The value is the darkest thing in the row and the key is the quietest, and this pair is the
+ * defect the ink ramp was rebuilt for. It used to be `ink-2` on the value against `ink-3` on
+ * the key — two tiers that measure 1.54:1 against each other, so the Provenance fold read as
+ * one grey separated by a change of case, and every ink in it passed its own contrast test
+ * against the ground. A key and a value are now `ink-3` and `ink`: 3.01:1 apart in light and
+ * 2.84:1 in dark, which is two colours rather than one colour with two names.
+ *
+ * The row carries its own space, top and bottom, because `MetaList` no longer draws a rule
+ * between rows and something has to hold them apart.
+ */
 export function MetaRow({
   label,
   children,
@@ -148,17 +182,29 @@ export function MetaRow({
   className?: string;
 }) {
   return (
-    <div className={cn("grid grid-cols-[minmax(88px,auto)_minmax(0,1fr)] gap-3 py-2", className)}>
+    <div
+      className={cn("grid grid-cols-[minmax(88px,auto)_minmax(0,1fr)] gap-3 py-2.5", className)}
+    >
       {/* `Label`, not a fourth copy of its four properties. This one had drifted to
           `tracking-[0.08em]`, and `as` is on that component precisely so a `dt` can have it. */}
       <Label as="dt">{label}</Label>
-      <dd className="min-w-0 text-sm leading-6 text-ink-2">{children}</dd>
+      <dd className="min-w-0 text-sm leading-6 text-ink">{children}</dd>
     </div>
   );
 }
 
+/**
+ * The rows are held apart by space, and by nothing else.
+ *
+ * This was `divide-y divide-rule`, which put nine hairlines down the Provenance fold at
+ * 1.28:1 — under the 1.6:1 a boundary carrying structure has to clear, and so not a division
+ * a reader sees. What it added was a grey band between every pair of rows in a block already
+ * made of grey. Space separates for free, at any contrast, in both themes, and the only thing
+ * it costs is height: each row pays 10px above and below, so rows sit 20px apart against the
+ * 12px between a key and its own value, and the pairing reads before the list does.
+ */
 export function MetaList({ children, className }: { children: ReactNode; className?: string }) {
-  return <dl className={cn("divide-y divide-rule", className)}>{children}</dl>;
+  return <dl className={cn("grid", className)}>{children}</dl>;
 }
 
 /** A number that matters, with its name underneath. Used in strips of two to four. */
@@ -168,6 +214,12 @@ export function MetaList({ children, className }: { children: ReactNode; classNa
  * Anything showing a number or a word in a verdict's colour paints it through here, so the
  * hue always arrives from `lib/format` rather than being picked at the call site — which is
  * how a "cleared" green ended up on a finished clone and a "held" amber on a pinned setting.
+ *
+ * These are the bare tokens, which is the text tier: every one clears 4.5:1 on all four
+ * grounds in both themes, because everything this table paints is a word or a number somebody
+ * reads. `TONE_EDGE` below is the same three hues in the graphic tier, and the two do not
+ * swap — an `-edge` token on a word is a contrast failure, and a word's token on a 3px bar
+ * paints it in the value that had to darken to stay readable.
  */
 export const TONE_TEXT: Record<Tone, string> = {
   neutral: "text-ink-2",
@@ -181,20 +233,25 @@ export const TONE_TEXT: Record<Tone, string> = {
  * A tone as a left edge, for a row in a list of rows.
  *
  * The same hues as `TONE_TEXT` and for the same reason — the colour arrives from
- * `lib/format`, never from the call site. What differs is the job: an edge is read at a
- * glance down a column, before any word on any row has been read, so it is the one place a
- * verdict is allowed to be a bar of colour rather than a mark and a word.
+ * `lib/format`, never from the call site. What differs is the job, and with it the tier: an
+ * edge is read at a glance down a column, before any word on any row has been read, so it is
+ * the one place a verdict is allowed to be a bar of colour rather than a mark and a word, and
+ * it is drawn in `-edge` rather than in the token the same verdict's *word* is set in. A bar
+ * is a graphic, so it has 3:1 to clear rather than 4.5:1 — which is what lets these stay
+ * saturated where the word of the same verdict has to darken to stay readable.
  *
  * That does not make it colour carrying meaning alone. Every row this paints also states its
  * verdict as a sign and as a word; the edge is the third statement, and the only one that
  * survives peripheral vision.
  */
 export const TONE_EDGE: Record<Tone, string> = {
+  // `neutral` and `marked` are not verdicts and have no signal to spend: a row that is
+  // nothing in particular gets the boundary token, and one being pointed at gets ink.
   neutral: "border-l-rule-strong",
   marked: "border-l-ink",
-  material: "border-l-material",
-  held: "border-l-held",
-  cleared: "border-l-cleared",
+  material: "border-l-material-edge",
+  held: "border-l-held-edge",
+  cleared: "border-l-cleared-edge",
 };
 
 export function Statistic({
@@ -234,13 +291,15 @@ export function MetaLine({ items, className }: { items: ReactNode[]; className?:
     <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3", className)}>
       {visible.map((item, index) => (
         <span key={index} className="inline-flex items-center gap-2">
-          {/* `text-ink-3`, not `text-ink-3/50`. Halving the tier composited to `#afafaf` in
-              light — 2.00:1 against a panel, below every step of the declared ink ramp, and
+          {/* `text-ink-3`, not `text-ink-3/50`. Halving the tier composites to `#b2b1ae` in
+              light — 2.14:1 against a panel, below every step of the declared ink ramp, and
               invisible to `tokens.test.ts`, which measures the three named inks and cannot
-              see an alpha applied in a class. `--ink-3` sits at `#5f5f5f` *because* the tier
-              was measured and moved; halving it at a call site put the separator back below
-              where the tier was before the correction. A middot at 12px is already the
-              quietest mark on the line without help. */}
+              see an alpha applied in a class. It is the general rule now as well: a tone
+              mixed from an alpha of a ramp token composites to a real step in one theme and
+              to nothing in the other. `--ink-3` sits where it does *because* the tier was
+              measured and placed; halving it at a call site puts the separator back below
+              where the ramp starts. A middot at 12px is already the quietest mark on the
+              line without help. */}
           {index > 0 ? (
             <span aria-hidden="true" className="text-ink-3">
               ·

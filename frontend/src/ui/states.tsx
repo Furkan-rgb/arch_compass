@@ -169,7 +169,20 @@ export function ErrorNotice({
   return (
     <div
       role="alert"
-      className="animate-rise rounded-md border border-material/30 bg-material-soft px-4 py-3 text-sm leading-6 text-material"
+      // A red block, not a red region. This was `bg-material-soft` inside `border-material/30`,
+      // which put a chromatic fill behind several hundred characters of thrown message — the
+      // wash is a badge fill capped at a pill, and an `ErrorNotice` is the largest thing in the
+      // product that was wearing one. It was also already dead: `--material-soft` went with the
+      // other `-soft` tokens, so the loudest block on the page had been painting no background
+      // at all and nothing in the build could notice.
+      //
+      // The two tiers carry it instead, which is the same pair `ui/field.tsx` draws on a
+      // rejected field: `--material-edge` on the 1px border (3.87:1 in light and 3.51:1 in dark
+      // on this fill, against a 3:1 graphic floor) and `--material` on the words (7.00:1 and
+      // 4.88:1, against 4.5). The ground is `--sunken`, a neutral inset — 1.25:1 on a panel in
+      // light and 1.28:1 in dark, and on the page canvas in light it is 1.09:1, which is why
+      // the red edge rather than the fill is what draws this block's boundary.
+      className="animate-rise rounded-md border border-material-edge bg-sunken px-4 py-3 text-sm leading-6 text-material"
     >
       {/* Clamped, because this renders whatever was thrown and a fetch against a local
           workspace regularly throws several hundred characters carrying a URL and a stack

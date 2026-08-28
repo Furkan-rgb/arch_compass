@@ -282,7 +282,13 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
           The timestamp is folded in here rather than said twice: on a stale decision "the
           team decided this on…" *is* the "what the team decided" clause. */}
       {stale && current ? (
-        <div className="mt-3 border-l-2 border-held pl-3.5">
+        // Two tiers of one hue, and which goes where is not interchangeable. The edge is a
+        // graphic — it clears the 3:1 a meaningful graphic is held to and is the saturated
+        // half of the pair, which is what makes it findable down a column of ink — and the
+        // label beside it is a word, held to 4.5:1. `border-held` on this rule spent the text
+        // value on two pixels nobody reads a letterform in; `text-held-edge` on the label
+        // would be the same swap in the direction that fails contrast outright.
+        <div className="mt-3 border-l-2 border-l-held-edge pl-3.5">
           <Label className="text-held">Decided against a different verdict</Label>
           <p className="mt-1.5 max-w-[58ch] text-[13px] leading-6 text-ink-2">
             The team decided this on {absoluteTime(current.decided_at)}, when ArchCompass called
@@ -320,7 +326,11 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
             </p>
           )}
           {current.reasoning ? (
-            <p className="mt-1.5 max-w-[58ch] text-sm leading-6 text-ink-3 wrap-anywhere">
+            /* `--ink-2`, not `--ink-3`. This is a person's own sentence about why they waived a
+               finding, at `text-sm`, and the meta tier is the one the ramp forbids a sentence.
+               It was the dimmest thing in the block while the line above it — a timestamp — was
+               a tier brighter, which put the record's reasoning below its clerical detail. */
+            <p className="mt-1.5 max-w-[58ch] text-sm leading-6 text-ink-2 wrap-anywhere">
               “{current.reasoning}”
             </p>
           ) : null}
@@ -367,10 +377,11 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
             //
             // This comment used to say "the ink fill says 'this is what stands', not 'do
             // this'", and it was describing a fill that had stopped being ink: `primary` is
-            // `--accent`, the one hue the product has, and it means *look here*. Spending it
-            // on the record of a decision already taken put the loudest object in a settled
-            // row on the thing that needs no attention at all — a grey `Accepted` badge
-            // whispering above a dark-red `Accept and act` shouting in the alarm colour.
+            // `--accent`, which resolves to `--material` — the alarm, and the only hue in the
+            // set that means *act on this*. Spending it on the record of a decision already
+            // taken put the loudest object in a settled row on the thing that needs no
+            // attention at all — a quiet `Accepted` badge whispering above a dark-red `Accept
+            // and act` shouting in the alarm colour.
             //
             // So all three are peers, which they are, and the standing one carries `border-ink`
             // — the gesture `ToggleButton` and the segmented control already use for "this one
@@ -446,7 +457,7 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
             />
             {/* Said in words, not only by a disabled button. A control that is grey for a
                 reason nobody states is a control a reviewer clicks twice and then abandons. */}
-            <p id={noteId} className="mt-1.5 text-xs leading-5 text-ink-3">
+            <p id={noteId} className="mt-1.5 text-xs leading-5 text-ink-2">
               {missing
                 ? "A waiver needs a reason. It is the part of this decision the next review reads back."
                 : "Recorded on the branch, and shown against this candidate in the next review."}
@@ -549,8 +560,10 @@ function DecisionHistory({ branchId, finding }: { branchId: string; finding: Fin
           nothing to transition and no `hover:` at all, so the only thing saying it was
           pressable was a chevron and the `cursor: pointer` the base layer gives every
           `summary` — a reader not moving the pointer across those sixteen pixels got nothing
-          back. `hover:bg-sunken` rather than `--surface-2`, which is five values in light and
-          therefore not a state. */}
+          back. `hover:bg-sunken` rather than `--surface-2`: under the v1 ramp that pair was
+          five levels and not a state at all, and under v2 it is a visible one — but it is the
+          token for a strip inside a panel, where `--sunken` is the one the elevation contract
+          gives a quiet inset. A fold's own header opening is that, not a second panel. */}
       <summary className="flex min-h-11 list-none items-center gap-2 rounded-md px-2 py-2 transition hover:bg-sunken focus-visible:-outline-offset-2">
         <Label className="min-w-0 flex-1 text-left">
           Decided before{history.data ? ` · ${history.data.length}` : ""}
@@ -559,7 +572,7 @@ function DecisionHistory({ branchId, finding }: { branchId: string; finding: Fin
       </summary>
 
       {history.isLoading ? (
-        <p className="flex items-center gap-2 text-[12.5px] text-ink-3">
+        <p className="flex items-center gap-2 text-[12.5px] text-ink-2">
           <Spinner label="" /> Reading what was decided before…
         </p>
       ) : history.error ? (
@@ -577,7 +590,7 @@ function DecisionHistory({ branchId, finding }: { branchId: string; finding: Fin
           }
         />
       ) : !history.data?.length ? (
-        <p className="text-[12.5px] leading-6 text-ink-3">
+        <p className="text-[12.5px] leading-6 text-ink-2">
           Nothing was decided about this candidate before the record above.
         </p>
       ) : (
@@ -611,7 +624,10 @@ function DecisionHistory({ branchId, finding }: { branchId: string; finding: Fin
                   </span>
                 </div>
                 {judgedBy.length ? (
-                  <p className="mt-1 text-ink-3">Judged by {judgedBy.join(", ")} than this one.</p>
+                  /* The whole reason this history row exists — a previous decision was made
+                     against a different model — so it is a sentence and takes the reading tier
+                     rather than the label one. */
+                  <p className="mt-1 text-ink-2">Judged by {judgedBy.join(", ")} than this one.</p>
                 ) : null}
                 {entry.reasoning ? (
                   <p className="mt-1 wrap-anywhere">“{entry.reasoning}”</p>

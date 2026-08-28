@@ -1,14 +1,14 @@
 """The Policies fold uses the width it has, and each card keeps the measure it was given.
 
 Geometry, so jsdom can see none of it. A grid track written as
-`repeat(auto-fill,minmax(0,26.75rem))` is a class list nothing without a layout engine can
+`repeat(auto-fill,minmax(0,24.3rem))` is a class list nothing without a layout engine can
 fail: jsdom applies no stylesheet, computes no boxes, and would report the same success for
-`grid`, for `grid-cols-1`, and for the `max-w-[26.75rem]` this replaced. The nine-pixel notch
+`grid`, for `grid-cols-1`, and for the `max-w` on the list this replaced. The nine-pixel notch
 this branch already shipped in the verdict rail survived on exactly that. So the two claims
 the fold makes are asked of a real Chromium serving the real bundle, as rectangles:
 
 * at a wide panel the cards sit **side by side**, each one still capped at its own measure,
-  with the note inside still drawing at the 398.00px `finding-detail.tsx` derives;
+  with the note inside still drawing at the width `finding-detail.tsx` derives;
 * at a narrow one they **stack**, one column filling the width, which is the phone.
 
 And a third, because it is the half a column count does not cover: the cards sit at their
@@ -46,14 +46,14 @@ from tests.browser.harness import (
 
 pytestmark = pytest.mark.browser
 
-#: `26.75rem` at the root's 16px. The derivation is in `finding-detail.tsx` and is not
-#: repeated here: the note's `46ch` at its 13px is 397.67px, the card spends 30px on `px-3.5`
-#: and its two hairlines, and 427.67 rounds to a quarter-rem.
+#: `24.3rem` at the root's 16px. The derivation is in `finding-detail.tsx` and is not repeated
+#: here: the note's `46ch` at its 13px is 358.80px, the card spends 30px on `px-3.5` and its two
+#: hairlines, and 388.80 is 24.3rem exactly.
 #:
-#: `46ch` is 46 advances of Onest's zero and not 46 characters, which is what this line said
-#: until now. The note holds 60.58 characters a line at 398.00px, swept with a `Range` per
-#: character over all 514 recorded notes; the derivation is unchanged and only the word was.
-CARD_PX = 428.0
+#: `46ch` is 46 advances of the zero and not 46 characters. It was 428.0 while the sans was
+#: Onest, whose zero advanced 0.665em where IBM Plex Sans's advances 0.600em; the derivation is
+#: unchanged and every term in it moved.
+CARD_PX = 388.8
 
 #: What is left for the note once the card has taken its padding and its two hairlines.
 NOTE_PX = CARD_PX - 30.0
@@ -134,8 +134,8 @@ def _available_px(fold) -> float:  # type: ignore[no-untyped-def]
     """The content width of the disclosure body the list is laid into.
 
     Measured on the *parent* rather than on the `<ul>` itself, and the distinction is the
-    whole defect: a `max-w` on the list makes the list report 428px in a fold that is 1,126px
-    wide, so a guard that read the list would conclude there was no room for a second column
+    whole defect: a `max-w` on the list makes the list report one card's width in a fold that is
+    1,126px wide, so a guard that read the list would conclude there was no room for a second column
     and skip the assertion that this surface exists to make. Asking the parent asks how much
     room the grid was given, which is the number that does not move when the grid is wrong.
     """
@@ -194,7 +194,7 @@ def test_the_policies_fold_lays_its_cards_across_a_wide_panel(page, review_url: 
         width = notes.nth(index).bounding_box()["width"]
         assert abs(width - NOTE_PX) <= TOLERANCE_PX, (
             f"the note in card {index} reads at {width:.2f}px rather than {NOTE_PX:.0f}px — "
-            "`finding-detail.tsx` derives 26.75rem from exactly this number"
+            "`finding-detail.tsx` derives 24.3rem from exactly this number"
         )
 
 
@@ -225,9 +225,9 @@ def test_the_policies_fold_falls_back_to_one_column_when_it_is_narrow(  # type: 
 ) -> None:
     """One track below 436px of fold, filling the width it has. This is the phone.
 
-    `auto-fill` floors its repetition count at one and the single `minmax(0,26.75rem)` track
+    `auto-fill` floors its repetition count at one and the single `minmax(0,24.3rem)` track
     shrinks to the space available, so the card is the column and the column is the fold —
-    which is what `max-w-[26.75rem]` on the `ul` did here before, unchanged.
+    which is what the `max-w` on the `ul` did here before, unchanged.
     """
 
     _inject_policies(page)

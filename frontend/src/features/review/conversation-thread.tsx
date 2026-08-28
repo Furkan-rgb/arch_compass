@@ -104,11 +104,13 @@ export function ConversationExchange({
               paragraph and the document, which is the check the arithmetic kept failing.
 
               163 is a character count rather than the 62 of the cap: a `ch` is the advance of
-              Onest's zero, which is about a third wider than a character of its body text, so
-              `62ch` at 14px is 577.22px and holds about 83. Both counts are a `Range` per
+              the zero, which is wider than a character of body text, so `62ch` at 14px held
+              about 83 under Onest, where it was 577.22px. IBM Plex Sans's zero is 0.600em, so
+              the same declaration is 520.80px now and every figure in this paragraph is a
+              reading of the old face. Both counts are a `Range` per
               character in a headless Chromium serving the built stylesheet, each line counted
               from its own first visible character to the next line's and averaged over full lines
-              only — the sweep `ui/prose.tsx` states in full and `ui/onest.test-metrics.ts` keeps
+              only — the sweep `ui/prose.tsx` states in full and `ui/font.test-metrics.ts` keeps
               the per-character reading of. Nothing in the store records a question, so there is
               no corpus of the right kind to sweep; this one is the 139 recorded judgement
               rationales of 400 characters or more in the workspace store, run through this very
@@ -125,9 +127,10 @@ export function ConversationExchange({
             <Prose>{message.question}</Prose>
           </p>
         </div>
-        {/* `bg-sunken`, not `bg-sunken/50`: half of `#ebebeb` over the panel composites to a
-            grey on no ramp in light and to something else again in dark. This is a quiet inset,
-            which is the job `--sunken` is named for, in both themes. */}
+        {/* `bg-sunken`, not `bg-sunken/50`: half of `--sunken` over the panel composites to
+            `#f3f2ef` in light, a grey on no ramp and barely a step off the surface under it,
+            and to `#23211f` in dark, which is very nearly `--surface-2` arrived at by accident.
+            This is a quiet inset, which is the job `--sunken` is named for, in both themes. */}
         <div className="rounded-md border border-rule bg-sunken px-3 py-2.5">
           {/* The model's voice, named and set at the reading size — which is the design system's
               central claim and the one place in the product that ignored it. This was 14px of
@@ -213,7 +216,7 @@ export function ConversationExchange({
                     "Put this in my answer"
                   )}
                 </Button>
-                <span className="text-[11px] leading-5 text-ink-3">
+                <span className="text-[11px] leading-5 text-ink-2">
                   It goes in the box for you to change. Nothing is submitted until you do it.
                 </span>
               </div>
@@ -263,12 +266,21 @@ export function ConversationExchange({
                         className="max-w-full text-left"
                       >
                         {/* `bare`, and `Tag` is why: it already draws `rounded-xs border
-                            border-rule bg-surface-2 px-2 py-0.5`, so a chip inside it is a box
-                            inside a box with two hairlines, at 12px. The mono face is the half
-                            that carries the meaning and the tag is already providing the other
-                            half. The `title` beside it is a string, so it gets the delimiters
-                            taken off rather than drawn — and the two must say the same words. */}
-                        <Tag className="transition hover:border-rule-strong hover:text-ink">
+                            border-rule-strong bg-sunken px-2 py-0.5`, so a chip inside it is a
+                            box inside a box with two hairlines, at 12px. The mono face is the
+                            half that carries the meaning and the tag is already providing the
+                            other half. The `title` beside it is a string, so it gets the
+                            delimiters taken off rather than drawn — and the two must say the
+                            same words.
+
+                            The hover is `border-ink-3` and not `border-rule-strong`, which is
+                            what it said while `Tag` rested on `border-rule`. `Tag` rests on
+                            `--rule-strong` now, so the old class was a hover that changed
+                            nothing — an operable-looking chip that did not answer a pointer.
+                            `--ink-3` is the next step that is actually a step, and it stops
+                            short of `--rule-control`, which is the edge reserved for something
+                            you operate directly rather than a citation you can follow. */}
+                        <Tag className="transition hover:border-ink-3 hover:text-ink">
                           <Prose bare>{finding.candidate.summary}</Prose>
                         </Tag>
                       </button>
@@ -438,24 +450,29 @@ export function AskBox({
     }
   };
   return (
-    /* `38.5rem`, and it was `max-w-[64ch]`, which is two mistakes in one class list.
+    /* `34.8rem`, and it was `max-w-[64ch]`, which is two mistakes in one class list.
        The first is that a `ch` is the advance of the zero of the element's **own** used font
        and the wrapper this sat on declared no font size, so 64 of them resolved against the
-       root's 16px and drew 680.96px — while the `Textarea` inside it is `text-sm`, whose own
-       64ch is 595.84px. Eighty-five pixels between the number written down and the text it was
-       written about. The second is that a measure is a property of prose and this is a box to
-       type in. What it should be capped at is not a count of characters but the column the
+       root's 16px and drew 614.40px — while the `Textarea` inside it is `text-sm`, whose own
+       64ch is 537.60px. Seventy-seven pixels between the number written down and the text it
+       was written about. The second is that a measure is a property of prose and this is a box
+       to type in. What it should be capped at is not a count of characters but the column the
        exchange is read in: an answer above it is `ModelProse` at 58ch and 16px, which draws
-       617.12px, and the question above that stops at 577.22px. At 680.96px the composer was
-       the widest thing in the thread by 64px, which reads as a second column rather than as
-       the end of the one above it. 38.5rem is 616px — the answer's edge to within about a
-       pixel, said in the unit `ui/markdown.tsx` argues for, where a quarter-rem reads as a
-       value somebody chose.
+       556.80px, and the question above that stops at 520.80px. At 614.40px the composer was
+       the widest thing in the thread by 58px, which reads as a second column rather than as
+       the end of the one above it. `34.8rem` is 556.80px — the answer's own edge exactly, said
+       in the unit `ui/markdown.tsx` argues for.
 
        The number moved element when the composer became one box, and it had to stay the same
        number: it is now the width of the box that is *drawn*, where before it was a wrapper
-       nobody could see, so the field's own right edge went from 616px to 616px and the button
-       came inside it. That is what `test_workspace.py` measures rather than restating.
+       nobody could see, so the field's own right edge did not move and the button came inside
+       it. That is what `test_workspace.py` measures rather than restating.
+
+       Then it moved again, with the face. It was `38.5rem` — 616px, the round number just under
+       the 617.12px Onest's zero put `58ch` at. IBM Plex Sans advances its zero 0.600em against
+       Onest's 0.665em, so the answer's column came in to 556.80px and this cap sat 59px past
+       the block it exists to line up with. Every figure in the two paragraphs above was
+       re-derived at the same time; none of them was converted by ratio.
 
        The rest of this class list is the field's recipe from `ui/field.tsx`, moved one element
        out. `controlClass` is the recipe for *an element that is itself the control*, and here
@@ -475,7 +492,7 @@ export function AskBox({
        `has-[textarea:focus…]` rather than `focus-within`, because the button is in here too
        and draws its own ring from the same base rule — `focus-within` would put a second ring
        around the whole composer every time the button took focus. */
-    <div className="max-w-[38.5rem] rounded-sm border border-rule-control bg-control transition has-[textarea:focus]:border-ink has-[textarea:focus-visible]:outline-2 has-[textarea:focus-visible]:outline-offset-2 has-[textarea:focus-visible]:outline-ink">
+    <div className="max-w-[34.8rem] rounded-sm border border-rule-control bg-control transition has-[textarea:focus]:border-ink has-[textarea:focus-visible]:outline-2 has-[textarea:focus-visible]:outline-offset-2 has-[textarea:focus-visible]:outline-ink">
       {/* `block`, because a textarea is `inline-block` by default and an inline-level child
           puts a line box under it — **seven pixels** of the parent's ground between the text
           and the rail that nothing in either class list accounts for, which is the box

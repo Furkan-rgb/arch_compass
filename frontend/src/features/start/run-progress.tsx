@@ -380,7 +380,7 @@ export function RunProgress({
         {onCancel && !settled ? (
           confirming ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs leading-5 text-ink-3">
+              <span className="text-xs leading-5 text-ink-2">
                 Stop and discard what it has judged?
               </span>
               <Button variant="danger" size="sm" disabled={cancelling} onClick={onCancel}>
@@ -568,7 +568,7 @@ export function RejudgementNote({
       </p>
       {notice?.supported && running ? (
         notice.armed ? (
-          <span className="text-xs text-ink-3">You will be told when it is done.</span>
+          <span className="text-xs text-ink-2">You will be told when it is done.</span>
         ) : (
           <Button
             variant="ghost"
@@ -613,7 +613,7 @@ export function NotifyWhenDone({ done, headline }: { done: boolean; headline: st
 
   if (typeof Notification === "undefined" || done) return null;
   if (armed) {
-    return <span className="text-xs text-ink-3">You will be told when it is done.</span>;
+    return <span className="text-xs text-ink-2">You will be told when it is done.</span>;
   }
   return (
     <Button

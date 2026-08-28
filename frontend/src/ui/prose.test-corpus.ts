@@ -298,14 +298,19 @@ export const PHONE_COLUMN_PX = 324;
  * before a closing one, so the widest unbreakable run is the name plus the brackets round it
  * rather than the name. It is the floor under the measure `ModelProse` sets, and
  * `features/review/finding-detail.test.tsx` argues that at length: how it was measured, why it
- * is a figure about Onest specifically, and why the two 74-character names in the corpus are
- * wider and still not candidates for it. The number lives here because a measurement kept in
+ * is a figure about one face specifically, and why the two 74-character names in the corpus are
+ * wider and still not candidates for it. **The face it is about is Onest, which this product no
+ * longer downloads.** It is kept as the floor because the property it states — a qualified name
+ * the model wrote without backticks has to fit on one line — is unchanged, and because a floor
+ * deleted is a floor nothing can be compared against; but the number is a browser reading of a
+ * face that is gone, and `docs/known-defects.md` carries the re-sweep under IBM Plex Sans.
+ * Nothing should quote it as a current measurement of the shipped page. The number lives here because a measurement kept in
  * two files drifts, and the second copy is what tells you it drifted, after.
  *
  * **What it costs when a block cannot break inside it**, which is the half `ui/prose.test.tsx`
  * needs and which is a different measurement. Render all 375 strings through the real
  * `ModelProse` in a headless Chromium, serving the built stylesheet so the face is the shipped
- * `onest.woff2`, with both Onest weights and IBM Plex Mono asserted through
+ * woff2, with every sans weight involved and IBM Plex Mono asserted through
  * `document.fonts.check` before anything is read — `font-display: swap` otherwise answers with a
  * fallback whose zero is 0.6299em and every width comes out five per cent wrong. At a
  * `PHONE_COLUMN_PX` column the shipped component overflows on **0 of 375** strings and its

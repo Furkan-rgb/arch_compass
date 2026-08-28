@@ -8,7 +8,7 @@
          here is only what a device with no stored preference would flash. Both values are
          `--canvas` from styles.css, copied because a meta tag cannot read a custom property —
          `lib/theme.test.ts` reads this file and the stylesheet and fails if the two disagree. -->
-    <meta name="theme-color" content="#f5f5f5" />
+    <meta name="theme-color" content="#f1eeeb" />
     <meta
       name="description"
       content="ArchCompass — architecture review grounded in your code, policies, and decisions."
@@ -23,17 +23,19 @@
     <link rel="icon" sizes="48x48" href="/favicon.ico" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <!-- The two faces the first paint is set in: Onest's latin subset and the reading weight
-         of IBM Plex Mono. Nothing was preloaded, so the landing page's 62px display headline
-         painted in the fallback stack and reflowed once the woff2 arrived — the single most
-         visible thing on the one route guaranteed to be somebody's first. The extended subset
-         and the 600 mono cut are deliberately not here: neither is needed for a latin first
-         paint, and a preload for something the page may not use is bandwidth taken from
-         something it will. `crossorigin` is mandatory on a font preload; without it the
-         request is made in a different mode and the file is fetched twice. -->
+    <!-- The two faces the first paint is set in: IBM Plex Sans's latin subset at 400 and the
+         reading weight of IBM Plex Mono. Nothing was preloaded, so the landing page's 62px
+         display headline painted in the fallback stack and reflowed once the woff2 arrived —
+         the single most visible thing on the one route guaranteed to be somebody's first. The
+         extended subsets and the heavier cuts are deliberately not here: none is needed for a
+         latin first paint, and a preload for something the page may not use is bandwidth taken
+         from something it will. That is a sharper trade-off than it was under a variable face,
+         because Plex ships one file per weight — preloading all four would be four requests
+         for a paint that needs one. `crossorigin` is mandatory on a font preload; without it
+         the request is made in a different mode and the file is fetched twice. -->
     <link
       rel="preload"
-      href="/src/assets/fonts/onest.woff2"
+      href="/src/assets/fonts/plex-sans-400.woff2"
       as="font"
       type="font/woff2"
       crossorigin
@@ -70,7 +72,7 @@
         document.documentElement.style.colorScheme = theme;
         document
           .querySelector('meta[name="theme-color"]')
-          .setAttribute("content", theme === "dark" ? "#000000" : "#f5f5f5");
+          .setAttribute("content", theme === "dark" ? "#0b0a08" : "#f1eeeb");
       })();
     </script>
   </head>

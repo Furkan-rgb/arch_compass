@@ -517,7 +517,7 @@ export function AtlasExplorer({
           produced two announcements per keystroke, against a panel that had deliberately
           narrowed its one polite region to the single sentence naming the card. This is
           orientation a reader can go and read. */}
-      <Mono className="border-t border-rule bg-surface-2 px-3 py-2 text-[10px] uppercase tracking-[0.13em] text-ink-3">
+      <Mono className="border-t border-rule bg-surface-2 px-3 py-2 text-[11px] uppercase tracking-[0.08em] text-ink-3">
         {visibleGraph.nodes.length} of {plural(nodes.length, "element")} ·{" "}
         {visibleGraph.edges.length} of {plural(edges.length, "relationship")} · {lens} lens
       </Mono>

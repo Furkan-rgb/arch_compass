@@ -13,7 +13,7 @@ export type ThemePreference = "light" | "dark" | "system";
 
 export const STORAGE_KEY = "archcompass.theme";
 
-export const THEME_COLORS = { light: "#f5f5f5", dark: "#000000" } as const;
+export const THEME_COLORS = { light: "#f1eeeb", dark: "#0b0a08" } as const;
 
 /**
  * Storage access, guarded. A browser in private mode, or an embedded webview with storage

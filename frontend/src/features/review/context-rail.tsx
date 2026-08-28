@@ -206,9 +206,7 @@ export function ContextRail({
                   ))}
                 </>
               ) : (
-                <MetaRow label="Retrieval">
-                  <span className="text-ink-3">Nothing was retrieved for this candidate.</span>
-                </MetaRow>
+                <MetaRow label="Retrieval">Nothing was retrieved for this candidate.</MetaRow>
               )}
               <MetaRow label="Atlas">
                 <span>
@@ -251,7 +249,7 @@ function ReviewProvenance({ review }: { review: Review }) {
   }
   return (
     <div className="grid gap-2">
-      <p className="text-xs leading-5 text-ink-3">
+      <p className="text-xs leading-5 text-ink-2">
         Every candidate in this review, and what retrieval put in front of the model for it.
       </p>
       {review.retrieval_manifest.map((item) => {
@@ -378,7 +376,7 @@ function StructureContext({ review, finding }: { review: Review; finding: Findin
       ) : null}
 
       {explore.isPending ? (
-        <div className="flex items-center gap-2 text-sm text-ink-3">
+        <div className="flex items-center gap-2 text-sm text-ink-2">
           {/* The sentence is printed right beside it, so the spinner does not say it again. */}
           <Spinner label="" /> Reading the atlas…
         </div>
@@ -475,7 +473,7 @@ function CaseContext({ review, finding }: { review: Review; finding: Finding | n
             ))}
           </ul>
         ) : (
-          <p className="mt-1.5 text-xs text-ink-3">
+          <p className="mt-1.5 text-xs text-ink-2">
             {architectureCase.answers.length
               ? "No question was asked about this candidate. It was judged against the rest of the case below."
               : "Nothing has been asked yet. A case fills in when a judgement turns on something the repository cannot settle."}

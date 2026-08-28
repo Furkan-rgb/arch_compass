@@ -26,12 +26,14 @@ import type { MarkShape } from "../lib/format";
  * The mark a descriptor wears, resolved to an icon.
  *
  * This has been three things. It was literal characters — `▲ ◆ ● ○ ◐` — until it turned out
- * neither Onest nor IBM Plex Mono ships the Geometric Shapes block, so every one fell back to
- * whatever the operating system had and arrived at three optical sizes on three baselines. It
- * was hand-cut SVG after that, which fixed the sizing and left the real problem: a filled
- * triangle, a diamond and a circle are three distinguishable marks and three *meaningless*
- * ones. A reader who had not learnt the key was reading the hue — the exact dependence
- * "a colour never carries meaning alone" exists to prevent.
+ * that neither shipped face carried the Geometric Shapes block, so every one fell back to
+ * whatever the operating system had and arrived at three optical sizes on three baselines. A
+ * subsetted face is why that is not a fixed bug but a standing one: the block is outside latin
+ * whichever sans the product is set in. It was hand-cut SVG after that, which fixed the sizing
+ * and left the real problem: a filled triangle, a diamond and a circle are three
+ * distinguishable marks and three *meaningless* ones. A reader who had not learnt the key was
+ * reading the hue — the exact dependence "a colour never carries meaning alone" exists to
+ * prevent.
  *
  * Now it is Lucide. The hand-drawn set was competing with a maintained one on optical
  * consistency and losing; what this file keeps is the part a library cannot supply, which is
@@ -55,6 +57,15 @@ import type { MarkShape } from "../lib/format";
  *   being judged differently — so it reads as diff notation and never borrows a verdict's
  *   sign. The tick that `addressed` used to carry was the clearest case: "raised last time,
  *   gone now" is not the same claim as "assessed and found unproblematic".
+ *
+ * **And the three verdict signs have to survive greyscale**, because they are what carries a
+ * reader the hue channel is not reaching: the light theme separates the three verdicts by only
+ * ΔE 4.3–6.0 under deuteranopia. They do, and it is the outline rather than the fill that does
+ * it — `alert` is the one of the three that is not a circle at all, and `pause` and `check`
+ * differ inside the same ring by two uprights against a diagonal tick, which is a difference of
+ * *direction* and reads at the 14px a badge draws them at. Swapping any of the three for a
+ * second circled sign — a circled exclamation for `alert`, say — would put two rings and a
+ * stroke against two rings and a stroke, and the verdict would be back on the hue.
  *
  * Every icon here is `aria-hidden`: in all of these places the descriptor's own word sits
  * right beside it, so announcing the mark would say everything twice.

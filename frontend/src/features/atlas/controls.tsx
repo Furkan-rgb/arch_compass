@@ -49,7 +49,7 @@ export function LensPicker({
        to hold both. A hint truncated to "What a finding was ma…" would be the tooltip's defect
        in a different shape. */
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-rule px-3 py-2">
-      <Mono className="shrink-0 text-[10px] uppercase tracking-[0.13em] text-ink-3">Lens</Mono>
+      <Mono className="shrink-0 text-[11px] uppercase tracking-[0.08em] text-ink-3">Lens</Mono>
       <div className="flex min-w-0 items-center overflow-x-auto scrollbar-none">
         <ToggleGroup
           type="single"
@@ -142,7 +142,7 @@ export function LensControls({
           search nor a filter. A reader looking for the atlas queries had no reason to open a
           disclosure that said it held filters. */}
       <summary className="flex min-h-11 list-none items-center gap-2 px-3">
-        <Mono className="text-[10px] uppercase tracking-[0.13em] text-ink-3">
+        <Mono className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
           Search, filters and atlas queries
         </Mono>
         {/* A drawn mark rather than a typed `+` and `−`. Those two are the half of the
@@ -222,7 +222,7 @@ export function LensControls({
               screen and earns its width; this only changes how the selected card's
               neighbourhood moves. */}
           <div className="flex items-center gap-2">
-            <Mono className="shrink-0 text-[10px] uppercase tracking-[0.13em] text-ink-3">
+            <Mono className="shrink-0 text-[11px] uppercase tracking-[0.08em] text-ink-3">
               Highlight
             </Mono>
             <Select value={pulse} onValueChange={(value) => onPulse(value as AtlasPulse)}>
@@ -268,7 +268,7 @@ export function LensControls({
 
         {edgeKinds.length > 0 && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-rule pt-2.5">
-            <Mono className="shrink-0 text-[10px] uppercase tracking-[0.13em] text-ink-3">
+            <Mono className="shrink-0 text-[11px] uppercase tracking-[0.08em] text-ink-3">
               Relationships
             </Mono>
             <ToggleGroup
@@ -320,7 +320,7 @@ export function ExplorationStrip({
   if (!explorations.length) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-rule px-3 py-2">
-      <Mono className="shrink-0 text-[10px] uppercase tracking-[0.13em] text-ink-3">
+      <Mono className="shrink-0 text-[11px] uppercase tracking-[0.08em] text-ink-3">
         Added to the map
       </Mono>
       <ul className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -341,7 +341,7 @@ export function ExplorationStrip({
               onClick={exploration.onDrop}
             >
               {exploration.label}
-              <span className="font-semibold uppercase tracking-[0.13em] text-[10px] text-ink-3">
+              <span className="font-semibold uppercase tracking-[0.08em] text-[11px] text-ink-3">
                 Drop
               </span>
             </Button>
@@ -385,7 +385,7 @@ export function ViewportToolbar({
         or hold the zoom modifier while scrolling to zoom. An arrow points from a dependent to
         what it depends on.
       </span>
-      <Mono className="text-[10px] uppercase tracking-[0.13em] text-ink-3">
+      <Mono className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
         {/* Which way an arrow points, said once, at every width. Every edge is stored from the
             dependent to the dependency and every arrowhead follows it, and a reader with no
             sentence to go on has to infer a convention from a triangle — which is a fact about

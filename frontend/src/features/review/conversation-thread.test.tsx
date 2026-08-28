@@ -62,14 +62,20 @@ describe("the ask composer", () => {
   });
 
   /**
-   * `38.5rem` is derived — it is the width the answer above the composer is read at — and it
-   * only means anything if it caps the box a reader can see. On an invisible wrapper it caps a
-   * rectangle nothing is drawn on, which is how the same class list came to be measured against
-   * a font size no element on it declared.
+   * `34.8rem` is derived — it is the width the answer above the composer is read at, which is
+   * `ModelProse`'s `58ch` at 16px — and it only means anything if it caps the box a reader can
+   * see. On an invisible wrapper it caps a rectangle nothing is drawn on, which is how the same
+   * class list came to be measured against a font size no element on it declared.
+   *
+   * The number moved with the face: it was `38.5rem`, the round 616px just under the 617.12px
+   * Onest's 0.665em zero put `58ch` at, and IBM Plex Sans's 0.600em brings the same declaration
+   * to 556.80px — which `34.8rem` is exactly. The literal is asserted rather than derived here
+   * on purpose, because what this test is about is *which element* carries the cap; the
+   * derivation is checked in `ui/font.test-metrics.test.ts`, where the advance lives.
    */
   it("caps the box that is drawn, not a wrapper around it", () => {
     const { box } = draw();
-    expect(box.className).toContain("max-w-[38.5rem]");
+    expect(box.className).toContain("max-w-[34.8rem]");
     expect(box.className).toContain("border-rule-control");
   });
 

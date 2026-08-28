@@ -15,12 +15,19 @@ import { SearchIcon } from "./icons";
  * Three things in here were drawn rather than reasoned, and all three were measured.
  *
  * **The edge.** Every input, textarea, select and search box in the product is identified as
- * a control by one hairline. It was `border-rule-strong`, which is 1.41:1 on `bg-control` in
- * light and 1.38:1 in dark — and in light `--control` and `--surface` are both `#ffffff`, so
- * a field dropped in a panel has no fill difference underneath either and the hairline is the
- * whole affordance. `--rule-control` is the value that clears the 3:1 a boundary a reader has
- * to find is held to. `--rule` and `--rule-strong` are untouched: they separate structure,
- * which is a different job and reads correctly at a whisper.
+ * a control by one hairline. It was `border-rule-strong`, and in light `--control` and
+ * `--surface` are the same `#fffffc`, so a field dropped in a panel has no fill difference
+ * underneath it either and the hairline is the whole affordance. `--rule-control` is the
+ * value that clears the 3:1 a boundary a reader has to find is held to: 3.04:1 on a field in
+ * light, 3.66:1 in dark.
+ *
+ * v2 raised `--rule-strong` from 15% to 22% and that does not reopen this. It moves the
+ * structural boundary from 1.41:1 to 1.69:1 in light and from 1.38:1 to 2.35:1 in dark, which
+ * is the repair it was made for — two rule tokens that measured the same now measure
+ * differently — and it is still nowhere near an affordance. The system draws that line
+ * explicitly: a boundary carrying structure clears 1.6:1, one carrying an affordance clears
+ * 3:1. `--rule` and `--rule-strong` separate structure, which is a different job and reads
+ * correctly at a whisper.
  *
  * **The focus ring.** `outline-none` used to sit here, killing the one focus indicator the
  * product declares — `outline: 2px solid var(--ink)` in `@layer base` — and replacing it with
@@ -31,15 +38,24 @@ import { SearchIcon } from "./icons";
  * every button. `focus:border-ink` stays: a field's own edge darkening is useful on top of
  * the ring, and it is not standing in for one.
  *
- * **The invalid state.** A rejected control carries the mark, rather than a red sentence
- * underneath it carrying the whole meaning on hue alone. `ui/field.tsx` is on the
+ * **The invalid state.** A rejected control carries the mark itself, rather than a red
+ * sentence underneath it carrying the whole meaning on hue alone. `ui/field.tsx` is on the
  * `verdict-hues.test.ts` allowlist for exactly this — a rejected field is the red end of the
- * scale — so it is the same `var(--accent)` the error text already uses and not a second red.
+ * scale.
+ *
+ * The border takes `--material-edge` and the error paragraph below takes `--material`, and
+ * that is one hue declared twice rather than two reds that nearly match. The system splits
+ * the signal on the line WCAG splits it: 4.5:1 of a word, 3:1 of a meaningful graphic, so the
+ * bare token sets text and `-edge` paints borders, glyphs and bars. A 1px edge in the text
+ * tier is a signal spent on a job that did not need it, and the edge tier is the more
+ * saturated of the two — which is the point, because on a page of grey fields the border is
+ * what a reader catches before they read anything.
+ *
  * Written as an arbitrary variant because Tailwind's built-in `aria-*` set stops at
  * `required` and `selected`; `aria-[invalid=true]` is the same selector, spelled out.
  */
 export const controlClass =
-  "w-full rounded-sm border border-rule-control bg-control px-3 py-2 text-sm text-ink transition placeholder:text-ink-3 focus:border-ink aria-[invalid=true]:border-material disabled:cursor-not-allowed disabled:opacity-55";
+  "w-full rounded-sm border border-rule-control bg-control px-3 py-2 text-sm text-ink transition placeholder:text-ink-3 focus:border-ink aria-[invalid=true]:border-material-edge disabled:cursor-not-allowed disabled:opacity-55";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(controlClass, className)} {...props} />;
@@ -164,9 +180,11 @@ export function SearchInput({
  * ladder says 6 for the first and 10 for the second, and a clickable `<label>` with
  * `cursor-pointer` painted at 10 is content behaving as a control. The hover moves the edge
  * rather than the fill for the same reason `ToggleButton` does — `--rule` to `--rule-strong`
- * against an unchanged fill is a 1.25:1 to 1.41:1 move, which is to say pointing at it
- * produced nothing perceptible. The ground stays `--surface-2`: this is a strip set into a
- * panel, and `bg-control` would put the field-edge problem back one component over.
+ * against an unchanged fill is a 1.28:1 to 1.69:1 move on this ground, and even after v2
+ * widened the gap between the two rule tokens that is a boundary getting firmer rather than a
+ * target lighting up. `--ink-3` is 5.51:1 here, which is a pointer landing on something. The
+ * ground stays `--surface-2`: this is a strip set into a panel, and `bg-control` would put
+ * the field-edge problem back one component over.
  */
 export function Checkbox({
   checked,

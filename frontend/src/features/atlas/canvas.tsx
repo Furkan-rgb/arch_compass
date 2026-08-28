@@ -36,13 +36,29 @@ import type { VisibleGraph } from "./visible-graph";
  *
  * Indexed by the tone rather than written at the card: nothing here decides that a shape
  * should be red, it paints the tone a finding already has.
+ *
+ * **The graphic tier, because everything this paints is a graphic.** Two of the three uses are
+ * an SVG `stroke` — a card's border and a node's ring — and the third is the `fill` of a
+ * minimap rect a few pixels tall, which is a mark rather than a ground. The design system splits
+ * each signal on the WCAG line: the bare token is text and clears 4.5:1, the `-edge` token is
+ * edges, glyphs, bars and dots and clears 3:1. This map held the text tier for a revision, which
+ * drew the loudest thing on the surface in the quietest of the two values available to it.
+ *
+ * `neutral` and `marked` keep their tokens because neither is a verdict and neither has a signal
+ * to spend. And the minimap rect is deliberately not read as a chromatic fill under the rule
+ * that caps those at a badge: it is the same dot the map draws, shrunk, and its whole job is to
+ * be a coloured mark on a neutral ground.
+ *
+ * These are `var()` strings rather than utility classes because they reach SVG attributes, and
+ * that is worth knowing: `ui/verdict-hues.test.ts` scans class lists, so nothing in the suite can
+ * see a tier mistake made here. The comment is the guard.
  */
 const TONE_STROKE: Record<Tone, string> = {
   neutral: "var(--rule-strong)",
   marked: "var(--ink)",
-  material: "var(--material)",
-  held: "var(--held)",
-  cleared: "var(--cleared)",
+  material: "var(--material-edge)",
+  held: "var(--held-edge)",
+  cleared: "var(--cleared-edge)",
 };
 
 const TONE_MARK: Record<Tone, "alert" | "pause" | "check" | "hollow"> = {

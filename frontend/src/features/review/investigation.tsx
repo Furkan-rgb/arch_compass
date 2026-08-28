@@ -167,8 +167,9 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
               {/* Drawn as the shape the tool it names produces, rather than as one grey wall
                   of preformatted text. The dispatch, the six shapes and the argument for
                   dispatching on the tool rather than on the text are all in
-                  `lookup-result.tsx`; the block, its ground and its cap have not moved and
-                  are argued there too. */}
+                  `lookup-result.tsx`; the block, its boundary and its cap are argued there
+                  too — including why it is a hairline with no fill, which is a decision about
+                  the two different grounds this transcript renders on. */}
               <LookupResult item={item} />
             </li>
           ))}
@@ -184,7 +185,7 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
       {investigation.withheld ? (
         /* The application's own sentence, verbatim: it names the way back rather than
            describing a fault, and paraphrasing it would lose the instruction. */
-        <p className="mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+        <p className="mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-2 [overflow-wrap:anywhere]">
           <Prose>{investigation.withheld}</Prose>
         </p>
       ) : null}
@@ -198,7 +199,7 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
            the second branch unreachable: a stored review from before the field existed has
            `termination: null`, which is exactly the case the sentence is for, and it was
            the one case that silently rendered nothing. */
-        <p className="mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+        <p className="mt-3 max-w-[46ch] text-[12px] leading-5 text-ink-2 [overflow-wrap:anywhere]">
           {investigation.termination
             ? `The lookups stopped early — ${ending(investigation.termination)}. What the review
                concluded was reached from what had been gathered by then.`

@@ -1,5 +1,5 @@
 /**
- * Onest's zero advance, read off the shipped font — the one copy of it in the repository.
+ * IBM Plex Sans's zero advance, read off the shipped font — the one copy of it in the repository.
  *
  * A `ch` is the advance width of the used font's digit zero, so every measure written in `ch`
  * is this number times a size. Two test files argue from it: `ui/markdown.test.tsx` over the
@@ -8,60 +8,76 @@
  * the same shape as the defect they exist to catch — a measured value copied into prose drifts,
  * and a measured value copied into two files drifts twice. It is here so there is one.
  *
- * **It is one number per weight, not one number.** `styles.css` gives Onest a single
- * `@font-face` spanning `font-weight: 400 700`, so the shipped `onest.woff2` is a variable font
- * and the browser instances it at whatever weight the element asks for; the zero narrows as the
- * instance gets heavier. Stating the 400 value as "the whole definition of a `ch`" is what made
- * the sixth round of these figures wrong, because the headings and ledes that carried a shared
- * `ch` are all `font-semibold`.
+ * **The file is named for the job and not for the face, because the face moved and the name
+ * did not.** It was `ui/onest.test-metrics.ts` while the product was set in Onest, and the
+ * rename is part of the repair rather than tidying: a module named after a face that has been
+ * deleted is a signpost pointing at a road that is gone, and the previous name was the reason
+ * `ZERO_ADVANCE_EM` still held Onest's numbers for a whole revision after Onest stopped being
+ * downloaded. Whatever the sans is, this is where its zero lives.
+ *
+ * **It is one number per weight, and under this face they happen to agree.** Onest shipped as a
+ * single variable `@font-face` spanning `font-weight: 400 700`, so the browser instanced it at
+ * whatever weight an element asked for and the zero narrowed as the instance got heavier —
+ * 0.665em at 400 against 0.6618em at 600. Stating the 400 value as "the whole definition of a
+ * `ch`" is what made the sixth round of these figures wrong, because the headings and ledes
+ * that carried a shared `ch` are all `font-semibold`. IBM Plex Sans ships four static cuts and
+ * every one of them advances its zero **600 units on a 1000-unit em**, so a `ch` no longer
+ * follows weight. The table stays keyed by weight anyway: the four entries are four
+ * measurements that agree, not one measurement generalised, and the next face to arrive here
+ * may well disagree with itself again.
  *
  * HOW TO READ THESE OFF THE FONT AGAIN, since nothing here can:
  *
  *     from fontTools.ttLib import TTFont
- *     from fontTools.varLib.models import normalizeLocation
- *     from fontTools.varLib.varStore import VarStoreInstancer
- *     f = TTFont("frontend/src/assets/fonts/onest.woff2")
- *     zero = f.getBestCmap()[ord("0")]                       # -> "zero"
- *     base = f["hmtx"][zero][0]                              # -> 665 units on a 1000-unit em
- *     axes = {a.axisTag: (a.minValue, a.defaultValue, a.maxValue) for a in f["fvar"].axes}
- *     hvar = f["HVAR"].table                                 # axes -> {"wght": (100, 400, 900)}
- *     inst = VarStoreInstancer(hvar.VarStore, f["fvar"].axes,
- *                              normalizeLocation({"wght": 600}, axes))
- *     base + inst[hvar.AdvWidthMap.mapping[zero]]            # -> 661.8
+ *     f = TTFont("frontend/src/assets/fonts/plex-sans-400.woff2")
+ *     zero = f.getBestCmap()[ord("0")]                       # -> "zero", glyph id 55
+ *     f["hmtx"][zero][0] / f["head"].unitsPerEm              # -> 600 / 1000
  *
- * The `wght` axis runs 100–900 with its default at 400 and the file carries no `avar` table, so
- * the delta interpolates linearly: −8 units at 900 puts 600 at 400's 665 minus 3.2. Do **not**
- * take 662 from `fontTools.varLib.instancer` — that is 661.8 rounded to an integer unit, and no
- * browser rounds it.
+ * and again for `plex-sans-500`, `-600` and `-700`. There is no `fvar`, no `HVAR` and no
+ * interpolation to get wrong; there is also no shortcut, because "a static family has one
+ * advance" is a claim about four files and not about one. All four were read — 600/1000 in
+ * each — as were the three mono cuts, which are the same 600/1000 and are why one measure now
+ * means one width whatever type is set in it. The four `-ext` subsets carry no digits at all,
+ * which is correct: the extended range exists for identifiers that are not ASCII, and a `ch`
+ * resolved against a subset with no zero would fall through to the next family in the stack.
  *
- * Chromium agrees to five decimals. A `width: 100ch` box against the shipped face, with both
- * weights loaded through `document.fonts.load` and confirmed through `document.fonts.check`
- * before anything is read, draws 1064px at 16px/400 and 1058.875px at 16px/600 — 0.665em and
- * 0.6618em, the second snapped down to a 1/64px layout unit. Without the `fonts.check` the
- * `font-display: swap` in `styles.css` answers with a fallback whose zero is 0.6299em and every
- * width comes out five per cent wrong.
+ * **What is asserted here is arithmetic, and the browser reading behind it is Onest's.** The
+ * `drawn` column below is the rectangle Chromium lays out, and it was measured against
+ * `onest.woff2` — served from a built bundle, with `document.fonts.check` waited on for both
+ * weights, because `font-display: swap` otherwise answers with a fallback whose zero is
+ * 0.6299em and every width comes out five per cent wrong. All nine of those readings came back
+ * as `Math.floor(resolved * 64) / 64` exactly, so what survives the face change is the *rule* —
+ * a layout unit is 1/64px and Chromium snaps down — and the rule is what is asserted. The nine
+ * rectangles themselves have not been re-swept under Plex Sans, and `docs/known-defects.md`
+ * carries that as an open item rather than this comment carrying nine numbers nobody measured.
  *
  * Keyed by weight and deliberately not interpolated. A weight with no entry throws rather than
- * falling back to 400, so an element that gains `font-medium` or `font-bold` stops the suite
+ * falling back to 400, so an element that gains `font-light` or `font-black` stops the suite
  * until somebody has read that advance off the font instead of inheriting a number that was
- * never about it.
+ * never about it. The four here are the four cuts `styles.css` actually downloads; a fifth
+ * weight is a fifth `@font-face` and a fifth measurement, in that order.
  */
-export const ZERO_ADVANCE_EM: Record<number, number> = { 400: 0.665, 600: 0.6618 };
+export const ZERO_ADVANCE_EM: Record<number, number> = { 400: 0.6, 500: 0.6, 600: 0.6, 700: 0.6 };
 
 /**
  * The advance for one weight, or a loud failure naming what to do about it.
  *
- * The throw is the point. Returning 400's number for an unmeasured weight is exactly how a
- * heading set at 600 came to be described at 400 for six passes, and a silent half-per-cent
- * error is the kind nobody re-derives.
+ * The throw is the point, and it is not made redundant by the four entries above agreeing.
+ * Returning 400's number for an unmeasured weight is exactly how a heading set at 600 came to
+ * be described at 400 for six passes under a face where the two differed by half a per cent —
+ * small enough that nobody re-derives it, large enough to make every figure in a comment wrong.
+ * Under a static family the same silence would be worse rather than better: an element that
+ * gains `font-light` is asking for a cut this product does not download, so its `ch` resolves
+ * against whatever the fallback stack hands over, and a number quietly returned here would
+ * describe a rectangle no reader is looking at.
  */
 export function zeroAdvanceEm(weight: number, context: string): number {
   const advance = ZERO_ADVANCE_EM[weight];
   if (advance === undefined) {
     throw new Error(
-      `no measured zero advance for Onest at weight ${weight} (${context}) — read it off the ` +
-        `HVAR delta of the shipped onest.woff2 and add it to ZERO_ADVANCE_EM in ` +
-        `ui/onest.test-metrics.ts`,
+      `no measured zero advance at weight ${weight} (${context}) — read it off the hmtx of ` +
+        `the shipped plex-sans-${weight}.woff2 and add it to ZERO_ADVANCE_EM in ` +
+        `ui/font.test-metrics.ts, or stop setting a weight styles.css does not download`,
     );
   }
   return advance;
@@ -133,19 +149,27 @@ export function zeroAdvanceFor(classes: string): number {
  * is arithmetic any reader can redo. `drawn` is that snapped **down** to a 1/64px layout unit,
  * which is what a `getBoundingClientRect` in a headless Chromium comes back with: measured on all
  * nine of the widths this repository argues from — 46ch at 24/18/15/14px semibold and 14/13/12px
- * regular, 58ch at 16px regular and 13px semibold — and `Math.floor(resolved * 64) / 64` gives
- * every one of them exactly. `ui/onest.test-metrics.test.ts` states that measurement as a table
- * so the two figures beside each other in a comment are one figure and a rule.
+ * regular, 58ch at 16px regular and 13px semibold — and `Math.floor(resolved * 64) / 64` gave
+ * every one of them exactly. `ui/font.test-metrics.test.ts` states that relation as a table so
+ * the two figures beside each other in a comment are one figure and a rule.
+ *
+ * That sweep was run against Onest. What it established is the rule, which is a property of the
+ * engine and not of the face; the nine rectangles it established the rule *on* are gone with the
+ * face, and the nine below are the same rule applied to Plex Sans's advance rather than nine
+ * numbers a browser handed over. Re-running the sweep is an open item in
+ * `docs/known-defects.md`, and it is cheap: what it would catch is the rule turning out to be
+ * about Onest's hinting rather than about the grid.
  *
  * A layout unit is Chromium's, not CSS's, so this is a fact about one engine. It is asserted
  * rather than assumed for exactly that reason: if the number ever moves, the table fails with
  * both readings in the message instead of a comment quietly going stale.
  *
- * **`count` is zero advances, not characters, and the zero is about a third the wider.** Onest's
- * is 0.665em at 400, and a character of its body text on a full line costs roughly a quarter
- * less than that — `FULL_LINE_CHARACTER` below is where that second number lives, once, for
- * each of the two corpora it has been measured over. So a `46ch` measure holds around 60
- * characters and not 46. This is written here because this function is
+ * **`count` is zero advances, not characters, and the zero is the wider.** Plex Sans's is
+ * 0.600em at every cut this product downloads, and a character of body text on a full line
+ * costs less than that — `FULL_LINE_CHARACTER` below is where that second number lives, once,
+ * for each of the two corpora it has been measured over, and both of those rows are still
+ * Onest's. So a `46ch` measure holds appreciably more than 46 characters. This is written here
+ * because this function is
  * where every `ch` figure in the repository is now produced, and because the sentence has been
  * put the wrong way round in four files on this branch, three of them copies of one sentence.
  * `ui/markdown.tsx` argues the same point from the other end, over `62ch` that was read as 62

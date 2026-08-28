@@ -5,7 +5,7 @@
  * the model's argument, and `features/review/finding-detail.test.tsx` about the row gap in the
  * Judged band and the margin the rail carries under it. Both need the same conversion and
  * neither can measure one, because jsdom lays nothing out. A second copy of that conversion is
- * the drift `ui/onest.test-metrics.ts` was extracted to stop, one subject over, so there is one
+ * the drift `ui/font.test-metrics.ts` was extracted to stop, one subject over, so there is one
  * copy and it is here.
  *
  * **The scale is a fact about the stylesheet, not a convention.** Tailwind v4 resolves every

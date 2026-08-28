@@ -893,9 +893,10 @@ def test_the_verdict_edge_is_cut_only_by_the_row_rule(page, review_url: str) -> 
 #: `lg` is 1024 and the Judged band splits into two columns there, so the argument stops being
 #: the width of the section and becomes a `1fr` track beside a 20rem rail. The rail is fixed and
 #: the track is not, so the narrower the viewport the narrower the argument — and the verdict's
-#: sentence above it was capped at a *constant* 616px. Swept before the repair: 34.00px past the
-#: argument's right edge at 1024, 18.00px at 1040, and agreeing to the deliberate -1.11px from
-#: about 1060 up. 1280 is where the rail widens to 26rem, which moves the track again.
+#: sentence above it was capped at a *constant* 616px. Swept before the repair, under Onest:
+#: 34.00px past the argument's right edge at 1024, 18.00px at 1040, and agreeing to the
+#: deliberate -1.11px from about 1060 up. Those are the old face's numbers and the widths are
+#: what survives them — the widths are a property of the grid. 1280 is where the rail widens to 26rem, which moves the track again.
 JUDGED_BAND_WIDTHS = (1024, 1040, 1060, 1280, 1440)
 
 #: How far short of the argument's right edge the lede is allowed to stop, and how far past it.
@@ -904,10 +905,16 @@ JUDGED_BAND_WIDTHS = (1024, 1040, 1060, 1280, 1440)
 #: whole subject here is a case where they did not. One pixel of slack for the sub-pixel
 #: rounding a fractional track width leaves on a bounding box.
 #:
-#: Short: the lede's own `max-w-[38.5rem]` is 616px against the argument's `58ch` = 617.12px, so
-#: at any width where both caps bite the lede stops 1.12px short by a deliberate choice of round
-#: number over matching `ch` count. Anything much larger than that means the sentence has been
-#: given a cap of its own again.
+#: Short: the lede's own `max-w-[34.8rem]` is 556.80px, and the argument's `58ch` at 16px is
+#: 556.80px too, so at any width where both caps bite the two land on the same edge. The slack is
+#: kept rather than tightened to zero: what the lede has to be is a *fixed* unit standing on the
+#: argument's edge, and a face whose zero does not divide as obligingly should move the cap
+#: rather than fail this. Anything much larger means the sentence has been given a cap of its
+#: own again.
+#:
+#: It was 1.12px of deliberate slack under Onest, where `58ch` drew 617.12px and the cap was the
+#: round `38.5rem` = 616px just under it. IBM Plex Sans advances its zero 0.600em against Onest's
+#: 0.665em, so both numbers moved and the two now coincide.
 LEDE_EDGE_SLACK_PX = 1.5
 
 
@@ -922,8 +929,8 @@ def test_the_lede_never_reaches_past_the_argument_it_stands_over(page, review_ur
     layout, so it never has the second term. Two caps a pixel apart in boxes 34px apart pass it.
 
     Which is what the band did. The sentence stood above the grid at the section's full width,
-    capped at 616px; the argument stood in a `1fr` track beside a 20rem rail. At 1024 that track
-    is 582px. The repair is containment — the sentence is now placed in the argument's own column
+    capped at a constant 616px; the argument stood in a `1fr` track beside a 20rem rail. At 1024
+    that track is 582px. The repair is containment — the sentence is now placed in the argument's own column
     — and jsdom asserts *that*, as a fact about the document. This asserts the rectangles it
     produces, which is the half a class list cannot promise.
 
@@ -977,7 +984,7 @@ def test_the_lede_never_reaches_past_the_argument_it_stands_over(page, review_ur
         assert past >= -LEDE_EDGE_SLACK_PX, (
             f"at {width}px the sentence stops {-past:.2f}px short of the argument. Both are "
             "capped by the same column, so the only gap they can honestly show is the 1.12px "
-            "between 38.5rem and 58ch — anything wider is a second measure that has grown back"
+            "between 34.8rem and 58ch — anything wider is a second measure that has grown back"
         )
 
 
@@ -1345,11 +1352,14 @@ def test_the_workbench_fits_a_phone_on_every_tab(page, review_url: str) -> None:
 # The Ask composer: one box, and the pending question inside the measure it will be read at
 # --------------------------------------------------------------------------------------
 
-#: The composer's cap, in CSS pixels. `38.5rem`, and derived rather than chosen — the answer
-#: above it is `ModelProse` at 58ch/16px, which draws 617.12px, so this is that column's edge
-#: to within about a pixel. `conversation-thread.tsx` carries the argument; what is asserted
-#: here is that the number survives a redesign of the element it sits on.
-COMPOSER_WIDTH_PX = 616.0
+#: The composer's cap, in CSS pixels. `34.8rem`, and derived rather than chosen — the answer
+#: above it is `ModelProse` at 58ch/16px, which draws 556.80px, so this is that column's own
+#: edge. `conversation-thread.tsx` carries the argument; what is asserted here is that the
+#: number survives a redesign of the element it sits on.
+#:
+#: It was `38.5rem` = 616.0 while the sans was Onest, whose zero advanced 0.665em and put the
+#: same `58ch` at 617.12px. IBM Plex Sans advances 0.600em; both figures moved together.
+COMPOSER_WIDTH_PX = 556.8
 
 #: A `getBoundingClientRect` is snapped to a 1/64px grid, and a hairline is a real pixel of
 #: containment either way. One pixel absorbs the first and cannot hide the second.
@@ -1509,7 +1519,7 @@ def test_the_ask_composer_reads_as_one_control(  # type: ignore[no-untyped-def]
             if width == 1440:
                 assert abs(box["width"] - COMPOSER_WIDTH_PX) <= COMPOSER_SLACK_PX, (
                     f"{where}: the composer is {box['width']:.2f}px wide rather than "
-                    f"{COMPOSER_WIDTH_PX:.0f}px — the answer above it is read at 617.12px and "
+                    f"{COMPOSER_WIDTH_PX:.1f}px — the answer above it is read at 556.80px and "
                     "this is the edge that was derived from it"
                 )
             else:

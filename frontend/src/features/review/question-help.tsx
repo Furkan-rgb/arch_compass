@@ -86,7 +86,7 @@ export function QuestionHelp({
       onToggle={(event) => onOpenChange(event.currentTarget.open)}
       className="group mt-4 border-t border-rule pt-3"
     >
-      <summary className="-ml-2.5 flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-sm px-2.5 text-ink-3 transition hover:bg-sunken hover:text-ink">
+      <summary className="-ml-2.5 flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-sm px-2.5 text-ink-2 transition hover:bg-sunken hover:text-ink">
         <span className="min-w-0 flex-1 text-xs font-semibold">
           {/* The label is the reader's own sentence, not a feature name. Somebody stuck here
               is thinking "why am I being asked this", and "Ask about this question" would
@@ -180,7 +180,7 @@ export function QuestionHelp({
              the panel before anything is in it. Two sentences saying what this can do and
              what it will not do — the second matters as much as the first, because an agent
              beside an answer box reads as one that will fill it in. */
-          <p className="mb-3 max-w-[62ch] text-[13px] leading-6 text-ink-3">
+          <p className="mb-3 max-w-[62ch] text-[13px] leading-6 text-ink-2">
             Ask what the question means, why the review needs it, or what each answer would
             change. It can read the code and the policies to answer you. It will not decide
             the answer — that is the part only you can give.

@@ -153,13 +153,19 @@ function Progress({
                 className={cn(
                   "block h-3.5 w-[5px] rounded-xs",
                   // The unfilled mark is the denominator, and it was drawn in `--rule-strong`
-                  // — a value declared for 1px hairlines, measuring 1.41:1 in light and
-                  // 1.48:1 in dark against the canvas. At 5x14px that is not a quiet graphic,
-                  // it is an absent one: at the state a reviewer arrives in, 0 of 6 settled,
-                  // every mark is unfilled and the whole strip read as a rendering artefact.
-                  // `--rule-control` is the ramp's answer to exactly this measurement — a
-                  // hairline value that has to clear the 3:1 a reader needs to find a
-                  // non-text graphic — and it clears it on the canvas in both themes.
+                  // — a value declared for 1px hairlines, which on the canvas measures 1.68:1
+                  // in light and 2.22:1 in dark. At 5x14px that is not a quiet graphic, it is
+                  // an absent one: at the state a reviewer arrives in, 0 of 6 settled, every
+                  // mark is unfilled and the whole strip read as a rendering artefact.
+                  // `--rule-control` is the ramp's answer to exactly this measurement — the
+                  // boundary value declared for the 3:1 a reader needs to find a non-text
+                  // graphic — and on the canvas it measures 2.98:1 in light and 3.77:1 in
+                  // dark. The light figure is two hundredths short of the floor and is stated
+                  // rather than rounded: nothing else on the ramp is closer, the strip is
+                  // `aria-hidden` with the exact count printed beside it, and lifting it
+                  // would mean minting a boundary token this system does not have. The
+                  // figures moved with the v2 ramp; `--rule-strong` was 15% black and is 22%,
+                  // which is why the old pair of numbers here read so much lower.
                   index < filled ? "bg-ink" : "bg-rule-control",
                 )}
               />
@@ -233,8 +239,9 @@ function Progress({
             {label}
             {/* Separated by weight, not by opacity. A flat 70% was applied on top of whichever
                 ink the chip was using: on the pressed chip that is `--ink` and survives, on
-                the unpressed chip it is `--ink-3` — a tier tuned to clear 5:1 on all four
-                grounds — and the multiplier pushed it to 3.09:1 in light at 12px semibold.
+                the unpressed chip it is `--ink-3` — the tier whose floor across the four
+                grounds is 4.62:1 — and on the `--sunken` track these chips sit in, the
+                multiplier took 4.76:1 down to 2.74:1 in light at 12px semibold.
                 The count is the informative half of the chip, so it was the half that had
                 been made hardest to read. The label keeps `font-semibold` from
                 `ToggleButton`; dropping to the normal weight here is the whole separation. */}
@@ -277,11 +284,11 @@ function Progress({
           <span>select</span>
           <Key>Esc</Key>
           <span>close</span>
-          {/* `text-ink-3`, not `text-ink-3/50`. Halving the tier composited to `#afafaf` in
-              light — below every step of the declared ink ramp, and invisible to
-              `tokens.test.ts`, which measures the three named inks and cannot see an alpha
-              written at a call site. `ui/meta.tsx` made the same correction to the same
-              character for the same reason. */}
+          {/* `text-ink-3`, not `text-ink-3/50`. Halving the tier composites to `#aba8a6` on
+              the light canvas — 2.04:1, below every step of the declared ink ramp, and
+              invisible to `tokens.test.ts`, which measures the three named inks and cannot
+              see an alpha written at a call site. `ui/meta.tsx` made the same correction to
+              the same character for the same reason. */}
           <span aria-hidden="true" className="text-ink-3">
             ·
           </span>
@@ -302,10 +309,11 @@ function Progress({
  *
  * `--rule-control` rather than `--rule` for the outline, because the outline is the only
  * thing here that says these are keys. At 10.5px on the page canvas `--rule` measures
- * 1.26:1 in light and 1.23:1 in dark, so the caps did not read as caps and the line read as
+ * 1.28:1 in light and 1.33:1 in dark, so the caps did not read as caps and the line read as
  * an undifferentiated run of seventeen micro-tokens rather than as keys and verbs. The
- * ramp's answer to a boundary a reader has to find is this token, and it clears 3:1 on the
- * canvas in both themes.
+ * ramp's answer to a boundary a reader has to find is this token, which on the canvas
+ * measures 2.98:1 in light and 3.77:1 in dark — the closest the ramp gets to the 3:1 a
+ * non-text graphic is held to, and the same pair the progress strip above states.
  */
 function Key({ children }: { children: React.ReactNode }) {
   return (
@@ -503,10 +511,15 @@ function DocketRow({
     >
       {/* The verdict as an edge, running the full height of its row.
           A docket is worked down a column, and the question asked of the whole column at
-          once — where does the red start — is not one a mark inside a row can answer: at any
-          size that fits beside a name, a glyph has to be looked *at*. An edge is read without
-          being looked at, costs no horizontal space, and is a rule rather than a card, which
-          is the structure this system already uses.
+          once — where does one verdict stop and the next begin — is not one a mark inside a
+          row can answer: at any size that fits beside a name, a glyph has to be looked *at*.
+          An edge is read without being looked at, costs no horizontal space, and is a rule
+          rather than a card, which is the structure this system already uses.
+
+          The question used to be "where does the red start", because red was the only hue in
+          the system and the other two verdicts were greys. Three signals is what makes the
+          column worth scanning at all: an amber run and a green run are now two shapes rather
+          than one column of ink with a red interruption in it.
 
           It was `inset-y-1`, four pixels of air at each end, and that answered a real defect
           the wrong way round. The defect: a run of same-verdict rows — the common case on a
@@ -540,16 +553,22 @@ function DocketRow({
           What it looks like, said honestly, because the inset was written on a mis-reading
           of it: six identical verdicts read as one column of colour with hairline ticks in
           it, not as six separate marks. That is correct. Six identical verdicts *are* one
-          run, and the question this edge exists to answer — where does the red start — is
+          run, and the question this edge exists to answer — where does one verdict stop — is
           answered better by a continuous shape than by six pieces of one. What made the old
           bar a defect was the other half: that it could be taken for the panel's own chrome.
-          It cannot be. The panel's border is one pixel of `--rule` on all four sides — 10%
-          black in light, 11% white in dark. This is three pixels of an opaque verdict hue on
-          one — `--material`, which is the accent; `--held`, which is the ink; `--cleared`,
-          which is `--ink-3` and the dimmest of the three, and still opaque and still three
-          times the width. Nothing else about the panel is coloured. Where consecutive
-          verdicts differ the column visibly breaks into per-row segments, which is the only
-          place that difference is worth seeing.
+          It cannot be. The panel's border is one pixel of `--rule` on all four sides — 11%
+          black in light, 12% white in dark. This is three pixels of an opaque verdict hue on
+          one — `--material-edge`, `--held-edge` or `--cleared-edge`, the graphic tier of the
+          three signals, each of which clears the 3:1 a meaningful graphic is held to on all
+          four grounds in both themes. Nothing else about the panel is coloured. Where
+          consecutive verdicts differ the column visibly breaks into per-row segments, which
+          is the only place that difference is worth seeing.
+
+          Two of those three used to be greys — `--held` was the ink and `--cleared` was
+          `--ink-3` — so a docket of amber and green rows was one column of two ink values
+          with an occasional red in it, and the edge could only answer the question for one of
+          the three verdicts it was drawn for. That is the defect the ramp change was written
+          to repair, and it is why this edge is worth three pixels rather than one.
 
           That last sentence was written from the design and went a long time without a run
           behind it. Offline — which is every browser check — the judge holds or clears on one
@@ -569,11 +588,11 @@ function DocketRow({
           the whole of it.
 
           Which hue a verdict gets was nobody's claim until that test. `TONE_EDGE.held`
-          retyped as `border-l-material` paints every held candidate in the accent and the
-          whole repository stayed green, because `ui/verdict-hues.test.ts` asked only *where*
-          the three hues may be named. It asks what each is paired with now, and the browser
-          test asks the rest: that this row, on screen, is painted the colour its own verdict
-          names.
+          retyped as `border-l-material-edge` paints every held candidate in the alarm colour
+          and the whole repository stayed green, because `ui/verdict-hues.test.ts` asked only
+          *where* the three hues may be named. It asks what each is paired with now, and the
+          browser test asks the rest: that this row, on screen, is painted the colour its own
+          verdict names.
 
           Both halves — continuous down a run, never touching across a boundary — are held by
           `test_the_verdict_edge_is_cut_only_by_the_row_rule` in `tests/browser/`. They are
@@ -606,18 +625,22 @@ function DocketRow({
           not on the button inside it. The button is one of two or three flex items — the
           checkbox column stands before it and, on an open row, the copy control after it —
           so a ground the button painted stopped 28px short of the row's left edge and left a
-          full-height strip of `--surface` down the side of every hovered row, twenty values
-          light of the row beside it, with the verdict edge and the checkbox stranded on the
-          wrong colour. A row is one thing to the eye, so its ground has to be one thing too.
+          full-height strip of `--surface` down the side of every hovered row, a whole step of
+          the ramp lighter than the row beside it, with the verdict edge and the checkbox
+          stranded on the wrong colour. A row is one thing to the eye, so its ground has to be
+          one thing too.
 
           Only the width changed; the colour is the one this row has always hovered to, and
           the argument for it moved up here with it. The product's most-clicked control had
-          `--surface-2` painted on a `<ul>` that is already `--surface`: about 1.04:1 in
-          either theme, which is below the point at which a background change is perceptible
-          at all. `--sunken` is the ground the elevation contract assigns to a row on hover —
-          twenty values in light and eighteen in dark — and it is what the revision rail
-          beneath this list already uses, so the two agree. Unconditional, because an open
-          row's header is still the control that closes it.
+          `--surface-2` painted on a `<ul>` that is already `--surface`, which under the v1
+          ramp was five levels and about 1.04:1 in either theme — below the point at which a
+          background change is perceptible at all. The v2 ramp widened that pair to 1.08:1 in
+          light and 1.11:1 in dark, so it is a step now rather than a typo; it is still the
+          wrong step, because `--surface-2` is the token for a strip *inside* a panel and
+          `--sunken` is the one the elevation contract assigns to a quiet inset, which is what
+          a hovered row is. That pair measures 1.26:1 in light and 1.28:1 in dark, and it is
+          what the revision rail beneath this list already uses, so the two agree.
+          Unconditional, because an open row's header is still the control that closes it.
 
           `group`, for the checkbox: what reveals the box is a pointer anywhere in the row. */}
       <div className="group flex items-stretch transition hover:bg-sunken">
@@ -718,20 +741,21 @@ function DocketRow({
               {/* The word stays when the row settles; only the hue is withdrawn. A settled row
                   used to drop it entirely, so under the Settled filter — the surface for "what
                   did we decide, and about what" — a waived material finding was indistinguishable
-                  from a cleared one. The charter says a verdict is a glyph, a word and a hue, and
-                  settling is not a reason to keep one of the three. */}
-              {/* The size is overridden and nothing else is. `Label` is 10px, correct for a
-                  section eyebrow and wrong for a verdict: it set the word smaller than the
-                  row's own metadata and less than half the size of its claim, so the four
-                  lines of a row ranked by size in the reverse of the order the docket is
-                  scanned in, and the verdict word — one of the three things the charter says
-                  a verdict must always state — was the first thing to disappear when the
-                  column was squinted at. Weight, case and tracking still come from
-                  `ui/panel.tsx`, so this does not become a sixth hand-rolled label. */}
-              <Label
-                as="span"
-                className={cn("text-[11px]", settled ? undefined : TONE_TEXT[descriptor.tone])}
-              >
+                  from a cleared one. A verdict states itself four ways in this system — a glyph,
+                  a word, a left edge and a hue — and settling withdraws the two that are colour,
+                  which leaves the two that are not. Render the row in greyscale and it says
+                  exactly what it said before, which is the test that rule exists for. */}
+              {/* The hue is the only thing overridden here, and it took a scale change to get
+                  to that. `Label` used to be 10px — correct for a section eyebrow and wrong
+                  for a verdict: it set the word smaller than the row's own metadata and less
+                  than half the size of its claim, so the four lines of a row ranked by size in
+                  the reverse of the order the docket is scanned in, and the verdict word — one
+                  of the three things the charter says a verdict must always state — was the
+                  first thing to disappear when the column was squinted at. This row carried a
+                  local `text-[11px]` for that. v2 moved the label row of the scale to 11px for
+                  the same reason everywhere, so the correction is the system's now and the
+                  override is gone with it. */}
+              <Label as="span" className={settled ? undefined : TONE_TEXT[descriptor.tone]}>
                 {descriptor.label}
               </Label>
             </span>
@@ -919,7 +943,7 @@ function BulkBar({
         </div>
         {/* Waiving is the one disposition that cannot be taken in a batch, and a reader who
             has just been offered two of three is owed the reason. */}
-        <span className="text-[11.5px] leading-5 text-ink-3">
+        <span className="text-[11.5px] leading-5 text-ink-2">
           Waiving stays one at a time: a reason that fits twelve findings is not a reason.
         </span>
       </div>
@@ -982,7 +1006,39 @@ function ClarificationCard({
   // the one thing nothing below it can be finished without.
   const panelId = `round-panel-${review.id}`;
   return (
-    <section className="overflow-hidden rounded-lg border border-rule bg-surface shadow-rim">
+    <section className="relative overflow-hidden rounded-lg border border-rule bg-surface shadow-rim">
+      {/* The amber as an edge, which is the device every row below this card already uses.
+          Same span, same three pixels, same `z-[1]` over the ground it is drawn on. Two
+          differences: a card is one item, so nothing cuts the edge into per-row segments; and
+          this section has a border, so `inset-y-0` resolves against the padding box and the
+          card's own hairline stays wrapped around the amber rather than being replaced by it.
+
+          An unanswered round used to say "waiting on you" by painting its whole header in
+          `--held-soft` — a chromatic fill about 1,000x64px, on the surface whose first rule is
+          that a hue arrives as a mark. The wash tokens that replaced the `-soft` ones are
+          capped at the size of a pill for exactly this reason: past that a hue has stopped
+          signalling and started tinting a panel, and a reader who meets four tinted panels
+          stops reading any of them as meaning anything. So the ground went neutral and the
+          signal moved onto the three carriers a verdict states itself with everywhere else in
+          this file — a glyph, a word and a left edge.
+
+          `--held-edge` rather than `--held`, because three pixels of colour is a graphic:
+          the graphic tier is the saturated half of the pair and has 3:1 to clear, where the
+          text tier is held to 4.5:1 and would spend that headroom on a bar nobody reads a
+          letterform in.
+
+          Only while the round is open. A recorded round is not waiting on anybody, and an
+          edge it kept would be the loudest thing on a card whose whole message is that the
+          work has moved on. Positioned rather than a `border-l` on the section for the reason
+          the row's is: this way the two states are the same geometry, and the card's own
+          `overflow-hidden` cuts the edge square against the `rounded-lg` corner instead of
+          tapering it into the hairline above it. */}
+      {recorded ? null : (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-[3px] border-l-[3px] border-l-held-edge"
+        />
+      )}
       <button
         type="button"
         aria-expanded={open}
@@ -992,14 +1048,17 @@ function ClarificationCard({
           // `group`, for the chevron below. This card is the docket's first item and, by its
           // own copy, the blocker for everything under it, and it was the one row-shaped
           // control in the feature that answered the pointer with nothing at all. The fill
-          // cannot carry it: `--held-soft` composites to `#ebebeb` over a panel in light,
-          // which is `--sunken` exactly, so a `hover:bg-sunken` here would be a no-op in
-          // light and a twenty-value step in dark — a state that works in one theme is not a
-          // state. The glyph carries it instead, on both branches and in both themes.
+          // still cannot carry it, for a reason that survived the ground moving: fill is what
+          // says *which of the two states this is* — `--surface-2` for a header strip on a
+          // panel, `--sunken` for the answered round receding into an inset — so a hover that
+          // moved the fill would be a state change drawn in the one channel already spoken
+          // for. The glyph carries it instead, on both branches and in both themes.
           "group flex w-full min-h-14 items-start gap-3 px-4 py-3 text-left transition sm:px-5",
-          recorded ? "bg-sunken" : "bg-held-soft",
+          recorded ? "bg-sunken" : "bg-surface-2",
         )}
       >
+        {/* The glyph half of the same statement, in the text tier: this one sits at 15px
+            beside a sentence rather than as a rule down a card, and it is read as a mark. */}
         <Mark
           shape={recorded ? "check" : "pause"}
           className={cn(
@@ -1595,7 +1654,7 @@ export function Docket({
         {!visible.length ? (
           workedThrough ? null : (
             <div className="rounded-lg border border-rule bg-surface px-5 py-10 text-center shadow-rim">
-              <p className="text-[13px] text-ink-3">
+              <p className="text-[13px] text-ink-2">
                 {!findings.length
                   ? "This review composed no findings. The delta still describes what was analysed."
                   : query.trim()

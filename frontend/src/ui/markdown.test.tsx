@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { DRAWS_NO_CLASS, EMITS, Markdown, headingSlug } from "./markdown";
-import { chMeasure, zeroAdvanceFor } from "./onest.test-metrics";
+import { chMeasure, zeroAdvanceFor } from "./font.test-metrics";
 
 /**
  * The measure a rendered document is read at, which is one width and not five.
@@ -21,21 +21,24 @@ import { chMeasure, zeroAdvanceFor } from "./onest.test-metrics";
  * **No figure for any of that is written in this paragraph, and that is the change.** They are
  * recomputed by "resolves the one name `46ch` used to carry to five different widths" below,
  * which puts `46ch` back onto the class lists the renderer itself emits, and by
- * `ui/onest.test-metrics.test.ts`, which holds the same widths in one table beside the other
+ * `ui/font.test-metrics.test.ts`, which holds the same widths in one table beside the other
  * surfaces that argue from them. Six rounds of this comment carried the numbers instead, and
  * five of those rounds shipped at least one that was wrong — including the round whose entire
  * subject was that a `ch` follows weight. A figure in prose is a copy of a measurement, and
  * copies drift; the repair is not to be more careful with the copy.
  *
  * The 14px pair is the one worth reading twice, because it is round seven. The `####` label and
- * the paragraph are both `text-sm` — same size, same file, ten lines apart — and their own 46ch
- * differ by two pixels, because one of them is set at 600 and the other at 400. Anybody
- * checking that they match by checking the size gets the right answer for the wrong reason and
- * writes it down.
+ * the paragraph are both `text-sm` — same size, same file, ten lines apart — and under Onest
+ * their own 46ch differed by two pixels, because one of them is set at 600 and the other at 400
+ * and a variable face gives a heavier instance a narrower zero. Anybody checking that they match
+ * by checking the size got the right answer for the wrong reason and wrote it down. Under IBM
+ * Plex Sans's four static cuts they really do match, which makes the reasoning no better.
  *
- * The repair in the renderer is one line — `max-w-[26.75rem]`, the paragraph's own 46ch at 14px
- * said in a unit that does not move when the type does — and reverting it kept all 421 tests in
- * the suite green. This is the test that was missing.
+ * The repair in the renderer is one line — the paragraph's own 46ch at 14px, said in a `rem`
+ * that does not move when the type does — and reverting it kept all 421 tests in the suite
+ * green. This is the test that was missing. The value is deliberately not written out here: it
+ * moved with the face, from `26.75rem` to `24.15rem`, and a comment naming it is one more copy
+ * of a measurement to drift. `ui/markdown.tsx` declares it and the assertions below resolve it.
  *
  * jsdom lays nothing out, so none of this measures a rectangle. What it does instead is resolve
  * the declared measure against the declared font size and weight, which is arithmetic a reader
@@ -47,20 +50,21 @@ import { chMeasure, zeroAdvanceFor } from "./onest.test-metrics";
  * snaps down, so a browser reads every width here at or just under the figure resolved. That
  * gap is a rule rather than a second measurement — `Math.floor(resolved * 64) / 64` on all nine
  * widths this repository argues from, measured in a headless Chromium serving the built
- * stylesheet from its own `/assets` root so `@font-face` finds the shipped `onest.woff2`, with
- * both weights loaded through `document.fonts.load` and asserted through `document.fonts.check`
- * before anything was read; `font-display: swap` otherwise answers with a fallback whose zero is
+ * stylesheet from its own `/assets` root so `@font-face` finds the shipped woff2, with every
+ * weight involved loaded through `document.fonts.load` and asserted through
+ * `document.fonts.check` before anything was read; `font-display: swap` otherwise answers with a fallback whose zero is
  * 0.6299em and every width comes out five per cent wrong. `chMeasure` applies the rule and
- * `ui/onest.test-metrics.test.ts` asserts it against the nine rectangles it was measured on.
+ * `ui/font.test-metrics.test.ts` asserts it against the nine rows it was measured on — a sweep
+ * run under Onest, so the rule carries over and the nine rectangles want re-reading.
  */
 
 /**
- * Onest's font model — the zero advance, which is what a `ch` is, and the weight it follows.
+ * The shipped face's font model — the zero advance, which is what a `ch` is, and the weight it
+ * follows.
  *
- * None of it is here. `ui/onest.test-metrics.ts` owns the two advances, the nine weight
- * utilities and the resolver that throws rather than guess an advance for a weight nobody has
- * measured, together with the `fontTools` recipe that reads them off the shipped `onest.woff2`
- * and the Chromium reading that confirms them.
+ * None of it is here. `ui/font.test-metrics.ts` owns the advances, the nine weight utilities and
+ * the resolver that throws rather than guess an advance for a weight nobody has measured,
+ * together with the `fontTools` recipe that reads them off the shipped woff2.
  *
  * It is imported rather than restated because this file is not the only one that argues from it:
  * `features/review/finding-detail.test.tsx` reaches the same conclusions about a 13px semibold
@@ -532,18 +536,21 @@ describe("Markdown", () => {
    * beside each other — which is how a weight mistake becomes visible, because on its own each
    * number looks fine.
    *
-   * The heading rows are the point. All four are `font-semibold`, so each resolves against
-   * Onest's 600-weight zero and not its 400-weight one, and the spread between the two readings
-   * is the whole of the sixth round of wrong numbers: 3.53px on the title, 2.65px on the section
-   * heading, 2.21px on the candidate heading, 2.06px on the `####` label and 2.65px on the
-   * overshoot.
+   * The heading rows were the point under Onest, where all four are `font-semibold` and each
+   * resolved against a 600-weight zero of 0.6618em rather than the body's 0.665em. The spread
+   * between the two readings was the whole of the sixth round of wrong numbers — 3.53px on the
+   * title, 2.65px on the section heading, 2.21px on the candidate heading, 2.06px on the `####`
+   * label — and the `h5` row was the seventh, because `markdown.tsx` said of that label that it
+   * "is `text-sm`, the same 14px the paragraphs are set at, so this is this element's own 46ch
+   * and no number moves", one screen below the paragraph explaining that a `ch` follows weight.
    *
-   * The `h5` row is the seventh round, and it is the reason the assertion is five wide rather
-   * than four. `markdown.tsx` said of the `####` label that it "is `text-sm`, the same 14px the
-   * paragraphs are set at, so 26.75rem is this element's own 46ch and no number moves" — in a
-   * file whose subject one screen earlier is that a `ch` follows weight. The label is
-   * `text-sm font-semibold`. Its own 46ch is two pixels short of the paragraph's, and the shared
-   * `rem` measure is the paragraph's, not its own.
+   * IBM Plex Sans ships four static cuts that all advance the zero at 0.600em, so the size is
+   * now the whole of the difference and the 14px pair genuinely agree. **The row stays five
+   * wide anyway.** What it asserts is that one class list resolves to as many widths as there
+   * are type settings under it, and the fifth entry is what would notice a face — or a fifth
+   * `@font-face` — putting the spread back. A test narrowed to the widths that currently differ
+   * would pass through exactly the change it exists to catch, which is how the seventh round
+   * happened.
    */
   it("resolves the one name `46ch` used to carry to five different widths", () => {
     const { container } = render(<Markdown>{DOCUMENT}</Markdown>);
@@ -561,22 +568,24 @@ describe("Markdown", () => {
     const label = asChars("h5");
     const body = asChars("p");
 
-    // 46 x 24 x 0.6618, 46 x 18 x 0.6618, 46 x 15 x 0.6618, 46 x 14 x 0.6618, 46 x 14 x 0.665 —
-    // the same five `chMeasure` holds in `ui/onest.test-metrics.test.ts`, where the rectangles
-    // Chromium draws for them are asserted against the layout-unit rule.
+    // 46 x the size x 0.600, five times — the same five `chMeasure` holds in
+    // `ui/font.test-metrics.test.ts`, where the rectangles Chromium draws for them are asserted
+    // against the layout-unit rule.
     expect([title, section, candidate, label, body].map((px) => Number(px.toFixed(2)))).toEqual([
-      730.63, 547.97, 456.64, 426.2, 428.26,
+      662.4, 496.8, 414, 386.4, 386.4,
     ]);
-    // The overshoot the rule draws, which is the half of this a reader sees. 119.71, not the
-    // 122.36 that 46 x 4 x 0.665 gives by reading the 600-weight heading at 400.
-    expect(Number((section - body).toFixed(2))).toBe(119.71);
-    expect(Number((title - body).toFixed(2))).toBe(302.37);
-    // And the label undershoots, which is the sign nobody looked at: a `ch` at one size can land
-    // either side of another `ch` at that same size, because the weight decides which.
-    expect(Number((label - body).toFixed(2))).toBe(-2.06);
+    // The overshoot the rule draws, which is the half of this a reader sees: 46 zeros of the
+    // 4px the section heading is set above the body.
+    expect(Number((section - body).toFixed(2))).toBe(110.4);
+    expect(Number((title - body).toFixed(2))).toBe(276);
+    // And the label no longer undershoots. Under Onest it landed 2.06px short, because a `ch` at
+    // one size can fall either side of another `ch` at that same size when the weight decides
+    // which zero it is; under four static cuts the weight decides nothing and the two agree.
+    // Asserted as an equality rather than deleted, because zero is the interesting reading here.
+    expect(Number((label - body).toFixed(2))).toBe(0);
     // Both readings of the label agree, which is what makes the row above a measurement of the
     // shipped element rather than of a class list written out in this file.
-    expect(Number(chMeasure(46, 14, "font-semibold").resolved.toFixed(2))).toBe(426.2);
+    expect(Number(chMeasure(46, 14, "font-semibold").resolved.toFixed(2))).toBe(386.4);
   });
 
   /**

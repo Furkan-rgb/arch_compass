@@ -288,8 +288,10 @@ export function ClarificationsSurface({ review }: { review: Review }) {
         {rounds.map((entry) => (
           <section key={entry.key} className="overflow-hidden rounded-md border border-rule">
             {/* `bg-surface-2`: a static strip set into a panel, which is what this is, rather
-                than `bg-sunken/50` — half of the inset grey over a white panel is a value on
-                no ramp in light and a different one again in dark. */}
+                than `bg-sunken/50` — half of the inset grey over a white panel composites to
+                `#f3f2ef`, a value on no ramp and hardly a step, while the same declaration in
+                dark reaches `#23211f` and reads correctly. A tone that only works in one theme
+                is not a tone. */}
             <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-rule bg-surface-2 px-4 py-2.5 sm:px-5">
               {/* A heading, and the round number set as the identifier it is.
                   Three `<section>`s with no heading in any of them meant a screen-reader user
@@ -356,13 +358,9 @@ export function ClarificationsSurface({ review }: { review: Review }) {
                         <Prose>{answer.question.text}</Prose>
                       </p>
                       <p className="mt-0.5 max-w-[62ch] text-[13px] leading-6 text-ink-2 wrap-anywhere">
-                        {answer.status === "skipped" ? (
-                          <span className="text-ink-3">
-                            Recorded as skipped — deliberately left unknown.
-                          </span>
-                        ) : (
-                          answer.value
-                        )}
+                        {answer.status === "skipped"
+                          ? "Recorded as skipped — deliberately left unknown."
+                          : answer.value}
                       </p>
                       <p className="mt-1 text-[11px] text-ink-3">
                         {answer.actor} · {absoluteTime(answer.answered_at)}

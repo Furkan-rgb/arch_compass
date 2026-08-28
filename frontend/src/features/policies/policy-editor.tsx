@@ -263,7 +263,7 @@ export function PolicyEditor({
               {draft.body.trim() ? (
                 <Markdown>{draft.body}</Markdown>
               ) : (
-                <p className="text-sm text-ink-3">Nothing to preview yet.</p>
+                <p className="text-sm text-ink-2">Nothing to preview yet.</p>
               )}
             </div>
           </TabPanel>
@@ -271,7 +271,7 @@ export function PolicyEditor({
 
         <div className="rounded-md border border-rule bg-surface-2 p-3">
           <Label>Required sections</Label>
-          <p className="mt-1 text-xs leading-5 text-ink-3">
+          <p className="mt-1 text-xs leading-5 text-ink-2">
             The workspace re-reads this policy with the same parser it uses for the bundled
             corpus, which needs all nine sections present and written.
           </p>
@@ -296,7 +296,7 @@ export function PolicyEditor({
                     reached the corpus as a policy. It says the same thing here and cannot be
                     saved by accident, because it is not in the box. */}
                 {section.present ? null : (
-                  <span className="mt-0.5 block pl-[19px] leading-5 text-ink-3">
+                  <span className="mt-0.5 block pl-[19px] leading-5 text-ink-2">
                     {section.prompt}
                   </span>
                 )}
@@ -323,7 +323,7 @@ export function PolicyEditor({
           <Button disabled={incomplete || save.isPending} onClick={() => save.mutate()}>
             {save.isPending ? <Spinner /> : policy ? "Save changes" : "Create policy"}
           </Button>
-          <span className="text-xs text-ink-3">
+          <span className="text-xs text-ink-2">
             {missing.length
               ? `Still to write: ${missing.join(", ")}.`
               : "Written to the workspace as a Markdown file the next review reads."}

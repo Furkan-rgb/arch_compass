@@ -414,7 +414,7 @@ function Selection({
         ) : (
           // An explicit unknown outranks an implied one: a blank line here reads as a page
           // that failed to load rather than as a workspace nobody has chosen for.
-          <p className="mt-1 text-sm text-ink-3">{empty}</p>
+          <p className="mt-1 text-sm text-ink-2">{empty}</p>
         )}
       </div>
       {identity && !pinned ? (
@@ -531,7 +531,7 @@ function EditorChoice() {
         <h2 className="mt-1.5 font-display text-xl font-semibold tracking-tight text-ink">
           This machine
         </h2>
-        <p className="mt-2 text-sm leading-6 text-ink-3">
+        <p className="mt-2 text-sm leading-6 text-ink-2">
           Neither of these is part of the workspace. Two people reading the same review may run
           different editors and want different themes, and one of them may be reading it over
           SSH where no local path resolves at all.
@@ -620,7 +620,7 @@ function ModelSection({
         <h2 className="mt-1.5 font-display text-xl font-semibold tracking-tight text-ink">
           {title}
         </h2>
-        <p className="mt-2 text-sm leading-6 text-ink-3">{description}</p>
+        <p className="mt-2 text-sm leading-6 text-ink-2">{description}</p>
       </div>
 
       <div className="grid gap-3">
@@ -673,7 +673,7 @@ function ModelSection({
             ))}
           </>
         ) : (
-          <p className="text-sm text-ink-3">No provider is configured.</p>
+          <p className="text-sm text-ink-2">No provider is configured.</p>
         )}
 
         {error ? <ErrorNotice error={error} /> : null}
@@ -792,7 +792,7 @@ function ProviderSection({
             )}
           </div>
         ) : (
-          <p className="text-sm text-ink-3">
+          <p className="text-sm text-ink-2">
             {!available
               ? "Nothing to choose from until this provider answers."
               : /* Two different empties. A provider that offers nothing says so; a provider
@@ -844,7 +844,7 @@ function ModelChoice({
             <div className="mt-1 text-[11px] tabular-nums text-ink-3">{choice.limits}</div>
           ) : null}
         </div>
-        {/* `Badge` rather than the 10px uppercase recipe this had hand-rolled: the recipe
+        {/* `Badge` rather than the block-label recipe this had hand-rolled: the recipe
             belongs to one component and this is a badge. The tick comes from `ui/icons.tsx`
             rather than from `Mark`'s vocabulary, whose sign register is for what is *graded*
             — and a chosen model is not a verdict. */}

@@ -9,9 +9,15 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "quiet" | "dange
 export type ButtonSize = "sm" | "md" | "lg";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  // The one action a screen is asking for, in the one hue the product has. `danger` below is
-  // the same red at a wash rather than a fill — a destructive action is consequential, not
-  // primary, and fill against wash is what keeps the two apart now that both are red.
+  // The one action a screen is asking for, in the identity red — `--accent-fill`, which is
+  // `--material`'s light value spelled out so the fill stays the deep red in both themes. This
+  // is the one chromatic fill in the product that is not a badge, and it is here because a
+  // primary action is the one thing on a screen that is allowed to be the loudest.
+  //
+  // `danger` below no longer answers it with a lighter fill of the same red. Under v2 a wash
+  // is a badge fill and nothing else, so the destructive variant carries its red on an edge and
+  // a word instead — which draws the distinction harder than two fills ever did: the button a
+  // screen wants pressed is filled, the one it does not is outlined.
   primary:
     "border-accent-fill bg-accent-fill text-accent-on-fill hover:border-accent-strong hover:bg-accent-strong active:translate-y-px",
   // `bg-control` rather than `bg-surface`: a secondary button lands on the void, on a panel
@@ -32,11 +38,27 @@ const VARIANTS: Record<ButtonVariant, string> = {
   ghost: "border-transparent text-ink-2 hover:bg-sunken hover:text-ink active:translate-y-px",
   quiet:
     "border-rule bg-sunken text-ink-2 hover:border-rule-strong hover:text-ink active:translate-y-px",
-  // The one variant with no answer to a press at all, which is the variant that deletes
-  // things — where a person most needs to know the press registered before the request comes
-  // back. It now moves the fill as well as the border, and pushes down like the other four.
-  danger:
-    "border-material/30 bg-material-soft text-material hover:border-material/55 hover:bg-material/15 active:translate-y-px",
+  // The destructive variant, drawn as an edge and a word rather than as a red region.
+  //
+  // It was `bg-material-soft` inside `border-material/30`, with a `hover:bg-material/15` on
+  // top, and all three parts broke a v2 law: the fill was chroma over a ~40px box where the
+  // wash is capped at a pill, the border spent the text tier on one pixel, and the hover minted
+  // a fifth red at a call site out of an alpha nothing had measured. The fill was also already
+  // dead — `--material-soft` was deleted with the other `-soft` tokens, so this variant had
+  // been painting no background at all and no compile step could say so.
+  //
+  // What it is now: `--material-edge` on the 1px border the base recipe already draws (4.85:1
+  // in light and 4.49:1 in dark on a panel, against a 3:1 graphic floor), `--material` on the
+  // word (8.78:1 and 6.24:1, against 4.5), and no fill at rest. The two tiers are the same hue
+  // declared twice rather than two reds that nearly match.
+  //
+  // The variant with no answer to a press was the defect this recipe was last rewritten for,
+  // and the answer survives the colour going: a neutral inset arrives under the pointer —
+  // `--sunken` is 1.25:1 on a panel in light and 1.28:1 in dark — and the box still pushes
+  // down. The fill is the thing that moves because the edge has nowhere to go: there is no
+  // second material edge to strengthen to, and reaching for `--material` on hover would be the
+  // text tier on a border, which is the waste this recipe just stopped committing.
+  danger: "border-material-edge text-material hover:bg-sunken active:translate-y-px",
   // A control that goes somewhere instead of recording something.
   //
   // The three voices give a bordered control at control size to **Decided** — "the record of

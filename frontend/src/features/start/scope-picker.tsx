@@ -89,12 +89,12 @@ export function ScopePicker({
 
   if (!root) {
     return (
-      <p className="text-sm text-ink-3">Choose a repository first, and its folders appear here.</p>
+      <p className="text-sm text-ink-2">Choose a repository first, and its folders appear here.</p>
     );
   }
   if (!isAbsolutePath(root)) {
     return (
-      <p className="text-sm text-ink-3">
+      <p className="text-sm text-ink-2">
         A repository is named by an absolute path on this machine, and its folders appear here
         as soon as this one is.
       </p>
@@ -102,7 +102,7 @@ export function ScopePicker({
   }
   if (tree.isLoading) {
     return (
-      <div className="flex items-center gap-2 py-3 text-sm text-ink-3">
+      <div className="flex items-center gap-2 py-3 text-sm text-ink-2">
         {/* The label is printed right beside it, so the spinner does not say it again. */}
         <Spinner label="" /> Reading the repository…
       </div>

@@ -376,7 +376,7 @@ export function StartPage() {
             <PanelBody>
               <ScopePicker root={chosen} excluded={excluded} onChange={setExcluded} />
               {lastReview ? (
-                <p className="mt-3 border-t border-rule pt-3 text-xs leading-5 text-ink-3">
+                <p className="mt-3 border-t border-rule pt-3 text-xs leading-5 text-ink-2">
                   {lastReview}
                 </p>
               ) : null}
@@ -437,7 +437,7 @@ export function StartPage() {
                     sentence that happens to sit beside it. It had no `id` and nothing
                     pointed at it, so the one thing that explains the page's primary action
                     was reachable only by looking. */}
-                <span id={reasonId} className="text-xs leading-5 text-ink-3">
+                <span id={reasonId} className="text-xs leading-5 text-ink-2">
                   {reason}
                 </span>
                 {/* Pressing Run review used to produce silence for the several minutes that
@@ -493,7 +493,7 @@ export function StartPage() {
                   />
                   <span>
                     <span className="block text-sm font-semibold text-ink">{phase.title}</span>
-                    <span className="mt-0.5 block text-xs leading-5 text-ink-3">
+                    <span className="mt-0.5 block text-xs leading-5 text-ink-2">
                       {PIPELINE[phase.title]}
                     </span>
                   </span>

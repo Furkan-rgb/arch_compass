@@ -130,10 +130,10 @@ function Row({
               // The block-label recipe, and deliberately not `Label`: this one is inline in
               // a row of baselines rather than a block above one, and it takes the verdict's
               // tone instead of the meta grey. What it had no excuse for was the tracking —
-              // `0.11em` was a paste, and `0.13em` is the value the type scale names.
+              // `0.11em` was a paste, and `0.08em` is the value the type scale names.
               <span
                 className={cn(
-                  "text-[10px] font-bold uppercase tracking-[0.13em]",
+                  "text-[11px] font-bold uppercase tracking-[0.08em]",
                   TONE_TEXT[descriptor.tone],
                 )}
               >
@@ -191,7 +191,7 @@ function Row({
             <Mono className="mt-2.5 block text-ink-3">
               Shown, not live · the real controls record against a branch
             </Mono>
-            <p className="mt-3 max-w-[56ch] text-[12px] leading-5 text-ink-3">
+            <p className="mt-3 max-w-[56ch] text-[12px] leading-5 text-ink-2">
               Whatever the team chooses stays with the branch, with the reasoning and the name on
               it, and the next review reads it before it judges again.
             </p>

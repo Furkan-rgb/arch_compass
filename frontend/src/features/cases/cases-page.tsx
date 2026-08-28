@@ -150,7 +150,7 @@ export function CasesPage() {
               />
               <PanelBody>
                 {history.isLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-ink-3">
+                  <div className="flex items-center gap-2 text-sm text-ink-2">
                     {/* The label is printed right beside it. */}
                     <Spinner label="" /> Loading revisions…
                   </div>
@@ -196,7 +196,7 @@ export function CasesPage() {
                               ))}
                             </ul>
                           ) : (
-                            <p className="mt-1.5 text-xs text-ink-3">
+                            <p className="mt-1.5 text-xs text-ink-2">
                               Opened empty. Nothing has been asked yet.
                             </p>
                           )}
@@ -218,7 +218,7 @@ export function CasesPage() {
                     reason: a list that has not arrived is not a list that is empty, and a
                     list that could not be read is neither. */}
                 {reviews.isPending ? (
-                  <div className="flex items-center gap-2 text-sm text-ink-3">
+                  <div className="flex items-center gap-2 text-sm text-ink-2">
                     <Spinner label="" /> Reading the review history…
                   </div>
                 ) : reviews.error ? (
@@ -231,7 +231,7 @@ export function CasesPage() {
                     }
                   />
                 ) : !related.length ? (
-                  <p className="text-sm text-ink-3">
+                  <p className="text-sm text-ink-2">
                     No review has been recorded for this case yet.
                   </p>
                 ) : (
@@ -393,7 +393,7 @@ function PolicyScopeEditor({ value }: { value: CaseSummary }) {
               </Tag>
             ))
           ) : (
-            <span className="text-sm text-ink-3">
+            <span className="text-sm text-ink-2">
               No scope pinned, so only general policies can be retrieved.
             </span>
           )}
@@ -475,7 +475,7 @@ function CaseSnapshot({ value }: { value: CaseSummary }) {
             timestamp and the policy scope. */}
         <div>
           <Label>Answered · {value.answers.length}</Label>
-          <p className="mt-1.5 text-sm text-ink-3">
+          <p className="mt-1.5 text-sm text-ink-2">
             {value.answers.length
               ? "Read them in the revision history below, beside the review that asked."
               : "Nothing asked yet. A case fills in when a judgement turns on something the repository cannot settle."}

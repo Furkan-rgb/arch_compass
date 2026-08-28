@@ -76,11 +76,11 @@ export function NumberedCode({
   return (
     <div className={cn("scrollbar-slim overflow-x-auto", className)}>
       <div className={cn("flex min-w-full py-2.5 font-mono", type)}>
-        {/* `--ink-3` flat, not `text-ink-3/70`. The tier was split into two values precisely
-            so it would clear the AA bar on every ground in both themes; an alpha on top of
-            it composited to `#8b8b8b` on this block in light — 3.0:1 — and threw that
-            guarantee away on the one line of an excerpt that says which lines of the file
-            the claim is about. */}
+        {/* `--ink-3` flat, not `text-ink-3/70`. The tier is picked to clear the AA bar on
+            every ground in both themes — 4.76:1 on the `--sunken` this block is painted on —
+            and an alpha on top of it composites to `#8c8a87` there, 2.74:1, throwing that
+            guarantee away on the one line of an excerpt that says which lines of the file the
+            claim is about. */}
         <div aria-hidden="true" className="shrink-0 select-none px-3 text-right tabular-nums text-ink-3">
           {lines.map((_, index) => (
             <div key={index}>{startLine ? startLine + index : index + 1}</div>
@@ -182,10 +182,12 @@ export function EvidenceBlock({
     <div className={cn("rounded-md border border-rule", className)}>
       <div className="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5">
         <p className="min-w-0 text-sm leading-6 text-ink">{description}</p>
-        {/* The one thing on an evidence block that leads somewhere else. It used to be told
-            apart by `--mark`, which is ink now; `PathRef` carries the underline and the
-            weight that replaced it, so the affordance stays in one place rather than being
-            re-decided beside every excerpt. */}
+        {/* The one thing on an evidence block that leads somewhere else, and the reason
+            `--mark` exists: a route back to a file is provenance, not a grade, and it now has
+            a hue of its own instead of borrowing the alarm's or giving the distinction up for
+            ink. `PathRef` carries the word in the text tier and the underline in the graphic
+            one, so the affordance stays in one place rather than being re-decided beside every
+            excerpt. */}
         {path ? <PathRef path={path} line={startLine} endLine={endLine} /> : null}
       </div>
       {excerpt ? (

@@ -758,9 +758,11 @@ def test_the_way_out_of_a_held_finding_is_the_first_control_a_phone_reaches(  # 
 #:
 #: `(src.audiobook.preparation.providers.base.NarrationPreparationProvider)` — 71 characters,
 #: brackets included, because UAX #14 forbids a break after an opening bracket and before a
-#: closing one. It sets **541.7px** in Onest at the reading size, against the **324px** column a
-#: phone gives the model's paragraph. `ui/prose.test-corpus.ts` carries the measurement and the
-#: recipe; this file only needs the string.
+#: closing one. It set **541.7px** in Onest at the reading size, against the **324px** column a
+#: phone gives the model's paragraph — a reading that has not been repeated since the face moved
+#: to IBM Plex Sans, and which `docs/known-defects.md` carries as the first of the sweeps to
+#: re-run. `ui/prose.test-corpus.ts` carries the measurement and the recipe; this file only needs
+#: the string, and the string is what it asserts about. Nothing here depends on the figure.
 WIDEST_UNBREAKABLE_TOKEN = "(src.audiobook.preparation.providers.base.NarrationPreparationProvider)"
 
 #: Put the widest recorded name into the argument and report what the block is drawn at.
@@ -802,7 +804,8 @@ def test_a_name_wider_than_the_column_folds_instead_of_widening_the_phone(  # ty
 
     `ModelProse` sets `wrap-anywhere` on every block it draws. Take it off and 48 of the 375
     recorded judgements draw wider than the column a phone gives that block, the worst by 218px:
-    the widest unbreakable run the model has written is 541.7px against a 324px column. Deleting
+    the widest unbreakable run the model has written set 541.7px against a 324px column in Onest.
+    Deleting
     the class was silent in the whole suite. It was
     silent *here* too, and for a reason worth naming rather than fixing quietly: the fit check
     above already measures horizontal overflow on every state of this workbench at 390px, and
@@ -825,9 +828,8 @@ def test_a_name_wider_than_the_column_folds_instead_of_widening_the_phone(  # ty
     phone_page.locator("[class*='max-w-[58ch]']").first.wait_for(
         state="visible", timeout=REVIEW_TIMEOUT_MS
     )
-    # The face has to be the shipped Onest before any width is read: `font-display: swap`
-    # otherwise answers with a fallback whose zero is 0.6299em, and every figure is five per
-    # cent wrong.
+    # The shipped face has to be in before any width is read: `font-display: swap` otherwise
+    # answers with a fallback whose zero is 0.6299em, and every figure is five per cent wrong.
     phone_page.evaluate("() => document.fonts.ready")
 
     drawn = phone_page.evaluate(_WIDEST_NAME_IN_THE_ARGUMENT, WIDEST_UNBREAKABLE_TOKEN)

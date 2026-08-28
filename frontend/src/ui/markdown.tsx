@@ -9,61 +9,72 @@ import { INLINE_CODE } from "./prose";
 /**
  * The measure this document is read at: one width, for every block in it.
  *
- * `ch` is the advance width of the digit zero, and Onest's is 0.665em at the 400 weight body
- * text is set in — 0.6618em at the 600 the headings here are set in, which is the next
- * paragraph's subject. Two things follow that the type scale asking for `62ch` had neither of in
- * mind. A zero is not an average character — it is about a third wider than one, and how much
- * wider is measured in `ui/onest.test-metrics.ts` and nowhere else: `FULL_LINE_CHARACTER` holds
+ * `ch` is the advance width of the digit zero, and IBM Plex Sans's is 0.600em at every one of
+ * the four cuts this product downloads. Two things follow that the type scale asking for `62ch`
+ * had neither of in mind. A zero is not an average character — it is the wider, and how much
+ * wider is measured in `ui/font.test-metrics.ts` and nowhere else: `FULL_LINE_CHARACTER` holds
  * that reading for both of the prose corpora this repository sweeps, with the method and the
  * reason the two differ. It stood here as a third copy of one of those readings, written out in
  * em — which is the "a figure in prose is a copy of a measurement, and copies drift" this very
  * comment argues four paragraphs down about its own widths, in the file that argues it. So a
- * measure of 62 zeros holds about 81 characters and not 62. And 62 of them is a different width
- * on every row of the scale: 577.22px on this document's 14px paragraph, 984.76px on its
- * `font-semibold` 24px title. The document and the render disagreed about the same number while
- * both were called `62ch`, which is why nobody caught it. 30em is what a typographer means by
- * "a measure", and at 14px that is 428px.
+ * measure of 62 zeros holds well over 62 characters. And 62 of them is a different width on
+ * every row of the scale: 520.80px on this document's 14px paragraph, 892.80px on its 24px
+ * title. The document and the render disagreed about the same number while both were called
+ * `62ch`, which is why nobody caught it. 30em is what a typographer means by "a measure", and at
+ * 14px that is 420px.
  *
  * Which is why this is no longer said in `ch`. A `ch` is relative to the font size of the
- * element it is set on — and to its weight, since Onest ships as one variable file and a
- * heavier instance has a narrower zero — and this one string goes on every text renderer here,
- * at four sizes, most of them `font-semibold`. Put `46ch` back and it resolves to **five**
- * different widths: one each for the 24px title, the 18px section heading and the 15px
- * candidate heading, and *two* at 14px, because the `####` label is `font-semibold` and the
- * paragraph is not. Five measures wearing one name. The cost is not theoretical. `h2` draws the
- * hairline that opens a section *across the measure*, "because a section opens where the text
- * opens" — and that rule overshot the text beneath it on every section of every report and
- * policy in the product, with the title further past it again. A rule that stops in the wrong
- * place is the one kind of misalignment a reader cannot read past.
+ * element it is set on, and this one string goes on every text renderer here, at four sizes. Put
+ * `46ch` back and it resolves to **four** different widths: one each for the 24px title, the
+ * 18px section heading and the 15px candidate heading, and one shared by the two blocks at 14px.
+ * Four measures wearing one name. The cost is not theoretical. `h2` draws the hairline that opens
+ * a section *across the measure*, "because a section opens where the text opens" — and that rule
+ * overshot the text beneath it on every section of every report and policy in the product, with
+ * the title further past it again. A rule that stops in the wrong place is the one kind of
+ * misalignment a reader cannot read past.
+ *
+ * **Four, and it used to be five, and the difference is a coincidence rather than a repair.**
+ * Under Onest — one variable file, `font-weight: 400 700`, a zero that narrowed from 0.665em to
+ * 0.6618em as the instance got heavier — the two 14px blocks were *two* widths, because the
+ * `####` label is `font-semibold` and the paragraph is not, and that undershoot of about two
+ * pixels was the seventh round of wrong numbers on this surface. Plex Sans ships four static
+ * cuts that all advance the zero identically, so the pair now genuinely agree. Nothing about the
+ * argument changes: the point was never that the spread was large, it was that one name was
+ * doing several jobs, and a face whose weights happen to agree is not a promise that the next
+ * one will.
  *
  * **Not one of those widths is written in this comment, and that is deliberate.** They are
  * recomputed: `ui/markdown.test.tsx` puts `46ch` back onto these very class lists and asserts
- * all five, plus both overshoots, in "resolves the one name `46ch` used to carry to five
- * different widths"; `ui/onest.test-metrics.test.ts` holds the same five in one table beside
+ * all five readings, plus both overshoots, in "resolves the one name `46ch` used to carry to
+ * five different widths"; `ui/font.test-metrics.test.ts` holds the same rows in one table beside
  * every other `ch` figure in the repository. Seven rounds of these numbers have now shipped
  * wrong, and the seventh was written by the sixth round's own repair — a figure in prose is a
- * copy of a measurement, and copies drift, which six passes of being careful did not fix.
- * Change a size or a weight below and the tests say which widths moved; change this paragraph
- * and nothing does, which is why the argument is here and every number is there.
+ * copy of a measurement, and copies drift, which six passes of being careful did not fix. The
+ * eighth round would have been this one: the face moved under all of it and every figure here
+ * was Onest's for a revision, because the advance was pinned in a constant rather than read off
+ * the font. Change a size or a weight below and the tests say which widths moved; change this
+ * paragraph and nothing does, which is why the argument is here and every number is there.
  *
- * The two advances themselves are in `ui/onest.test-metrics.ts`, once, with the `fontTools`
- * recipe that reads them off the shipped `onest.woff2` and the weight table and resolver that
- * turn a class list into one of them — a resolver that throws on a weight nobody has measured
- * rather than quietly answering with 400's. They were kept in two test files, and a measurement
- * kept in two places is the same defect as a measurement kept in prose: it drifts, and the
- * second copy is what tells you it drifted, after.
+ * The advances themselves are in `ui/font.test-metrics.ts`, once, with the `fontTools` recipe
+ * that reads them off the shipped woff2 and the weight table and resolver that turn a class list
+ * into one of them — a resolver that throws on a weight nobody has measured rather than quietly
+ * answering with 400's. They were kept in two test files, and a measurement kept in two places
+ * is the same defect as a measurement kept in prose: it drifts, and the second copy is what
+ * tells you it drifted, after.
  *
  * `rem` because it is the only unit here that does not move when the font size does. The value
- * is the paragraph's own 46ch at 14px to within a quarter of a pixel — 428px against 428.26px,
- * rounded to a quarter-rem so the class list reads as a value somebody chose rather than as the
- * residue of a division. The paragraph is the row the others come down to, because it is the
- * block a document is actually read in: the headings come down to the body rather than the body
- * going up to them.
+ * is the paragraph's own 46ch at 14px, and under this face it is that exactly rather than to
+ * within a rounding: 46 zeros of 0.600em at 14px is 386.40px, which is 24.15rem on the nose.
+ * Under Onest the same line was 428.26px and had to be rounded to a quarter-rem so the class
+ * list read as a value somebody chose rather than as the residue of a division; a round advance
+ * buys that back. The paragraph is the row the others come down to, because it is the block a
+ * document is actually read in: the headings come down to the body rather than the body going up
+ * to them.
  *
  * It lives on the text renderers rather than on the wrapper, because the wrapper is also what
  * a fence and a table are laid out inside, and those want the panel's full width to scroll in.
  */
-const MEASURE = "max-w-[26.75rem]";
+const MEASURE = "max-w-[24.15rem]";
 
 /**
  * A heading's own anchor, so the contents strip on the report surface can reach it.
@@ -122,8 +133,8 @@ function fenceLanguage(className: string | undefined): string | undefined {
  * The pipeline emits twenty-nine. The eleven with nobody to draw them came out as whatever
  * the browser's own sheet says, which for a block element is the full width of the panel: a
  * `#####` in a policy body drew at **1168px**, at 16px and 400 weight, stacked over paragraphs
- * that stop at 428px. Every figure in that sentence is a rectangle read out of a headless
- * Chromium serving the built stylesheet, with both Onest weights asserted through
+ * that stop at `MEASURE`. Every figure in that sentence is a rectangle read out of a headless
+ * Chromium serving the built stylesheet, with the shipped face's weights asserted through
  * `document.fonts.check` first.
  *
  * Adding the two missing headings would have fixed the document somebody happened to render
@@ -305,23 +316,27 @@ const RENDERERS: { [Tag in Emitted]: NonNullable<Components[Tag]> } = {
   ),
   // The fourth level carries `MEASURE` like the rest, and it did not: it was the one
   // text renderer in this file left running to the panel's edge, so a `####` label set
-  // 1168px wide sat over paragraphs stopping at 428px. Nobody saw it because the guard
-  // next door counted the renderers that had a measure instead of requiring one of
+  // 1168px wide sat over paragraphs stopping at the measure. Nobody saw it because the
+  // guard next door counted the renderers that had a measure instead of requiring one of
   // every renderer that sets text, and eight of nine agreeing on an edge is what that
   // count reports as correct.
   //
   // The sentence that used to close this comment said the label "is `text-sm`, the same
-  // 14px the paragraphs are set at, so 26.75rem is this element's own 46ch and no number
-  // moves by adding it" — written one screen below the paragraph explaining that a `ch`
-  // follows weight, in the pass whose whole subject was that. `DEEPEST` is `text-sm`
-  // *and* `font-semibold`, so this element's own 46ch resolves against Onest's 600-weight
-  // zero and lands two pixels short of the paragraph's, which resolves against the
-  // 400-weight one. What it gets from `MEASURE` is therefore the paragraph's edge and not
-  // its own, and that is the right edge for it to take: a document is read in its body
-  // text, so a label sits over the column the paragraphs make rather than over one only
-  // it would ever draw. Both widths are computed and asserted in
-  // `ui/onest.test-metrics.test.ts` and again, off these very class lists, in
-  // `ui/markdown.test.tsx` — no figure for either is written here, because this comment
+  // 14px the paragraphs are set at, so this is this element's own 46ch and no number moves
+  // by adding it" — written one screen below the paragraph explaining that a `ch` follows
+  // weight, in the pass whose whole subject was that. `DEEPEST` is `text-sm` *and*
+  // `font-semibold`, and under Onest that made this element's own 46ch land two pixels
+  // short of the paragraph's, because one variable file gives a heavier instance a
+  // narrower zero.
+  //
+  // Under IBM Plex Sans the two are the same width, because four static cuts advance the
+  // zero identically — so the sentence is now true and was still wrong to write, which is
+  // the more useful version of the lesson. What this element gets from `MEASURE` is the
+  // paragraph's edge, and that is the right edge for it to take whether or not its own
+  // agrees: a document is read in its body text, so a label sits over the column the
+  // paragraphs make rather than over one only it would ever draw. Both widths are computed
+  // and asserted in `ui/font.test-metrics.test.ts` and again, off these very class lists,
+  // in `ui/markdown.test.tsx` — no figure for either is written here, because this comment
   // is the seventh round of a figure written here being wrong.
   h4: ({ children, className, id }) => (
     <Heading as="h5" incoming={className} id={id} className={cn(DEEPEST, MEASURE)}>
@@ -329,8 +344,8 @@ const RENDERERS: { [Tag in Emitted]: NonNullable<Components[Tag]> } = {
     </Heading>
   ),
   // The bottom of the ramp, twice — see `DEEPEST`. Both had no renderer at all until this
-  // pass and drew at 1168px against a 428px paragraph, which is the widest single mismatch
-  // measured anywhere in the product.
+  // pass and drew at 1168px against a paragraph stopping at the measure, which is the widest
+  // single mismatch measured anywhere in the product.
   h5: ({ children, className, id }) => (
     <Heading as="h6" incoming={className} id={id} className={cn(DEEPEST, MEASURE)}>
       {children}
@@ -459,7 +474,7 @@ const RENDERERS: { [Tag in Emitted]: NonNullable<Components[Tag]> } = {
   // The cap that matters here is `max-w-full`, and it is the only one this element gets to
   // choose. An image wider than its column is the one thing on this surface that can push the
   // whole page sideways, and an intrinsic width is a fact about a file rather than a decision
-  // anybody made about this layout. What stops it at 428px in practice is the paragraph:
+  // anybody made about this layout. What stops it at the measure in practice is the paragraph:
   // Markdown puts a lone image inside one, and that paragraph already carries `MEASURE`. Which
   // is also why `block` is load-bearing — inside a paragraph an inline box sits on the text
   // baseline and ignores its own margins, so the figure would ride up against the line above.
@@ -471,17 +486,22 @@ const RENDERERS: { [Tag in Emitted]: NonNullable<Components[Tag]> } = {
       className="my-4 block h-auto max-w-full rounded-md border border-rule"
     />
   ),
-  // `text-mark` is the accent, not ink, and the comment that stood here said the
-  // opposite: `styles.css` declares `--mark: var(--accent)` in all three of its theme
-  // blocks, so this is the deep red in light and `#f27166` in dark. The sentence it
-  // taught — "the hue is gone, the weight replaces it" — would have licensed the next
-  // `text-mark` somebody added on the strength of it being neutral.
+  // `text-mark` is a hue of its own now, and this is the link it was added for: an authored
+  // document pointing out of itself at a source. Under v1 `--mark` was declared as
+  // `var(--accent)` — the alarm red under a second name — so a citation in a policy said *act
+  // on this*; it is `#0053a0` in light and `#4ca8ff` in dark, and the comment that stood here
+  // arguing the red is gone with it.
   //
-  // The hue is correct and is the design system's third job for the accent: an authored
-  // document links out to a source, which is exactly what `--mark` is budgeted for. What
-  // the weight and the underline add is that the link is still findable against
-  // `text-ink-2` for a reader who cannot separate the two hues. The underline rests at
-  // half strength and goes to full on hover, so it still answers the pointer.
+  // What the weight and the underline add is that the link is still findable against
+  // `text-ink-2` for a reader who cannot separate the two hues.
+  //
+  // The underline is `--mark-edge` and goes to `--mark` on hover, which is the two tiers doing
+  // exactly what they are for: a rule is a graphic and clears 3:1 (4.28:1 in light, 5.00:1 in
+  // dark), the word is text and clears 4.5 (7.64:1 and 7.18:1). It was `decoration-mark/50`,
+  // an alpha of a signal mixed at the call site, which composited to 2.47:1 in light and
+  // 2.70:1 in dark — under the graphic floor in both, and a value no test could see because it
+  // was never declared anywhere. `PathRef` in `ui/meta.tsx` draws the same pair; this is the
+  // second place that gesture is written and the two now agree.
   //
   // `target="_blank"` only on a link that actually leaves. A footnote reference and the
   // arrow back out of a footnote body are both links to a fragment of this same document,
@@ -494,7 +514,7 @@ const RENDERERS: { [Tag in Emitted]: NonNullable<Components[Tag]> } = {
         href={href}
         target={leaves ? "_blank" : undefined}
         rel={leaves ? "noreferrer" : undefined}
-        className="font-semibold text-mark underline decoration-mark/50 underline-offset-4 transition hover:decoration-mark"
+        className="font-semibold text-mark underline decoration-mark-edge underline-offset-4 transition hover:decoration-mark"
       >
         {children}
       </a>
@@ -537,8 +557,13 @@ const RENDERERS: { [Tag in Emitted]: NonNullable<Components[Tag]> } = {
   // the box the table scrolls in, and two parallel hairlines a pixel apart read as a
   // rendering fault rather than as a table's foot.
   tr: ({ children }) => <tr className="[&:last-child>td]:border-b-0">{children}</tr>,
+  // The block-label row of the scale, which is where a table head belongs: 11px, 700, `0.08em`,
+  // uppercase. It was 12px semibold at `0.06em` — its own recipe, a third of a tier off the one
+  // every other uppercase run in the product is set in, and the kind of near-miss that reads as
+  // a rendering inconsistency rather than as a decision. `ui/panel.tsx`'s `Label` is the same
+  // four values; this is not that component only because a `<th>` cannot be one.
   th: ({ children }) => (
-    <th className="border-b border-rule px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.06em] text-ink-3">
+    <th className="border-b border-rule px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-ink-3">
       {children}
     </th>
   ),

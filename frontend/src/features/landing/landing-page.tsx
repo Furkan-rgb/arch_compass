@@ -252,7 +252,7 @@ function Hero() {
             and until now the landing page was its one non-consumer. `Reveal` stays on
             everything below the fold, which is what it was written for. */}
         <div className="animate-rise lg:max-w-[27rem] xl:max-w-[35rem]">
-          <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">
+          <Mono className="text-[11px] uppercase tracking-[0.08em] text-ink-3">
             Weighed, not enforced
           </Mono>
           {/* `text-balance` and a looser cap rather than a tight one. `15ch` is a hard
@@ -313,7 +313,7 @@ function Hero() {
           ref={figureRef}
           className="animate-rise mt-12 lg:absolute lg:left-[47%] lg:right-0 lg:top-4 lg:mt-0 lg:max-w-[56rem] xl:left-[50%] xl:right-[-6%]"
         >
-          <Mono className="block text-[11px] uppercase tracking-[0.13em] text-ink-3">
+          <Mono className="block text-[11px] uppercase tracking-[0.08em] text-ink-3">
             The atlas — parsed, never imported and never run
           </Mono>
           {/* The box the map is drawn in carries the map's own proportions, so a percentage
@@ -411,16 +411,24 @@ function IntentBand() {
         className="pointer-events-none absolute inset-x-0 -z-10 max-md:opacity-[0.34]"
       />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
-        {/* `38.5rem` and not `58ch`. A `ch` follows the font size of the element it is set on,
+        {/* `34.8rem` and not `58ch`. A `ch` follows the font size of the element it is set on,
             and this one is set on a column rather than on a block of text: inside it are an
             11px mono eyebrow, a heading at `clamp(29px,3.8vw,46px)` and three paragraphs at
-            16.5px. So `58ch` resolved against the 16px it inherited from the root — 617.12px,
+            16.5px. So `58ch` resolved against the 16px it inherited from the root — 556.80px,
             a width belonging to none of the four — and the paragraphs it was meant to be
-            measuring have their own 58ch at 636.4px, nineteen pixels wider. A stack of four
-            sizes cannot be described in a unit that follows one of them. 616px is what it drew,
-            to within a pixel, said in a unit that does not move when any of the four does. */}
-        <Reveal className="max-w-[38.5rem]">
-          <Mono className="text-[11px] uppercase tracking-[0.13em] text-band-ink-2">
+            measuring have their own 58ch at 574.20px, seventeen pixels wider. A stack of four
+            sizes cannot be described in a unit that follows one of them. 556.80px is what the
+            root's 58ch draws, said in a unit that does not move when any of the four does.
+
+            The number is `34.8rem` and was `38.5rem`, which is 616px: the same derivation read
+            against Onest, whose zero advanced 0.665em where IBM Plex Sans's advances 0.600em.
+            The measure came in by ten per cent with the face and this cap did not follow it
+            until the integration pass. A `rem` cap standing in for a `ch` edge is right — it is
+            the point of the paragraph above — and it is also the one shape that cannot notice
+            the edge moving, which is worth knowing about the device rather than an argument
+            against it. */}
+        <Reveal className="max-w-[34.8rem]">
+          <Mono className="text-[11px] uppercase tracking-[0.08em] text-band-ink-2">
             Unwritten intent
           </Mono>
           <h2 className="mt-3.5 font-display text-[clamp(29px,3.8vw,46px)] font-semibold leading-[1.08] tracking-[-0.032em]">
@@ -515,11 +523,11 @@ function HowItWorks() {
                 <div className="relative h-[23px] w-px bg-rule-strong">
                   <span className="absolute -left-[3.5px] top-[7px] size-2 rounded-full border-[1.5px] border-ink bg-canvas" />
                 </div>
-                {/* `0.13em`, the value the scale names, and the same value the attribution
+                {/* `0.08em`, the value the scale names, and the same value the attribution
                     eight lines below already carried — one item in a six-item row set a
-                    hundredth of an em from its own sibling is visible at 10px and means
+                    hundredth of an em from its own sibling is visible at 11px and means
                     nothing. */}
-                <Mono className="mt-3 block text-[10px] tracking-[0.13em] text-ink-3">
+                <Mono className="mt-3 block text-[11px] tracking-[0.08em] text-ink-3">
                   {String(index + 1).padStart(2, "0")}
                 </Mono>
                 <h3 className="mt-1 font-display text-[15px] font-semibold tracking-tight text-ink">
@@ -528,11 +536,11 @@ function HowItWorks() {
                 <p className="mt-1.5 max-w-[24ch] text-[13px] leading-[1.55] text-ink-2">{body}</p>
                 {/* Machine / Model / Person — the product's central idea, made visible under
                     every step, and it was set at 9px: smaller than anything else on the page
-                    and off the bottom of a scale whose last row is 10px, which is where
+                    and off the bottom of a scale whose last row is 11px, which is where
                     uppercase letterspaced text stops being readable. The size goes back on the
                     scale and the weight comes off, because this is a label and the 13px body
                     above it should still lead. */}
-                <Mono className="mt-3 inline-block border-t border-rule pt-1.5 text-[10px] font-medium uppercase tracking-[0.13em] text-ink-3">
+                <Mono className="mt-3 inline-block border-t border-rule pt-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-3">
                   {who}
                 </Mono>
               </li>
@@ -936,7 +944,7 @@ function Footer() {
           </div>
         </nav>
       </div>
-      <div className="border-t border-rule px-4 py-4 text-center text-xs text-ink-3 sm:px-6">
+      <div className="border-t border-rule px-4 py-4 text-center text-xs text-ink-2 sm:px-6">
         Analysis runs locally. Only the candidate, its evidence and the retrieved guidance reach the
         model you chose.
       </div>
@@ -961,7 +969,7 @@ function SectionIntro({
        its own `56ch` and should: that one is on the block whose size it is resolved against,
        which is the whole distinction. */
     <div className="max-w-[41.25rem]">
-      <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">{eyebrow}</Mono>
+      <Mono className="text-[11px] uppercase tracking-[0.08em] text-ink-3">{eyebrow}</Mono>
       <h2 className="mt-2.5 font-display text-[clamp(26px,3.2vw,34px)] font-semibold leading-[1.12] tracking-[-0.028em] text-ink">
         {title}
       </h2>

@@ -50,9 +50,13 @@ import { cn } from "../lib/cn";
  *
  * Mono is the Measured voice — the machine's — and a name the model quotes is machine
  * vocabulary, so switching face mid-sentence is what the system already says about names.
- * The size is `em` rather than a pixel value because IBM Plex Mono reads larger than Onest
- * at the same size; a relative one keeps the quoted name subordinate to the prose around it
- * at every size this is set in, from the 17px question down to the 12px rail.
+ * The size is `em` rather than a pixel value because the mono reads larger than the sans beside
+ * it at the same nominal size; a relative one keeps the quoted name subordinate to the prose
+ * around it at every size this is set in, from the 17px question down to the 12px rail. That was
+ * measured against Onest and the sans is IBM Plex Sans now — same superfamily as the mono, same
+ * skeleton, and a zero of exactly the same 0.600em advance — so the gap this `0.86em` corrects
+ * for is probably narrower than it was and has not been re-measured. The relative unit is right
+ * either way; the multiplier is the part that wants a browser reading.
  */
 const QUOTED_NAME = "font-mono text-[0.86em] wrap-anywhere";
 
@@ -433,8 +437,10 @@ function listMarker(source: string, index: number): boolean {
  * arguments in it, which are the three that need it; anything past nineteen brings the
  * failure above back in full. Six also lands the blocks where a reader wants them: across the
  * nine, no packed block runs past 473 characters, which is six line boxes at the measure below
- * — counted in a browser, by rendering all 375 strings through the real `ModelProse` at
- * 617.12px and clustering a Range per character on the vertical centre of its box. The line
+ * — counted in a browser, by rendering all 375 strings through the real `ModelProse` at the
+ * 617.12px that measure resolved to under Onest, and clustering a Range per character on the
+ * vertical centre of its box. Plex Sans brings the same declaration in to 556.80px, so the
+ * sweep wants re-running and the block count it yields can only go up. The line
  * figure here said seven, which is what 473 divided by the average of a full line comes to and
  * not what the browser draws.
  *
@@ -497,7 +503,7 @@ type Boundary = { ends: number; opens: number };
  * and `through > 1` exempts the single-sentence first block that partition makes. What is left
  * over is not a packing decision at all: it is a sentence the model wrote that is taller than
  * the rest of its string, and the only rule that could shorten one would cut inside it — which
- * every part being a raw slice is the refusal of. Counted at the 617.12px measure, in a browser,
+ * every part being a raw slice is the refusal of. Counted at the measure this block had under Onest — 617.12px — in a browser,
  * the same way every other line figure in this file was: two strings open on seven line boxes,
  * four of the corpus's 1,166 blocks are a single sentence of seven lines or more, and the
  * tallest block anywhere is a 1,132-character sentence at **seventeen** — 32 in a phone's 324px
@@ -510,7 +516,7 @@ type Boundary = { ends: number; opens: number };
  * What that costs is real and worth naming, and it is worth naming in line boxes rather than in
  * characters because a line box is what a reader arrives at. On the 2,139-character judgement
  * the ceiling moves the opening block from 406 characters to 157 and the tallest from 406 to
- * 473: at the 617.12px measure that is six lines at the front traded for three, at the price of
+ * 473: at that same 617.12px measure it is six lines at the front traded for three, at the price of
  * one line on the second block, which goes from five to six. On a phone's 324px column it is
  * eleven traded for five. Both counted by rendering the two packings side by side in the built
  * page and clustering a Range per character. What it buys back is
@@ -769,14 +775,18 @@ export function Prose({ children, bare = false }: { children: string; bare?: boo
  * the drift `INLINE_CODE` and `Label` already live here to stop, one level up.
  *
  * `58ch` is the measure, and it is chosen from a floor rather than from a character count.
- * Onest's zero advances 0.665em at the 400 this block is set in — 665 units on a 1000 unit em,
- * read off the `hmtx` table of the shipped `onest.woff2`, and confirmed at 10.640625px by a
- * Range over a `0` in the built page — so 1ch is 10.64px at 16px and `58ch` is 617.12px. The
- * weight is part of the reading and not a footnote to it: the same file's zero is 661.8 units
- * at wght 600, so a `ch` written on a `font-semibold` block is a different width from a `ch`
- * written here. Both advances live once, in `ui/onest.test-metrics.ts`, with the `fontTools`
- * recipe that reads them off the font; `docs/design-system.md` argues from them. The widest
- * unbreakable token the corpus sets *in this face* is a 71-character qualified name at 541.7px,
+ * IBM Plex Sans's zero advances 0.600em — 600 units on a 1000 unit em, read off the `hmtx` table
+ * of the shipped `plex-sans-400.woff2` — so 1ch is 9.6px at 16px and `58ch` is 556.80px. Under
+ * this face the weight is *not* part of the reading, and that is a property of the face rather
+ * than a simplification: Plex ships four static cuts and all four advance the zero identically,
+ * where Onest was one variable file whose zero narrowed from 665 units to 661.8 between 400 and
+ * 600 and made a `ch` on a `font-semibold` block a different width from a `ch` written here. The
+ * advances live once, in `ui/font.test-metrics.ts`, with the `fontTools` recipe that reads them
+ * off the font; `docs/design-system.md` argues from them.
+ *
+ * **The floor below is Onest's and the measure above it is Plex Sans's, and until the sweep is
+ * re-run this paragraph is comparing two faces.** The widest unbreakable token the corpus set
+ * *in Onest* is a 71-character qualified name at 541.7px,
  * and 48 distinct tokens across 51 of the 375 strings are wider than the 324px column a phone
  * gives this block. Both figures come from measuring every whitespace-separated run in the
  * corpus inside a real `ModelProse`, with a Range over the paragraph's own text node; the 543px
@@ -789,6 +799,14 @@ export function Prose({ children, bare = false }: { children: string; bare?: boo
  * measure under that floor breaks a name the model is arguing about across two lines, which is
  * the one thing `wrap-anywhere` cannot do gracefully.
  *
+ * How much headroom that leaves has changed and is not yet a measured number. Onest put `58ch`
+ * at 617.12px against a 541.7px floor — 75px. Plex Sans puts the same declaration at 556.80px,
+ * 15px above a floor that was read in the other face, and the token itself is set in the new one
+ * now, so both ends of that subtraction have moved. `features/review/finding-detail.test.tsx`
+ * asserts the inequality and it passes; what nobody has is the second reading that would make it
+ * mean something. `docs/known-defects.md` carries the re-sweep, and this is the figure in the
+ * product most likely to have moved the wrong way.
+ *
  * Both counts are over the whitespace-separated runs that fall *outside* a backticked span,
  * with their punctuation left attached, because that is what the line breaker sees: UAX #14
  * forbids a break after an opening bracket and before a closing one, so the widest of them is
@@ -798,20 +816,20 @@ export function Prose({ children, bare = false }: { children: string; bare?: boo
  * refuse.
  *
  * "In this face" is the load-bearing half, and reading the floor without it is how the number
- * gets argued up. A backticked name is not set in Onest at 16px: `INLINE_CODE` draws it as a
- * chip in IBM Plex Mono at `0.86em` plus about 10px of border and padding, and the two widest
- * names in the corpus are backticked — 74 characters, 621px as chips, wider than this measure
- * and wider than any measure a 26.4px line could sweep. Those two do not set the floor and
- * cannot: the chip carries `max-w-full` and `wrap-anywhere` precisely so a name too big for
- * its column folds inside its own box, where the box says the fragments are one name. Only a
- * name the model wrote *without* backticks has nothing around it to say so, and that is the
- * case this measure has to clear. The `46ch` this replaces on the synopsis was 489px and
- * under the floor.
+ * gets argued up. A backticked name is not set in the body face at 16px: `INLINE_CODE` draws it
+ * as a chip in IBM Plex Mono at `0.86em` plus about 10px of border and padding, and the two
+ * widest names in the corpus are backticked — 74 characters, 621px as chips under Onest, wider
+ * than the measure and wider than any measure a 26.4px line could sweep. Those two do not set
+ * the floor and cannot: the chip carries `max-w-full` and `wrap-anywhere` precisely so a name
+ * too big for its column folds inside its own box, where the box says the fragments are one
+ * name. Only a name the model wrote *without* backticks has nothing around it to say so, and
+ * that is the case this measure has to clear. The `46ch` this replaces on the synopsis is
+ * 441.60px and under the floor by any reading of it.
  *
  * Above the floor the ceiling is the return sweep, and the figures that describe it were
  * counted in a browser rather than divided out of the measure. How, in enough detail to run
- * again: serve the built bundle, so the face is the shipped `onest.woff2` and the CSS is the
- * real one, and wait on `document.fonts.check` for both weights, because `font-display: swap`
+ * again: serve the built bundle, so the face is the shipped woff2 and the CSS is the real one,
+ * and wait on `document.fonts.check` for every weight involved, because `font-display: swap`
  * otherwise answers with a fallback whose zero is 0.6299em; take the corpus as the union of
  * `core_finding_cache.finding_json -> reasoning` and
  * `core_review_snapshots.review_json -> findings[].reasoning` from a read-only copy of
@@ -856,10 +874,11 @@ export function Prose({ children, bare = false }: { children: string; bare?: boo
  *
  * That is a separate question from what is *drawn*, and the two are independent. On what is
  * drawn: "measuring the string rather than the render" names two sweeps, and both were run.
- * Flatten every chip back to Onest body text — `plainProse` first, so a backticked name is drawn
- * as the name — and it gives 3,237 line boxes and **76.07** characters. Draw the recorded string
- * literally instead, backticks and all, and it gives the same 3,237 boxes and **76.24**. Onest is
- * narrower than the chip it replaces, so narrower text fits more of it on a line: measuring the
+ * Flatten every chip back to body text — `plainProse` first, so a backticked name is drawn as
+ * the name — and it gives 3,237 line boxes and **76.07** characters. Draw the recorded string
+ * literally instead, backticks and all, and it gives the same 3,237 boxes and **76.24**. The
+ * sans is narrower than the chip it replaces, so narrower text fits more of it on a line:
+ * measuring the
  * string loses eleven line boxes and reads between a third and half a character **generous**,
  * under either reading. The render is what a reader sweeps. The **73** three passes of this
  * comment carried was attributed to that flattening, and could not have come from it — flattening

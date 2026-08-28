@@ -45,13 +45,28 @@ export type MapEdge = { from: string; to: string };
  * Indexed by the tone rather than written at the node, which is the same rule the badges
  * follow: nothing here decides that a shape should be red, it paints the tone a finding
  * already has.
+ *
+ * **The graphic tier, because a stroke is a graphic.** Every value here is painted onto an SVG
+ * `stroke`, and the design system splits each signal in two on exactly that line: the bare token
+ * is the text tier and clears 4.5:1, the `-edge` token is for edges, glyphs, bars and dots and
+ * clears 3:1. This map held the text tier for a revision — `var(--material)` on a circle — which
+ * is the same defect `ui/meta.tsx`'s left edges were moved off, spending a word's contrast on a
+ * line nobody reads and leaving the drawn thing quieter than the system has to offer.
+ *
+ * `neutral` and `marked` keep their tokens because neither is a verdict and neither has a signal
+ * to spend: `--rule-strong` is the boundary the whole map separates with, and `--ink` is the ink.
+ * There is no `--rule-strong-edge` and there should not be.
+ *
+ * These are `var()` strings rather than utility classes because they reach an SVG attribute, and
+ * that is worth knowing: `ui/verdict-hues.test.ts` scans class lists, so nothing in the suite can
+ * see a tier mistake made here. The comment is the guard.
  */
 const TONE_STROKE: Record<Tone, string> = {
   neutral: "var(--rule-strong)",
   marked: "var(--ink)",
-  material: "var(--material)",
-  held: "var(--held)",
-  cleared: "var(--cleared)",
+  material: "var(--material-edge)",
+  held: "var(--held-edge)",
+  cleared: "var(--cleared-edge)",
 };
 
 /** One gentle bow per edge, so the map reads as drawn rather than as ruled. */
@@ -141,7 +156,16 @@ export function AtlasMap({
             // roughly 0.65–0.9 of the viewBox, so twelve user units landed at a six-pixel cap
             // height — the smallest type on the page, in the tier below body ink, carrying the
             // hero's entire claim that the repository was parsed into a structure.
-            className="fill-[var(--ink-2)] font-mono text-[18px] font-semibold uppercase tracking-[0.14em] sm:text-[15px]"
+            //
+            // `0.08em`, which is the scale's tracking for an uppercase label and which
+            // `.atlas-clusters text` in `styles.css` — this figure's own sibling, drawn on the
+            // same map — already moved to. It was `0.14em`, chosen beside the old `0.13em`
+            // label recipe and for the same mistaken reason: letterspacing buys apparent width
+            // rather than legibility, and past about `0.1em` it costs word shape. Two label
+            // treatments a few hundred user units apart tracked differently is a difference a
+            // reader reads as a fault. The sizes stay where they are, because they are user
+            // units on a scaled figure and the paragraph above is what decides them.
+            className="fill-[var(--ink-2)] font-mono text-[18px] font-semibold uppercase tracking-[0.08em] sm:text-[15px]"
           >
             {module.label}
           </text>

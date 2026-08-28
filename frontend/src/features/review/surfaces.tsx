@@ -219,22 +219,29 @@ function DeltaRow({
             <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
               {/* The arrow is the whole sentence for the eye and says nothing at all to a screen
               reader, so the two words it stands for are spelled out beside it. */}
+              {/* `px-2 py-0.5` and no size. A revision row prints up to two badges and an
+                  arrow inside a wrapping line, so the padding comes in — but the type does
+                  not. These four call sites carried `text-[10px]`, which was `Badge`'s own
+                  size when it was written and is now an override pinning the one tier the v2
+                  scale moved: 10px bold uppercase at tracking is under the practical floor,
+                  and a verdict is the last word in the product that should be under it. What
+                  is left is a denser box around type the system decides. */}
               {entry.wasVerdict && !hoisted.verdict ? (
                 <>
                   <span className="sr-only">was </span>
-                  <VerdictBadge verdict={entry.wasVerdict} className="px-2 py-0.5 text-[10px]" />
+                  <VerdictBadge verdict={entry.wasVerdict} className="px-2 py-0.5" />
                   <ArrowRight className="size-[13px] shrink-0 text-ink-3" />
                   <span className="sr-only">, now </span>
                 </>
               ) : null}
               {entry.nowVerdict && !hoisted.verdict ? (
-                <VerdictBadge verdict={entry.nowVerdict} className="px-2 py-0.5 text-[10px]" />
+                <VerdictBadge verdict={entry.nowVerdict} className="px-2 py-0.5" />
               ) : !hoisted.verdict && entry.state === "addressed" ? (
                 // In the slot every other row fills with a verdict badge, so the surface has
                 // one coloured thing per row saying where the candidate stands. It was a
                 // neutral tag, which left the one state that exists nowhere else in the product
                 // as the dimmest row on the page. The tone comes from the table, not from here.
-                <Badge tone="cleared" glyph="minus" className="px-2 py-0.5 text-[10px]">
+                <Badge tone="cleared" glyph="minus" className="px-2 py-0.5">
                   No longer detected
                 </Badge>
               ) : null}
@@ -546,7 +553,7 @@ export function DeltaSurface({ review, onOpen }: { review: Review; onOpen?: (can
                edge is the part that notices the panel's 14px corner. */
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-t-lg border-b border-rule bg-surface-2 px-4 py-2.5 sm:px-5">
               <span className="text-[11px] font-semibold text-ink-2">All {visible.length}</span>
-              {sharedVerdict ? <VerdictBadge verdict={sharedVerdict} className="px-2 py-0.5 text-[10px]" /> : null}
+              {sharedVerdict ? <VerdictBadge verdict={sharedVerdict} className="px-2 py-0.5" /> : null}
               {sharedMovement ? (
                 <span className="text-[11px] leading-5 text-ink-3">
                   <span className="font-semibold text-ink-2">
@@ -578,7 +585,7 @@ export function DeltaSurface({ review, onOpen }: { review: Review; onOpen?: (can
             Showing {visible.length} of {entries.length}.
           </LiveRegion>
           {elsewhere.length ? (
-            <PanelFooter className="text-xs leading-5 text-ink-3">
+            <PanelFooter className="text-xs leading-5 text-ink-2">
               Showing {visible.length} of {entries.length}. Also in this review: {saidInOrder(elsewhere)}.
             </PanelFooter>
           ) : null}
@@ -886,7 +893,7 @@ export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candi
               because the charter's rule is never to make somebody type what they could pick. */}
             {!current?.messages.length && !ask.isPending ? (
               <div className="mt-2.5">
-                <p className="text-[13px] leading-6 text-ink-3">
+                <p className="text-[13px] leading-6 text-ink-2">
                   Ask what the review found, or what to do about it. Every fact in an answer comes
                   from this review.
                 </p>
@@ -907,7 +914,7 @@ export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candi
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {confirming === current.id ? (
                 <>
-                  <span className="text-xs text-ink-3">
+                  <span className="text-xs text-ink-2">
                     Discard this conversation? Its questions and answers go with it.
                   </span>
                   <Button
