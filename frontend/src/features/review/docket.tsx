@@ -257,9 +257,22 @@ function Progress({
 
           Only where there is something to press them on. On a phone this was eleven key
           caps and four verbs — the single densest thing above the list — describing a
-          keyboard that is not there, and it sat between the reader and the findings. */}
+          keyboard that is not there, and it sat between the reader and the findings.
+
+          **Guarded twice, and the CSS is the one that cannot be wrong.** `useHasKeyboard`
+          subscribes to the same query in JavaScript, which keeps the caps out of the DOM
+          entirely — worth having, because they are eleven nodes and a screen reader would
+          otherwise read out keys nobody can press. But that hook seeds its state from
+          `matchMedia` during render and falls back to `true` where the API is missing, so
+          there is a window in which it can answer for a keyboard that is not there: a cold
+          load under a device emulator renders the strip perhaps one time in three, which is
+          how this was found. A media query in the stylesheet has no such window — it is
+          resolved by the engine before the first paint and re-resolved whenever the input
+          changes — so it backstops the hook rather than duplicating it. Written as an
+          arbitrary variant because the pair is one question; `pointer-coarse` alone would
+          keep the caps on a touchscreen laptop, which has both. */}
       {hasKeyboard ? (
-        <p className="ml-auto flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-ink-3">
+        <p className="ml-auto hidden flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-ink-3 [@media(hover:hover)_and_(pointer:fine)]:flex">
           <Key>j</Key>
           {/* The glyph is drawn and therefore hidden, so the cap has to say the key's name
               for anything not looking at the screen. Without it the hint announced as "j k

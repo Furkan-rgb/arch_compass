@@ -852,3 +852,47 @@ def test_a_name_wider_than_the_column_folds_instead_of_widening_the_phone(  # ty
         "with the anywhere-break withdrawn the paragraph still fits its column, so the "
         "assertion above was never at risk on this row and proves nothing about the class"
     )
+
+
+def test_the_keyboard_hints_never_paint_where_there_is_no_keyboard(  # type: ignore[no-untyped-def]
+    phone_page, review_url: str
+) -> None:
+    """The docket's key caps, on a screen with a thumb in front of it.
+
+    They are guarded twice and this measures the second guard, because the first one cannot
+    be measured here and cannot be trusted alone. `useHasKeyboard` keeps the caps out of the
+    DOM, which is worth having — eleven nodes a screen reader would otherwise announce as
+    keys nobody can press — but it seeds its state from `matchMedia` during render and falls
+    back to `true` where the API is missing, so there is a window where it answers for a
+    keyboard that is not there. Under a device emulator that window opens on roughly one cold
+    load in three, which is how this was found: a set of screenshots taken for a design review
+    had `j k walk A P W decide` sitting above the findings on a phone.
+
+    So the stylesheet backstops the hook, and this test lies to the hook to prove it. Every
+    media query is made to answer `true` before any page script runs — the worst case the
+    fallback and the render-time seed can produce together — and the assertion is that the
+    caps are still not *painted*. jsdom applies no stylesheet, so no vitest test can see this;
+    a real engine resolving a real media query is the only thing that can.
+    """
+    page = phone_page
+    page.context.add_init_script(
+        "const real = window.matchMedia.bind(window);"
+        "window.matchMedia = (q) => {"
+        "  const m = real(q);"
+        "  return new Proxy(m, { get: (t, k) => k === 'matches' ? true :"
+        "    (typeof t[k] === 'function' ? t[k].bind(t) : t[k]) });"
+        "};"
+    )
+    page.goto(review_url, wait_until="networkidle")
+    page.wait_for_timeout(1200)
+
+    assert page.evaluate("() => matchMedia('(hover: hover) and (pointer: fine)').matches"), (
+        "the lie did not take, so this run would pass for the wrong reason"
+    )
+
+    painted = [
+        cap.inner_text().strip()
+        for cap in page.locator("kbd").all()
+        if cap.is_visible()
+    ]
+    assert not painted, f"key caps painted on a phone: {painted}"
