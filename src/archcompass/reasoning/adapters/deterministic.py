@@ -239,13 +239,21 @@ class DeterministicAnswerer:
             investigator.conclude(
                 "The stored review already answers this.", Termination.NATURAL_END
             )
+        # The citation goes in the prose as well as in `supporting`, because a real model
+        # writes one there whether or not the contract wants it: the finding listing leads
+        # each entry with `[candidate_…]`, and a key in front of a model ends up in its
+        # sentences. A stand-in that never does it is a fixture the demo, the browser sweep
+        # and every screenshot are the wrong shape — and `CandidateRef` in
+        # `frontend/src/ui/prose.tsx`, which draws that key as the finding it points at, would
+        # be reachable by nothing this repository can run offline.
+        cited = f" It rests on [{supporting[0]}]." if supporting else ""
         return ConversationAnswer(
             (
                 f"This deterministic answer stands in for one about “{about.text}”. "
                 "A real model reads the question, the findings it is holding up and the "
-                "repository itself."
+                f"repository itself.{cited}"
                 if about is not None
-                else "The stored review is the source of this deterministic answer."
+                else f"The stored review is the source of this deterministic answer.{cited}"
             ),
             supporting,
             recorded_investigation(

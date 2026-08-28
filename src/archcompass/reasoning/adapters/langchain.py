@@ -992,8 +992,10 @@ CONVERSATION_CONTRACT = (
     "Cite the findings you relied on. In your prose, name one by its backticked "
     "participant, the way the listing does. In `candidate_ids`, return the bracketed "
     "identifier of each one you used, copied exactly — an identifier you were not shown "
-    "is dropped, so an invented one grounds nothing. Write prose a reader can act on: no "
-    "headings, no restating the question."
+    "is dropped, so an invented one grounds nothing. The identifier belongs in that field "
+    "and never in a sentence: `candidate_…` is a key we gave you for citing, not a name, "
+    "and the reader is shown your prose. Write prose a reader can act on: no headings, no "
+    "restating the question."
 )
 
 #: Added to the contract only where the reader's repository can actually be asked. Kept
@@ -1081,6 +1083,11 @@ def _conversation_finding_text(finding: Finding) -> str:
         # The identifier first because it is what a citation has to copy, and the backticked
         # participant beside it because that is what the answer calls the finding in prose.
         # A reader is shown the prose, and `candidate_9fa3…` is not a name anybody reads.
+        #
+        # Both contracts now say that out loud, because handing a model a key beside a name
+        # is how the key ends up in its sentences. `CANDIDATE_REFERENCE` in
+        # `frontend/src/ui/prose.tsx` is the net under that: wherever one arrives anyway, it
+        # is drawn as the finding it points at rather than as the digest it is.
         f"[{candidate.id}] `{candidate.participants[0].qualified_name}`",
         f"    summary: {candidate.summary}",
         f"    pattern: {candidate.pattern}",
@@ -1255,8 +1262,11 @@ CLARIFICATION_CONTRACT = (
     "Where you cannot tell, say so — a question a reader cannot answer is a fair outcome "
     "and skipping it explicitly is a first-class reply.\n\n"
     "Cite the findings you used. In `candidate_ids`, copy the bracketed identifier of each "
-    "one exactly; an identifier you were not shown is dropped. Write prose a person reads "
-    "in one pass: no headings, no bullets, no restating the question before answering it."
+    "one exactly; an identifier you were not shown is dropped. Keep it to that field and "
+    "out of your sentences: `candidate_…` is a key we gave you for citing, not a name — "
+    "name a finding by its backticked participant, the way the listing does. Write prose a "
+    "person reads in one pass: no headings, no bullets, no restating the question before "
+    "answering it."
 )
 
 #: What the agent may put in the reader's own answer box, and the whole of what it may do

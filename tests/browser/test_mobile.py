@@ -404,18 +404,28 @@ _TAP_TARGETS = r"""(minimum) => {
     if (el.closest('[aria-hidden="true"]')) return 'hidden from the accessibility tree';
 
     // WCAG 2.5.8's own exception, and the only one that is about design rather than about
-    // the element not being a target at all: a link set inline in a sentence is sized by
+    // the element not being a target at all: a control set inline in a sentence is sized by
     // the text it sits in, and padding it out would break the line. Both halves are
     // required — it must compute to `display: inline`, and there must be real running text
     // beside it — so a button styled to look like a link does not slip through.
-    if (el.tagName === 'A' && style.display === 'inline') {
+    //
+    // The tag used to be the third half, and it was `A`. The rule it was aimed at is a real
+    // control disguised as a link, and `CandidateRef` in `ui/prose.tsx` is the other way
+    // round: a citation inside a model's sentence, which is an inline link in every sense
+    // WCAG means and has no `href` only because the docket's open row is page state rather
+    // than a URL. Padding it out is not the alternative — a reference is measured on its
+    // *smaller* dimension, and a leaf of five characters cannot reach 44px across without
+    // spacing the sentence out around it. So the exemption is about the shape and the
+    // context, and `display: inline` plus running text beside it is the whole of the shape:
+    // a `<button>` is `inline-block` by default and takes a deliberate class to get here.
+    if ((el.tagName === 'A' || el.tagName === 'BUTTON') && style.display === 'inline') {
       const parent = el.parentElement;
       const prose = parent
         ? Array.from(parent.childNodes).some(
             (node) => node.nodeType === 3 && node.textContent.trim().length > 1,
           )
         : false;
-      if (prose) return 'inline link in running text (WCAG 2.5.8 inline exception)';
+      if (prose) return 'inline control in running text (WCAG 2.5.8 inline exception)';
     }
 
     return null;

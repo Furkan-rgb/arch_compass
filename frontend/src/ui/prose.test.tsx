@@ -1,7 +1,16 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
-import { INLINE_CODE, INLINE_CODE_BARE, ModelProse, Prose, plainProse, sentences } from "./prose";
+import {
+  Citations,
+  INLINE_CODE,
+  INLINE_CODE_BARE,
+  ModelProse,
+  Prose,
+  plainProse,
+  sentences,
+  type Citation,
+} from "./prose";
 import {
   OVER_CAP,
   PHONE_COLUMN_PX,
@@ -821,5 +830,102 @@ describe("sentences", () => {
       "the opening block holds more than one sentence, so something could have been taken out " +
         "of it and the hole is a real one after all",
     ).toHaveLength(1);
+  });
+});
+
+/**
+ * A citation in the middle of a sentence, which is our own identifier and not the model's
+ * punctuation.
+ *
+ * The string is the one that started this: a real answer arrived with the bracketed key from
+ * the finding listing standing where the finding's name should have been. Both conversation
+ * contracts now say the key never goes in a sentence, and this is the net under that — so what
+ * is asserted here is every rung of the ladder, including the two that give up the link.
+ */
+const HELD = "candidate_3dcc1d5ac92ac0b5baf6e2e0";
+const RECORDER: Citation = {
+  name: "CaseSnapshotRecorder",
+  title: "persistence.ports.CaseSnapshotRecorder — a protocol with one implementation",
+};
+
+function citing(source: string, onOpen?: (candidateId: string) => void) {
+  const { container } = render(
+    <Citations find={(id) => (id === HELD ? RECORDER : undefined)} onOpen={onOpen}>
+      <div data-testid="cited">
+        <Prose>{source}</Prose>
+      </div>
+    </Citations>,
+  );
+  return container.querySelector("[data-testid='cited']") as HTMLElement;
+}
+
+describe("a cited finding", () => {
+  it("draws the name the sentence needed, and never the key", () => {
+    const host = citing(`Finding [${HELD}] is held because intent cannot be read.`, () => {});
+
+    expect(host.textContent).toBe(
+      "Finding CaseSnapshotRecorder is held because intent cannot be read.",
+    );
+    expect(host.textContent).not.toContain("candidate_");
+  });
+
+  it("opens the row it points at", () => {
+    const open = vi.fn();
+    citing(`Finding [${HELD}] is held.`, open);
+
+    fireEvent.click(screen.getByRole("button", { name: "CaseSnapshotRecorder" }));
+    expect(open).toHaveBeenCalledWith(HELD);
+  });
+
+  it("wears the mark only where there is somewhere to go", () => {
+    const goes = citing(`Finding [${HELD}] is held.`, () => {});
+    const stays = citing(`Finding [${HELD}] is held.`);
+
+    // `--mark` is the product's one non-verdict chroma and it means "the way to the source".
+    expect(goes.querySelector("button")?.className).toContain("text-mark");
+    // Nowhere to go, so no promise of one: the name, drawn as the name it is.
+    expect(stays.querySelector("button")).toBeNull();
+    expect(stays.querySelector("code")?.textContent).toBe("CaseSnapshotRecorder");
+    expect(stays.querySelector("code")?.className).not.toContain("text-mark");
+  });
+
+  it("reads the key with its brackets and without them", () => {
+    expect(citing(`Finding ${HELD} is held.`, () => {}).textContent).toBe(
+      "Finding CaseSnapshotRecorder is held.",
+    );
+  });
+
+  it("keeps the whole key where this review holds no such finding", () => {
+    const missing = "candidate_0000000000000000000000ff";
+    const host = citing(`Finding [${missing}] is held.`);
+
+    // The whole identifier, in a chip: a machine string is a thing somebody copies, and half
+    // of one is worse than all of it. The title is what says what happened to it.
+    const chip = host.querySelector("code") as HTMLElement;
+    expect(chip.textContent).toBe(`[${missing}]`);
+    expect(chip.getAttribute("title")).toContain("holds no finding");
+  });
+
+  it("leaves a quoted identifier as the string it was asked to show", () => {
+    // A code span's content is never re-parsed here. A reader who backticked an identifier —
+    // or a model quoting one back at them — meant to be shown it.
+    const host = citing(`You asked about \`${HELD}\`.`, () => {});
+    expect(host.querySelector("button")).toBeNull();
+    expect(host.querySelector("code")?.textContent).toBe(HELD);
+  });
+
+  it("does not take a word that merely starts candidate_ for a key", () => {
+    const plain = "The candidate_summary field is not an identifier.";
+    expect(citing(plain, () => {}).textContent).toBe(plain);
+  });
+
+  it("resolves through plainProse the same way, so a title and its paragraph agree", () => {
+    const find = (id: string) => (id === HELD ? RECORDER : undefined);
+    expect(plainProse(`Finding [${HELD}] is held.`, find)).toBe(
+      "Finding CaseSnapshotRecorder is held.",
+    );
+    // No lookup, so no name — and the brackets still come off, because they are punctuation
+    // written for a renderer, which is the same reason a backtick's do.
+    expect(plainProse(`Finding [${HELD}] is held.`)).toBe(`Finding ${HELD} is held.`);
   });
 });

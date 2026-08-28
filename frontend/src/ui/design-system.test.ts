@@ -213,6 +213,12 @@ describe("the design system", () => {
       "ui/markdown.tsx",
       "features/review/finding-detail.tsx",
       "features/start/start-page.tsx",
+      // `CandidateRef`: the third job this rule already names, which until now had nothing
+      // spending it. A model's answer cites a finding by identifier inside its own sentence,
+      // and the mark is what makes that identifier the way to the row rather than a footnote
+      // number. It lives in `ui/prose.tsx` because that is the file which parses the citation;
+      // one link written twice is the drift this allowlist exists to stop.
+      "ui/prose.tsx",
     ]);
     expect(
       offenders(/\b(?:bg|text|border|ring|decoration)-mark\b/, allowed),

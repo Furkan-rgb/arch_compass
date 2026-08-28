@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import { cn } from "../lib/cn";
 
@@ -21,7 +21,16 @@ import { cn } from "../lib/cn";
    measured and not hypothetical — `*args` opens emphasis, and `[avoid-duplicated-knowledge]`
    is shortcut link syntax. A wrong name looks exactly like a right one, which makes that a
    worse failure than the backtick it replaces. So this scanner reads inline code spans and
-   nothing else, and every other character is emitted exactly as the model wrote it.
+   one other thing, and every character outside those two is emitted exactly as the model
+   wrote it.
+
+   The other thing is a citation — `[candidate_…]`, which the conversation contracts hand the
+   model as the key to copy into `candidate_ids` and which it writes into its sentences as
+   well. It is not Markdown and it is not the model's own punctuation: it is our own
+   identifier, arriving in prose because we put it in front of the model, and a reader is
+   shown twenty-four characters of SHA-256 where a name should be. `CANDIDATE_REFERENCE` is
+   what parses it and `CandidateRef` is what draws it; the exception to "code spans and
+   nothing else" is deliberate and it is one grammar wide.
 
    The second reason is the bundle. `App.tsx` keeps the Markdown renderer in its own lazy
    chunk because react-markdown and its plugins are about a third of it, while the docket and
@@ -78,8 +87,168 @@ export const INLINE_CODE =
  */
 export const INLINE_CODE_BARE = QUOTED_NAME;
 
-/** One run of the source: either literal text, or the content of a code span. */
-type Span = { text: string; code: boolean };
+/**
+ * A citation the model wrote into the middle of a sentence, and how it gets a name.
+ *
+ * `_conversation_finding_text` leads every finding it lists with `[candidate_…] `participant``,
+ * because a citation has to copy the identifier exactly. The contract then asks for two things
+ * in two places — the backticked participant in the prose, the bracketed identifier in
+ * `candidate_ids` — and a model holding both puts the identifier in the prose as well. What a
+ * reader gets is thirty-six characters of machine string standing where a name should be, in
+ * the one paragraph this product sets at the reading size.
+ *
+ * The prompt is where that is actually fixed, and both conversation contracts now say the key
+ * never goes in a sentence. This is the net under it, because a model will write one anyway —
+ * and a net that draws the token as the finding it points at is worth more than one that hides
+ * it.
+ *
+ * Two forms, because a model copies the listing with its brackets and sometimes without them.
+ * A token inside backticks is deliberately left alone: a code span's content is never
+ * re-parsed here, and a reader who quoted an identifier meant to be shown it.
+ *
+ * Lower-case hex and at least sixteen of it. Every candidate id in the product is
+ * `stable_id("candidate", …)` — the prefix and twenty-four characters of a SHA-256 digest —
+ * and the bound is what keeps this off a word that merely starts `candidate_`.
+ */
+const CANDIDATE_REFERENCE = /\[(candidate_[0-9a-f]{16,})\]|(candidate_[0-9a-f]{16,})/;
+
+/** What a surface can say about a cited finding: the words for the sentence, and the rest. */
+export type Citation = {
+  /**
+   * What the sentence calls it — the leaf of the finding's first participant.
+   *
+   * The leaf and not the qualified name, which is the one decision here worth arguing with. A
+   * reference sits inside running text at 0.86em, and `persistence.ports.CaseSnapshotRecorder`
+   * is thirty-eight characters that break the measure — which is the defect this whole file
+   * exists to stop, arriving by a different door. Two findings can share a leaf; the title
+   * disambiguates, and the row it opens settles it.
+   */
+  name: string;
+  /** The qualified name and the claim, for the `title` a leaf alone cannot carry. */
+  title: string;
+};
+
+type CitationLookup = (candidateId: string) => Citation | undefined;
+
+/**
+ * Where a reference gets its name, and what pressing it does.
+ *
+ * Through context rather than a prop, because `Prose` is a renderer that knows nothing about a
+ * review and must not start to: it draws a docket row, a policy body, a question and a
+ * clarification answer, and every one of those call sites has its own hand-tuned block around
+ * it. A provider is one line at the surface that holds the findings.
+ *
+ * The default resolves nothing, which is correct rather than merely safe: a surface with no
+ * review cannot name a finding, and a reference there falls to its last rung and says so.
+ */
+const CitationContext = createContext<{ find: CitationLookup; open?: (id: string) => void }>({
+  find: () => undefined,
+});
+
+/**
+ * The findings a block of model prose may cite, for everything drawn inside it.
+ *
+ * `onOpen` is what makes a reference a control rather than a name. Leaving it off is not a
+ * degraded state — the clarification panel genuinely has nowhere to open a row — so the
+ * reference gives up the affordance instead of keeping a dead one.
+ */
+export function Citations({
+  find,
+  onOpen,
+  children,
+}: {
+  find: CitationLookup;
+  onOpen?: (candidateId: string) => void;
+  children: ReactNode;
+}) {
+  const value = useMemo(() => ({ find, open: onOpen }), [find, onOpen]);
+  return <CitationContext.Provider value={value}>{children}</CitationContext.Provider>;
+}
+
+/**
+ * A cited finding, drawn as the way to it.
+ *
+ * `--mark` is the product's one non-verdict chroma, and `ui/design-system.test.ts` names its
+ * three jobs: a file, a policy, and a cited finding. The third had nothing spending it until
+ * now — the citation chips under an answer are a list below the prose, which is a footnote,
+ * and this is the reference inside the sentence at the moment the sentence gives somebody a
+ * reason to go. The idiom is `PolicyRef`'s exactly: mono, the mark, and an underline that
+ * firms up under the cursor.
+ *
+ * `inline`, and it is a `<button>` because the docket's open row is state on the page rather
+ * than a URL, so there is no `href` to give it. That costs it WCAG 2.5.8's inline exception as
+ * `tests/browser/test_mobile.py` first wrote it — a rule aimed at a real control disguised as
+ * a link, which this is the other way round. The sweep's exemption now covers an inline-level
+ * control in running text whatever its tag; padding a reference out was never the alternative,
+ * because a target is measured on its smaller dimension and a leaf of five characters cannot
+ * reach 44px across without spacing out the sentence around it.
+ */
+function CandidateRef({
+  candidateId,
+  source,
+  bare,
+}: {
+  candidateId: string;
+  source: string;
+  bare: boolean;
+}) {
+  const { find, open } = useContext(CitationContext);
+  const cited = find(candidateId);
+
+  // Nothing here can name it: an identifier from another review, or one the model made up.
+  // `_cited_candidates` drops those from `candidate_ids` and logs them, so the chips below an
+  // answer never show this — prose can, because nothing filters a sentence.
+  //
+  // The whole identifier and not a truncation. A machine string is a thing somebody copies,
+  // and half of one is worse than all of it; the box and the face say it is machine
+  // vocabulary, and the title says what happened to it.
+  if (!cited) {
+    return (
+      <code
+        className={bare ? INLINE_CODE_BARE : INLINE_CODE}
+        title={`This review holds no finding under ${candidateId}`}
+      >
+        {source}
+      </code>
+    );
+  }
+
+  // Named, with nowhere to go. Drawn as the name the model should have written in the first
+  // place — no mark and no underline, because both of those promise a way to somewhere.
+  if (!open) {
+    return (
+      <code className={bare ? INLINE_CODE_BARE : INLINE_CODE} title={cited.title}>
+        {cited.name}
+      </code>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => open(candidateId)}
+      title={cited.title}
+      className={cn(
+        "inline text-mark underline decoration-rule-strong underline-offset-2 transition hover:decoration-current",
+        QUOTED_NAME,
+      )}
+    >
+      {cited.name}
+    </button>
+  );
+}
+
+/**
+ * One run of the source: literal text, the content of a code span, or a cited finding.
+ *
+ * A union rather than a pair of booleans, so a renderer that forgets a kind is a type error
+ * rather than a span drawn as whatever the last branch happened to be. `text` is the source as
+ * the model wrote it in every case, which is what the last rung of a reference falls back to.
+ */
+type Span =
+  | { kind: "text"; text: string }
+  | { kind: "code"; text: string }
+  | { kind: "ref"; text: string; candidateId: string };
 
 /**
  * The index of a closing run of exactly `length` backticks, or -1.
@@ -127,7 +296,37 @@ function unpad(content: string): string {
 }
 
 /**
- * The source split into literal text and code-span content, and nothing else parsed.
+ * A run of literal text, cut on the citations in it.
+ *
+ * Run over the text between code spans rather than over the whole source, which is what keeps
+ * the two grammars from having to know about each other: a backtick inside a reference is
+ * impossible, and a reference inside a code span is a string the reader asked to be shown.
+ *
+ * The pattern is not global and nothing here holds a `lastIndex`. A module-level global regex
+ * carries its own cursor between calls, and this runs once per literal run of every string the
+ * product draws.
+ */
+function references(literal: string): Span[] {
+  const spans: Span[] = [];
+  let rest = literal;
+
+  for (
+    let match = CANDIDATE_REFERENCE.exec(rest);
+    match;
+    match = CANDIDATE_REFERENCE.exec(rest)
+  ) {
+    const before = rest.slice(0, match.index);
+    if (before) spans.push({ kind: "text", text: before });
+    spans.push({ kind: "ref", text: match[0], candidateId: match[1] ?? match[2] ?? "" });
+    rest = rest.slice(match.index + match[0].length);
+  }
+
+  if (rest) spans.push({ kind: "text", text: rest });
+  return spans;
+}
+
+/**
+ * The source split into literal text, code-span content and citations, and nothing else parsed.
  *
  * An unmatched run is emitted as the literal backticks it is, and the scan resumes *after*
  * it rather than inside it — so a stray backtick costs a reader one visible character
@@ -158,14 +357,14 @@ function scan(source: string): Span[] {
     }
 
     if (literal) {
-      spans.push({ text: literal, code: false });
+      spans.push(...references(literal));
       literal = "";
     }
-    spans.push({ text: unpad(source.slice(index, closing)), code: true });
+    spans.push({ kind: "code", text: unpad(source.slice(index, closing)) });
     index = closing + length;
   }
 
-  if (literal) spans.push({ text: literal, code: false });
+  if (literal) spans.push(...references(literal));
   return spans;
 }
 
@@ -523,23 +722,36 @@ export function sentences(source: string, mostParts = MOST_PARTS): string[] {
  * runs it is a screen of rows.
  */
 export function Prose({ children, bare = false }: { children: string; bare?: boolean }): ReactNode {
-  // The common case by a wide margin, and the one the docket runs once a row: no backtick
-  // means the string is its own rendering, with no array and no elements built to say so.
-  if (!children.includes("`")) return children;
+  // The common case by a wide margin, and the one the docket runs once a row: neither marker
+  // in the string means it is its own rendering, with no array and no elements built to say
+  // so. Two substring tests rather than one, because a citation is not delimited by a backtick
+  // — and `candidate_` is the cheapest thing that can rule one out.
+  if (!children.includes("`") && !children.includes("candidate_")) return children;
 
   const spans = scan(children);
   const className = bare ? INLINE_CODE_BARE : INLINE_CODE;
-  return spans.map((span, index) =>
-    span.code ? (
-      // The index is a stable key here: the array is rebuilt whole from one string, so a
-      // position never holds a different span than it did on the last render of that string.
-      <code key={index} className={className}>
-        {span.text}
-      </code>
-    ) : (
-      span.text
-    ),
-  );
+  // The index is a stable key throughout: the array is rebuilt whole from one string, so a
+  // position never holds a different span than it did on the last render of that string.
+  return spans.map((span, index) => {
+    if (span.kind === "code") {
+      return (
+        <code key={index} className={className}>
+          {span.text}
+        </code>
+      );
+    }
+    if (span.kind === "ref") {
+      return (
+        <CandidateRef
+          key={index}
+          candidateId={span.candidateId}
+          source={span.text}
+          bare={bare}
+        />
+      );
+    }
+    return span.text;
+  });
 }
 
 /**
@@ -739,9 +951,17 @@ export function ModelProse({ children, className }: { children: string; classNam
  * span in the string. `report-surface` already takes the blunt route for a heading label,
  * and `headingSlug` drops backticks by normalising everything that is not a letter.
  */
-export function plainProse(text: string): string {
-  if (!text.includes("`")) return text;
+export function plainProse(text: string, find?: CitationLookup): string {
+  if (!text.includes("`") && !text.includes("candidate_")) return text;
   return scan(text)
-    .map((span) => (span.code ? span.text : span.text.replace(/`/g, "")))
+    .map((span) => {
+      if (span.kind === "code") return span.text;
+      // The same rungs as the drawn reference, flattened: the name where the caller brought a
+      // lookup, and the bare identifier where it did not. The brackets come off either way —
+      // they are punctuation the model wrote for a renderer, which is the reason a backtick
+      // does.
+      if (span.kind === "ref") return find?.(span.candidateId)?.name ?? span.candidateId;
+      return span.text.replace(/`/g, "");
+    })
     .join("");
 }

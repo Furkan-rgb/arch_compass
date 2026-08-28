@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { AskBox } from "./conversation-thread";
+import type { Review, ReviewConversation } from "../../api";
+import { reviewFixture } from "../../test-fixtures";
+import { AskBox, ConversationExchange } from "./conversation-thread";
 
 /**
  * The composer, as a document rather than as a picture.
@@ -162,5 +164,77 @@ describe("the ask composer", () => {
   it("does not offer to send an empty box", () => {
     draw({ value: "   " });
     expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled();
+  });
+});
+
+/**
+ * A citation the model wrote into the middle of its answer.
+ *
+ * The identifier here is shaped like a real one — `stable_id`'s prefix and twenty-four
+ * characters of digest — because that shape is the grammar. The rest of this file's fixtures
+ * use `candidate-1`, which deliberately is not one: a hyphenated test id must never be taken
+ * for a key and drawn as a link.
+ */
+const RECORDER = "candidate_3dcc1d5ac92ac0b5baf6e2e0";
+
+function citingReview(): Review {
+  const review = reviewFixture();
+  const finding = review.findings[1];
+  finding.candidate.id = RECORDER;
+  finding.candidate.participants = [
+    {
+      qualified_name: "persistence.ports.CaseSnapshotRecorder",
+      role: "source",
+      node_id: "node-recorder",
+    },
+  ];
+  finding.candidate.summary = "A protocol with one implementation and no test bound to it";
+  return review;
+}
+
+function exchange(text: string): ReviewConversation["messages"][number] {
+  return {
+    question: "Why is this one waiting on me?",
+    answer: {
+      text,
+      supporting_candidate_ids: [],
+      investigation: null,
+      suggested_answer: "",
+      model_identity: "anthropic/claude-sonnet-5",
+    },
+    asked_at: "2026-01-01T00:00:00Z",
+  };
+}
+
+describe("a finding cited inside an answer", () => {
+  const answer = `Finding [${RECORDER}] is held because intent cannot be read from the code.`;
+
+  it("reads as the finding's name, and opens its row", () => {
+    const onOpen = vi.fn();
+    render(
+      <ConversationExchange message={exchange(answer)} review={citingReview()} onOpen={onOpen} />,
+    );
+
+    // The key is gone from the sentence entirely, which is the whole of the defect.
+    expect(screen.queryByText(/candidate_/)).toBeNull();
+    const reference = screen.getByRole("button", { name: "CaseSnapshotRecorder" });
+    expect(reference.getAttribute("title")).toContain("persistence.ports.CaseSnapshotRecorder");
+
+    fireEvent.click(reference);
+    expect(onOpen).toHaveBeenCalledWith(RECORDER);
+  });
+
+  /**
+   * The clarification panel draws this same exchange with nothing to open — a reader stuck on
+   * a question is not on the docket — so the reference gives up the affordance rather than
+   * keeping a dead one.
+   */
+  it("keeps the name where the surface has nowhere to open it", () => {
+    const { container } = render(
+      <ConversationExchange message={exchange(answer)} review={citingReview()} />,
+    );
+
+    expect(screen.queryByRole("button", { name: "CaseSnapshotRecorder" })).toBeNull();
+    expect(container.textContent).toContain("Finding CaseSnapshotRecorder is held");
   });
 });

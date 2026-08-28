@@ -624,6 +624,23 @@ def test_a_conversation_lists_every_finding_under_its_identifier(tmp_path: Path)
     assert "return the bracketed identifier of each one you used" in CONVERSATION_CONTRACT
 
 
+def test_both_conversations_keep_the_identifier_out_of_the_prose() -> None:
+    """The listing hands over a key, and a key is not a name.
+
+    Every finding is listed as `[candidate_…] `participant`` because a citation has to copy
+    the identifier exactly — and a model holding both puts the identifier in its sentences
+    too, where a reader gets twenty-four characters of digest standing where a name should
+    be. Said out loud in both contracts, because both are built from the same listing.
+
+    `ui/prose.tsx` draws one as the finding it points at wherever it arrives anyway. That is
+    the net; this is the fix, and a net is not a reason to stop saying it.
+    """
+
+    for contract in (CONVERSATION_CONTRACT, CLARIFICATION_CONTRACT):
+        assert "`candidate_…` is a key we gave you for citing, not a name" in contract
+        assert "backticked participant" in contract
+
+
 def test_an_empty_case_says_so_rather_than_arriving_as_empty_arrays() -> None:
     """The reason a real model never asked anything.
 
