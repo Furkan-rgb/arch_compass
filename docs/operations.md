@@ -64,7 +64,7 @@ The CLI runs the graph in-process. It makes no HTTP calls and does not need the 
 
 | provider | credential | judges | embeds |
 |---|---|---|---|
-| **openrouter** | `OPENROUTER_API_KEY` | yes — 222 models, discovered live | yes — 5 models, `google/gemini-embedding-2` by default |
+| **openrouter** | `OPENROUTER_API_KEY` | yes — 4 named models, checked against the live catalogue | yes — 5 models, `google/gemini-embedding-2` by default |
 | ollama | none, a reachable server | yes | yes — whatever installed model advertises the capability |
 | fake | none | deterministically, without a model | deterministically |
 
@@ -85,11 +85,26 @@ because that is the name those routes declare. The hard filter that used to sit 
 all and 404'd mid-experiment; what answered is recorded instead, so every finding carries
 the endpoint that served it. See `reasoning/adapters/openrouter.py`.
 
-Its models are not listed here and there is no list of them in the code either. The
-catalogue is the source of truth, filtered to what a review needs — a model that declares
-both `structured_outputs` and `tools` — which was 222 of 422 when this was written. Routers
-(`openrouter/…`), moving pointers (`~…-latest`) and batch-only ids (`…:batch`) are refused,
-because each would break the promise that one model identity means one model.
+Its models are named in `_OFFERED_MODELS` in `reasoning/adapters/openrouter.py`, and there
+are four of them:
+
+| model | context | why it is offered |
+|---|---|---|
+| `google/gemini-3.5-flash-lite` | 1.0M | the only one qualified against the gate, and the cheapest of the four |
+| `google/gemini-3.6-flash` | 1.0M | the same family with more depth, for a repository the lite model finds thin |
+| `z-ai/glm-5.3` | 1.3M | the large open-weight option |
+| `z-ai/glm-5.3-flash` | 1.3M | the cheap open-weight option |
+
+The catalogue is still asked, and it is the second gate rather than the first: a named model
+that stops declaring `structured_outputs` and `tools` stops being offered without anybody
+editing the list. Routers (`openrouter/…`), moving pointers (`~…-latest`) and batch-only ids
+(`…:batch`) are refused whatever else they declare, because each would break the promise that
+one model identity means one model.
+
+This was a capability filter over the whole catalogue until August 2026 — 222 of 422 models
+passed it. What it could not do is tell a capable model from a measured one, and a chooser
+listing two hundred of them invites picking one nobody has run the gate on. See
+`reasoning/qualification.py` for what each of the four did.
 
 Every provider is judged the same way: one candidate per `Send`, fanned out by LangGraph.
 How many run together is LangGraph's business, not a setting here — there is no knob for it

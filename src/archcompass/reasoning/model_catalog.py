@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import suppress
+from typing import Final
 
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ConfigurationError, PersistenceError
@@ -27,6 +28,28 @@ from archcompass.reasoning.records import (
     ReasoningModelStatus,
 )
 from archcompass.records import ThinkingMode
+
+#: What a workspace reasons with before anybody has chosen.
+#:
+#: A default rather than an empty chooser, and the difference is what a new reader meets: the
+#: Models screen said "No reasoning model is selected" and every page that needs a judgement
+#: waited on a choice somebody had no basis to make yet. This is the choice that screen would
+#: recommend, made in advance, and the first click on any other tile replaces it.
+#:
+#: `medium` because that is the depth this workspace is meant to run at. The e2e suites pin
+#: their own model and their own depth and never reach this.
+#:
+#: Never written to the store, which is the property that keeps it a default. A stored one
+#: could not be told apart from a choice: `clear` would return a workspace to whatever this
+#: was on the day its row was written rather than to whatever it is now, and changing the
+#: name here would leave every existing workspace on the old one. Read through
+#: `_registry` like any other selection, so a deployment that has switched OpenRouter off
+#: reports nothing chosen instead of a model it cannot reach.
+_DEFAULT_SELECTION: Final = ReasoningModelSelection(
+    provider="openrouter",
+    model="z-ai/glm-5.3-flash",
+    thinking="medium",
+)
 
 
 def reasoning_config(
@@ -107,12 +130,14 @@ class ModelCatalogService:
                 thinking=self._pin.thinking,
                 pinned=True,
             )
-        stored = self._stored()
+        stored = self._stored() or _DEFAULT_SELECTION
         # A selection naming a provider this deployment does not enable reports as nothing
         # chosen, rather than as a state of its own. The two have the same cure — choose
         # something reachable — and a hosted deployment that dropped Ollama would otherwise
-        # greet every workspace carrying a local selection with an error about a file.
-        if stored is None or stored.provider not in self._registry:
+        # greet every workspace carrying a local selection with an error about a file. The
+        # default is held to the same rule: an Ollama-only deployment has no OpenRouter to
+        # default to, and saying so is better than naming a model it cannot ask.
+        if stored.provider not in self._registry:
             return ReasoningModelStatus()
         return ReasoningModelStatus(
             selection=stored,
@@ -254,9 +279,7 @@ class ModelCatalogService:
                 "context_window_tokens": _clamped(
                     base.context_window_tokens, stored.input_token_limit
                 ),
-                "max_output_tokens": _clamped(
-                    base.max_output_tokens, stored.output_token_limit
-                ),
+                "max_output_tokens": _clamped(base.max_output_tokens, stored.output_token_limit),
             }
         )
         self._resolved[key] = resolved
@@ -280,9 +303,7 @@ class ModelCatalogService:
         with suppress(PersistenceError):
             self._selections.clear_failure()
 
-    def _limits(
-        self, descriptor: ProviderDescriptor, model: str
-    ) -> tuple[int | None, int | None]:
+    def _limits(self, descriptor: ProviderDescriptor, model: str) -> tuple[int | None, int | None]:
         """What the provider says about this model, asked once at the moment of choosing.
 
         The only probe outside `catalog`, and it earns itself: these numbers are what keep a
@@ -295,11 +316,7 @@ class ModelCatalogService:
         except ConfigurationError:
             return None, None
         offered = next((item for item in result.models if item.name == model), None)
-        return (
-            (offered.input_token_limit, offered.output_token_limit)
-            if offered
-            else (None, None)
-        )
+        return (offered.input_token_limit, offered.output_token_limit) if offered else (None, None)
 
 
 def _clamped(authored: int, reported: int | None) -> int:

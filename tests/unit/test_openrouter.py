@@ -60,12 +60,23 @@ def _entry(identifier: str, *, parameters: list[str] | None = None, **rest: Any)
         "id": identifier,
         "name": rest.pop("name", identifier),
         "supported_parameters": (
-            ["structured_outputs", "tools", "max_tokens"]
-            if parameters is None
-            else parameters
+            ["structured_outputs", "tools", "max_tokens"] if parameters is None else parameters
         ),
         **rest,
     }
+
+
+def _offering(monkeypatch: pytest.MonkeyPatch, *identifiers: str) -> None:
+    """Offer exactly these ids for the length of one test.
+
+    `_OFFERED_MODELS` is a product decision — the names this project stands behind — and the
+    tests below are about the gates around it rather than about its contents. One that named
+    the real list would fail the day somebody added a model, for a reason that has nothing to
+    do with what it checks. `test_only_a_named_model_is_offered` is where the real list is
+    asserted, and it is the only test here that reads it.
+    """
+
+    monkeypatch.setattr(openrouter, "_OFFERED_MODELS", frozenset(identifiers))
 
 
 def _offered(entries: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -78,13 +89,21 @@ def _offered(entries: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch) -> 
 def test_a_model_is_offered_for_declaring_what_a_review_needs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The filter is the capability, not a name somebody checked once.
+    """A named model still has to declare what a review needs.
 
-    Every other vendor here is offered a hand-approved list, because their catalogues are
-    full of models that will not honour a JSON schema and the only way to know is to have
-    judged with them. OpenRouter publishes the fact, so there is no list here to go stale
-    when somebody ships a better model on a Tuesday.
+    The two gates are independent and this is the second one. A model can be on the
+    allowlist and still be refused: a vendor that drops `structured_outputs` from a row —
+    which is how OpenRouter reports an endpoint change — stops being offered without anybody
+    editing a list, and that is the half of the old capability filter worth keeping.
     """
+
+    _offering(
+        monkeypatch,
+        "vendor/judges-fine",
+        "vendor/no-schema",
+        "vendor/no-tools",
+        "vendor/nothing",
+    )
 
     offered = _offered(
         [
@@ -97,6 +116,36 @@ def test_a_model_is_offered_for_declaring_what_a_review_needs(
     )
 
     assert offered == ["vendor/judges-fine"]
+
+
+def test_only_a_named_model_is_offered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The first gate, and the one that reads as a product decision rather than a filter.
+
+    A capable model nobody named is refused. That is the whole change from the capability
+    filter this used to be: `vendor/capable` below declares everything a judgement needs and
+    is still not offered, because a chooser is a list a person reads and every name on it is
+    one somebody stood behind. `reasoning/qualification.py` records what each of them did.
+
+    The real list is asserted here rather than lent, so adding a model is a change that shows
+    up in a diff a reviewer reads — which is the point of having one.
+    """
+
+    offered = _offered(
+        [
+            _entry("google/gemini-3.5-flash-lite"),
+            _entry("z-ai/glm-5.3-flash"),
+            _entry("vendor/capable"),
+        ],
+        monkeypatch,
+    )
+
+    assert offered == ["google/gemini-3.5-flash-lite", "z-ai/glm-5.3-flash"]
+    assert sorted(openrouter._OFFERED_MODELS) == [
+        "google/gemini-3.5-flash-lite",
+        "google/gemini-3.6-flash",
+        "z-ai/glm-5.3",
+        "z-ai/glm-5.3-flash",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -117,6 +166,10 @@ def test_a_catalogue_row_that_is_not_one_model_is_never_offered(
     would put a row on the chooser that fails on the first judgement.
     """
 
+    # On the allowlist deliberately: these guards exist to refuse a shape somebody adds to
+    # it by hand, which is the only way one of them can reach `_judgeable` at all now.
+    _offering(monkeypatch, identifier, "vendor/real")
+
     offered = _offered([_entry(identifier), _entry("vendor/real")], monkeypatch)
 
     assert offered == ["vendor/real"], why
@@ -125,11 +178,13 @@ def test_a_catalogue_row_that_is_not_one_model_is_never_offered(
 def test_a_models_own_window_reaches_the_chooser(monkeypatch: pytest.MonkeyPatch) -> None:
     """The catalogue knows more than any descriptor could, so it is asked.
 
-    A single `context_window_tokens` on the descriptor cannot describe 222 models spanning
-    four thousand tokens to two million. Reporting each model's own is what lets
-    `ModelCatalogService` clamp an authored budget down to the model actually chosen.
+    A single `context_window_tokens` on the descriptor cannot describe models spanning four
+    thousand tokens to two million, and the four offered already span 1M and 1.3M. Reporting
+    each model's own is what lets `ModelCatalogService` clamp an authored budget down to the
+    model actually chosen.
     """
 
+    _offering(monkeypatch, "vendor/small")
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(
         openrouter,
@@ -492,9 +547,7 @@ def test_a_finding_records_every_endpoint_that_served_the_judgement(
 
     _served_over(handler, monkeypatch)
     config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", None)
-    judge = SelectedLangChainJudge(
-        SelectedLangChainChatModel(cast("Any", _Selected(config)))
-    )
+    judge = SelectedLangChainJudge(SelectedLangChainChatModel(cast("Any", _Selected(config))))
     candidate, case, policies = _judged(tmp_path)
 
     finding = judge.judge(candidate, case, policies)
@@ -525,9 +578,7 @@ def test_a_provider_with_one_endpoint_records_nothing_rather_than_something(
                     {
                         "verdict": "cleared",
                         "reasoning": "The boundary earns its keep.",
-                        "policy_bearings": [
-                            {"policy_id": "policy-a", "reasoning": "It applies."}
-                        ],
+                        "policy_bearings": [{"policy_id": "policy-a", "reasoning": "It applies."}],
                     }
                 ),
                 provider=None,
@@ -536,9 +587,7 @@ def test_a_provider_with_one_endpoint_records_nothing_rather_than_something(
 
     _served_over(handler, monkeypatch)
     config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", None)
-    judge = SelectedLangChainJudge(
-        SelectedLangChainChatModel(cast("Any", _Selected(config)))
-    )
+    judge = SelectedLangChainJudge(SelectedLangChainChatModel(cast("Any", _Selected(config))))
     candidate, case, policies = _judged(tmp_path)
 
     finding = judge.judge(candidate, case, policies)
@@ -586,9 +635,7 @@ def test_two_judgements_in_flight_at_once_keep_their_routes_apart(
                     {
                         "verdict": "cleared",
                         "reasoning": "The boundary earns its keep.",
-                        "policy_bearings": [
-                            {"policy_id": "policy-a", "reasoning": "It applies."}
-                        ],
+                        "policy_bearings": [{"policy_id": "policy-a", "reasoning": "It applies."}],
                     }
                 ),
                 provider=endpoint,
@@ -597,16 +644,12 @@ def test_two_judgements_in_flight_at_once_keep_their_routes_apart(
 
     _served_over(handler, monkeypatch)
     config = reasoning_config(openrouter.DESCRIPTOR, "google/gemini-3.5-flash-lite", None)
-    judge = SelectedLangChainJudge(
-        SelectedLangChainChatModel(cast("Any", _Selected(config)))
-    )
+    judge = SelectedLangChainJudge(SelectedLangChainChatModel(cast("Any", _Selected(config))))
     first = _judged(tmp_path)
     second = _judged(tmp_path)
 
     with ThreadPoolExecutor(max_workers=2) as branches:
-        findings = list(
-            branches.map(lambda judged: judge.judge(*judged), (first, second))
-        )
+        findings = list(branches.map(lambda judged: judge.judge(*judged), (first, second)))
 
     # One name each, and not the same name: a leak in either direction shows up here as a
     # comma-joined pair or as two findings claiming the same endpoint.
@@ -695,9 +738,7 @@ def test_the_route_is_seen_from_inside_the_gathering_loop_as_well(
     )
     candidate, case, policies = _judged(tmp_path)
     repository = RepositoryRef("repo", tmp_path, "branch", "content")
-    subject = ReviewedSubject(
-        repository=repository, atlas=RepositoryAtlas("atlas", repository)
-    )
+    subject = ReviewedSubject(repository=repository, atlas=RepositoryAtlas("atlas", repository))
 
     finding = judge.judge(candidate, case, policies, subject=subject)
 
@@ -707,8 +748,12 @@ def test_the_route_is_seen_from_inside_the_gathering_loop_as_well(
     assert finding.served_by == "Google AI Studio,Vertex"
 
 
-def test_a_model_that_cannot_reason_offers_only_its_own_default() -> None:
+def test_a_model_that_cannot_reason_offers_only_its_own_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The depths offered are the model's claim, not this provider's."""
+
+    _offering(monkeypatch, "vendor/thinks", "vendor/plain")
 
     reasoning = openrouter._judgeable(
         {
@@ -746,9 +791,7 @@ def _embeddings(
         return response
 
     monkeypatch.setattr(openrouter.httpx, "post", _post)
-    embedder = openrouter.OpenRouterEmbeddings(
-        api_key="k", model="vendor/embed", dimensions=8
-    )
+    embedder = openrouter.OpenRouterEmbeddings(api_key="k", model="vendor/embed", dimensions=8)
     embedder._sent = sent
     return embedder
 
@@ -1014,9 +1057,7 @@ def test_the_refusal_a_real_transport_produces_is_the_one_that_is_recognised() -
             "code": 404,
         }
     }
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(404, json=refusal)
-    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(404, json=refusal))
     model = ChatOpenAI(
         model="openai/gpt-5.6-luna-pro",
         api_key=cast("Any", "test-key"),

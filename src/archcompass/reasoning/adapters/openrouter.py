@@ -3,12 +3,19 @@
 OpenRouter answers OpenAI's chat API, so the transport underneath is `langchain-openai` and
 the `httpx` client below. Two things about it are behaviour rather than configuration.
 
-The first is discovery. Every other vendor here is offered a hand-approved list of models,
-intersected with what the endpoint lists, because a vendor's catalogue is full of models
-that will not honour a JSON schema and the only way to know which is to have judged with
-them. OpenRouter publishes that fact per model. So the list is a *capability filter* over
-the live catalogue — a model is offered when it declares `structured_outputs` and `tools` —
-and there is no list here to go stale when somebody ships a better model on a Tuesday.
+The first is discovery, and it is two gates rather than one. `_OFFERED_MODELS` names the
+models this workspace offers, and `_REQUIRED_CAPABILITIES` then asks the live catalogue
+whether each of them still declares what a judgement needs.
+
+The capability gate alone was the whole of it once, and the argument for that is still on
+the record: OpenRouter publishes `structured_outputs` per model, so the catalogue could be
+filtered rather than curated, and no list would go stale when somebody shipped a better
+model on a Tuesday. What that argument missed is that a declaration is not a measurement.
+`reasoning/qualification.py` exists because models that declare the capability still return
+one verdict for every candidate, or reason against the dossier they were given — and a
+chooser listing two hundred models invites picking one nobody has measured. The names below
+are the ones this project has decided to stand behind. Adding one is a deliberate act with
+a gate run behind it, which is the property the filter could not give.
 
 The second is the request. See `request_body`.
 
@@ -60,8 +67,32 @@ _EMBEDDING_TIMEOUT: Final = 120.0
 #: knew.
 _REQUIRED_CAPABILITIES: Final = frozenset({"structured_outputs", "tools"})
 
+#: The models this workspace offers through OpenRouter, by their catalogue id.
+#:
+#: Short on purpose. Every name here is one somebody chose, and the chooser is a list a
+#: person reads rather than a search box — two hundred rows filtered only by a declared
+#: capability is not a shorter way of saying the same thing, it is a different offer.
+#:
+#: A name that leaves the live catalogue, or stops declaring what `_REQUIRED_CAPABILITIES`
+#: asks, simply stops being offered: the intersection below is taken against what the
+#: endpoint actually lists, so this can name a model a key cannot reach without pretending
+#: it is there. What it must not do is name a model nobody has run the gate on and let it
+#: read as endorsed — see `reasoning/qualification.py` for what each of these did.
+_OFFERED_MODELS: Final = frozenset(
+    {
+        "google/gemini-3.6-flash",
+        "google/gemini-3.5-flash-lite",
+        "z-ai/glm-5.3",
+        "z-ai/glm-5.3-flash",
+    }
+)
+
 #: Catalogue entries that are not a model this workspace can judge with, whatever their
 #: capabilities say. Three shapes, and each would fail differently.
+#:
+#: `_OFFERED_MODELS` already excludes all three by naming exact ids, so these now guard the
+#: allowlist rather than the catalogue: they are what refuses a pointer or a batch-only id
+#: that somebody adds to it, and the reasons below are why that refusal is wanted.
 #:
 #: `openrouter/…` is a router: it resolves to a different underlying model per request —
 #: two consecutive calls to `openrouter/free` were served by Nvidia and by Cohere. `~…`
@@ -440,17 +471,16 @@ def _judgeable(entry: Mapping[str, object]) -> AvailableModel | None:
     identifier = entry.get("id")
     if not isinstance(identifier, str):
         return None
-    if (
-        identifier.startswith((_ROUTER_NAMESPACE, _MOVING_POINTER))
-        or identifier.endswith(_BATCH_ONLY)
+    if identifier not in _OFFERED_MODELS:
+        return None
+    if identifier.startswith((_ROUTER_NAMESPACE, _MOVING_POINTER)) or identifier.endswith(
+        _BATCH_ONLY
     ):
         return None
     declared = entry.get("supported_parameters")
     if not isinstance(declared, list):
         return None
-    capabilities = {
-        item for item in cast(list[object], declared) if isinstance(item, str)
-    }
+    capabilities = {item for item in cast(list[object], declared) if isinstance(item, str)}
     if not capabilities.issuperset(_REQUIRED_CAPABILITIES):
         return None
     name = entry.get("name")
@@ -469,9 +499,7 @@ def _judgeable(entry: Mapping[str, object]) -> AvailableModel | None:
         # The depths this provider offers, where the model declares it reasons at all.
         # `None` is always there and always means "the model's own default"; a level is sent
         # as an effort and every one of the four is accepted.
-        thinking_modes=(
-            (None, *THINKING_LEVELS) if "reasoning" in capabilities else (None,)
-        ),
+        thinking_modes=((None, *THINKING_LEVELS) if "reasoning" in capabilities else (None,)),
     )
 
 
@@ -610,6 +638,7 @@ class OpenRouterEmbeddings(Embeddings):
                 "unrelated one."
             )
         vectors: list[list[float]] = []
+
         # Ordered by `index` rather than by arrival: the caller pairs these back onto its own
         # list, and a reordered response would file every chunk under its neighbour's text.
         # This is the join the deleted batch path got wrong by trusting position instead.

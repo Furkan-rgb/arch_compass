@@ -93,22 +93,71 @@ def _service(
     return ModelCatalogService(
         registry=registry,
         selections=selections or _Selections(),  # pyright: ignore[reportArgumentType]
-        pin=(
-            reasoning_config(registry[pin], "pinned-model", True)
-            if pin is not None
-            else None
-        ),
+        pin=(reasoning_config(registry[pin], "pinned-model", True) if pin is not None else None),
     )
 
 
-def test_a_workspace_that_has_chosen_nothing_reasons_with_nothing() -> None:
-    """Reported as an absence rather than raised: everything a review does not need a model
-    for still works, and the one thing that does can ask for one where it is needed."""
+def test_a_workspace_that_has_chosen_nothing_reasons_with_the_default() -> None:
+    """A new workspace can review before anybody opens the Models screen.
+
+    This asserted an absence until the default arrived, and the absence was the problem: a
+    first review needed a choice a new reader had no basis to make, so the product's opening
+    move was a settings page. The default is a real selection — `current` resolves it and a
+    review runs on it — and the first click on any other tile replaces it.
+    """
 
     service = _service(
         _descriptor("openrouter", _answering(), _HOSTED_DEFAULTS),
         _descriptor("ollama", _answering(), _OLLAMA_DEFAULTS),
     )
+
+    status = service.status()
+    assert (status.provider, status.model, status.thinking) == (
+        "openrouter",
+        "z-ai/glm-5.3-flash",
+        "medium",
+    )
+    current = service.current()
+    assert current is not None
+    assert (current.provider, current.model, current.thinking) == (
+        "openrouter",
+        "z-ai/glm-5.3-flash",
+        "medium",
+    )
+
+
+def test_the_default_is_never_written_to_the_store() -> None:
+    """What keeps it a default rather than a choice made on somebody's behalf.
+
+    A stored default could not be told from a click: `clear` would return the workspace to
+    whatever the default was on the day the row was written, and changing the name in
+    `_DEFAULT_SELECTION` would leave every existing workspace on the old one.
+    """
+
+    selections = _Selections()
+    service = _service(
+        _descriptor("openrouter", _answering(), _HOSTED_DEFAULTS), selections=selections
+    )
+
+    assert service.status().model == "z-ai/glm-5.3-flash"
+    assert selections.stored is None
+
+    service.select("openrouter", "google/gemini-3.6-flash", False)
+    service.clear()
+
+    assert service.status().model == "z-ai/glm-5.3-flash"
+    assert selections.stored is None
+
+
+def test_a_deployment_without_the_default_provider_reasons_with_nothing() -> None:
+    """The default is held to the same rule a stored selection is.
+
+    An Ollama-only deployment has no OpenRouter to default to. Reporting nothing chosen is
+    the honest answer and the one the interface can act on; naming a model the workspace
+    cannot reach would fail at the first judgement instead of at the chooser.
+    """
+
+    service = _service(_descriptor("ollama", _answering(), _OLLAMA_DEFAULTS))
 
     assert service.current() is None
     status = service.status()
@@ -232,9 +281,7 @@ def test_budgets_are_clamped_down_to_the_chosen_model_and_never_up() -> None:
         _descriptor(
             "openrouter",
             _answering(
-                AvailableModel(
-                    name="gemini-tiny", input_token_limit=8192, output_token_limit=2048
-                ),
+                AvailableModel(name="gemini-tiny", input_token_limit=8192, output_token_limit=2048),
                 AvailableModel(
                     name="gemini-huge", input_token_limit=1048576, output_token_limit=65536
                 ),
@@ -446,9 +493,7 @@ def test_choosing_a_model_the_probe_did_not_list_is_allowed() -> None:
     it guards against arrives from the run itself, named and retryable.
     """
 
-    service = _service(
-        _descriptor("ollama", _answering(AvailableModel(name="gemma4:26b")))
-    )
+    service = _service(_descriptor("ollama", _answering(AvailableModel(name="gemma4:26b"))))
 
     status = service.select("ollama", "a-model-pulled-since")
 
