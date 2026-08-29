@@ -36,7 +36,14 @@ from tests.e2e.lifecycle import Lifecycle, run_lifecycle
 #: The cheapest Google model this build offers. Named here rather than left to whatever the
 #: workspace would default to, so a change of default cannot quietly move these onto a model
 #: somebody has to pay for.
-REASONING_MODEL = "google/gemini-3.5-flash-lite"
+#:
+#: `ARCHCOMPASS_E2E_REASONING_MODEL` points the suite at another one for a single run, which
+#: is how a model is measured against the gate in `reasoning/qualification.py` before anybody
+#: argues for it as the default. It overrides nothing when unset, so the pin above still is
+#: what runs unless a person names something else on the command line.
+REASONING_MODEL = (
+    os.environ.get("ARCHCOMPASS_E2E_REASONING_MODEL", "").strip() or "google/gemini-3.5-flash-lite"
+)
 
 #: The local reasoning model, and whether it is asked to think.
 #:
@@ -136,6 +143,19 @@ def _require_local_reasoning() -> None:
     )
 
 
+def _require_ollama() -> None:
+    """Skip unless this machine serves Ollama at all.
+
+    `none of the supported` is tolerated because that detail is the probe reporting no local
+    *reasoning* model it recognises, which says nothing about the embedder. A machine holding
+    EmbeddingGemma and no local judge serves the hosted suite exactly as documented.
+    """
+
+    probe = OLLAMA_DESCRIPTOR.probe(OLLAMA_DESCRIPTOR.defaults)
+    if not probe.available and "none of the supported" not in (probe.detail or ""):
+        pytest.skip(f"Ollama is not running: {probe.detail}")
+
+
 def _require_local_embeddings(runtime: Runtime) -> None:
     """Asked of the discovery service, not of Ollama directly.
 
@@ -144,9 +164,7 @@ def _require_local_embeddings(runtime: Runtime) -> None:
     machine where the product does not work.
     """
 
-    probe = OLLAMA_DESCRIPTOR.probe(OLLAMA_DESCRIPTOR.defaults)
-    if not probe.available and "none of the supported" not in (probe.detail or ""):
-        pytest.skip(f"Ollama is not running: {probe.detail}")
+    _require_ollama()
     offered = {
         (candidate.provider, candidate.model, candidate.dimensions)
         for candidate in runtime.embedding_model_service.catalog().candidates
@@ -184,7 +202,13 @@ def local_policy_index(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Pat
     # it first on a machine with no Ollama meant the skip a reader saw was "the local
     # embedder could not index the corpus" with a raw connection error attached — while the
     # two messages naming the exact `ollama pull` sat further down, unreachable.
-    _require_local_reasoning()
+    #
+    # Ollama itself, and not the local judge. This asked for `LOCAL_REASONING_MODEL` until
+    # the hosted suite was run on a machine that had no local judge and did not need one:
+    # both fixtures take this index, only one of them judges here, and gating the shared
+    # fixture on the local model skipped all nine hosted tests over a model they never call.
+    # `local_runtime` still asks for it, which is where the requirement belongs.
+    _require_ollama()
     path = tmp_path_factory.mktemp("local-policy-index") / "policy-index.sqlite3"
     corpus = bundled_corpus()
     config = _local_embedding_config()
@@ -229,10 +253,6 @@ def lifecycle(
         # key lives; the probes after it decide whether there is anything to run.
         runtime = build_runtime(
             tmp_path_factory.mktemp("hosted-e2e"),
-            # Thinking on, because it is what this model is actually run with — and because
-            # the hinge pass asks it to choose lookups and then honour a JSON schema in
-            # the same breath, which is the combination a non-thinking small model is
-            # least reliable at.
             pin=pinned_model("openrouter", REASONING_MODEL),
         )
         _require_openrouter()
@@ -291,9 +311,7 @@ def local_runtime(
         _require_local_reasoning()
         runtime = build_runtime(
             tmp_path_factory.mktemp("ollama-e2e"),
-            pin=pinned_model(
-                "ollama", LOCAL_REASONING_MODEL, thinking=LOCAL_THINKING
-            ),
+            pin=pinned_model("ollama", LOCAL_REASONING_MODEL, thinking=LOCAL_THINKING),
         )
         _require_local_embeddings(runtime)
         yield runtime
