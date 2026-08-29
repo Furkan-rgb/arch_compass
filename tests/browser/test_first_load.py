@@ -106,7 +106,7 @@ pytestmark = pytest.mark.browser
 #: also match `vite build`'s report and `stat` on `presentation/web/static/assets`.)
 #:
 #: **The font question this comment left open is now answered, by running it.** The v2 design
-#: pass replaced Onest — one variable woff2 covering 400–700 — with IBM Plex Sans, which has no
+#: pass replaced Onest — one variable woff2 covering 400-700 — with IBM Plex Sans, which has no
 #: variable release and therefore ships four static latin cuts and four extended ones. Which of
 #: them a cold `/` actually pulls could not be reasoned out, because `unicode-range` means a
 #: face is fetched only if a glyph in its range is drawn. The bounds were wide: 775,612 at the

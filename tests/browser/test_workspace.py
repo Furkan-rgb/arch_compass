@@ -896,7 +896,8 @@ def test_the_verdict_edge_is_cut_only_by_the_row_rule(page, review_url: str) -> 
 #: sentence above it was capped at a *constant* 616px. Swept before the repair, under Onest:
 #: 34.00px past the argument's right edge at 1024, 18.00px at 1040, and agreeing to the
 #: deliberate -1.11px from about 1060 up. Those are the old face's numbers and the widths are
-#: what survives them — the widths are a property of the grid. 1280 is where the rail widens to 26rem, which moves the track again.
+#: what survives them — the widths are a property of the grid. 1280 is where the rail widens
+#: to 26rem, which moves the track again.
 JUDGED_BAND_WIDTHS = (1024, 1040, 1060, 1280, 1440)
 
 #: How far short of the argument's right edge the lede is allowed to stop, and how far past it.
@@ -930,8 +931,9 @@ def test_the_lede_never_reaches_past_the_argument_it_stands_over(page, review_ur
 
     Which is what the band did. The sentence stood above the grid at the section's full width,
     capped at a constant 616px; the argument stood in a `1fr` track beside a 20rem rail. At 1024
-    that track is 582px. The repair is containment — the sentence is now placed in the argument's own column
-    — and jsdom asserts *that*, as a fact about the document. This asserts the rectangles it
+    that track is 582px. The repair is containment — the sentence is now placed in the
+    argument's own column — and jsdom asserts *that*, as a fact about the document. This
+    asserts the rectangles it
     produces, which is the half a class list cannot promise.
 
     Held at every width above `lg`, and checked below it too: there the band is one column, both
