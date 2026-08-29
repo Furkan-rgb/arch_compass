@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { BEARINGS } from "./bearings";
 import { CASE_FILE } from "./case-file";
+import { DETECTORS } from "./landing-page";
 
 /**
  * The landing page may write out a review. It may not write out a policy.
@@ -85,5 +86,40 @@ describe("the policies the landing page names", () => {
         expect(retrieved?.selected_policy_ids).toContain(bearing.policy_id);
       }
     }
+  });
+});
+
+/**
+ * The page names three detectors by their machine ids. The application owns those ids.
+ *
+ * Same argument as the policies above and the same failure it guards against: a page that
+ * names `sole_implementation` when the enum has been renamed is describing a product that no
+ * longer exists, and nothing but a reader would notice. `FindingPattern` is a closed set
+ * precisely so that the name reaching a model is application-owned, which makes it checkable
+ * from here.
+ */
+describe("the detectors the landing page names", () => {
+  const ATLAS = join(import.meta.dirname, "../../../../src/archcompass/analysis/atlas.py");
+
+  /** The members of `FindingPattern`, read out of the enum itself. */
+  function patterns(): Set<string> {
+    const body = readFileSync(ATLAS, "utf8");
+    const block = /class FindingPattern\(StrEnum\):([\s\S]*?)\n\n\n/.exec(body)?.[1] ?? "";
+    return new Set([...block.matchAll(/^ {4}[A-Z_]+ = "([a-z_]+)"$/gm)].map((match) => match[1]));
+  }
+
+  it("reads an enum that is actually there", () => {
+    expect(patterns().size).toBeGreaterThan(2);
+  });
+
+  it("are all patterns the catalogue can produce", () => {
+    const defined = patterns();
+    const named = DETECTORS.map(([pattern]) => pattern);
+
+    expect(named.filter((pattern) => !defined.has(pattern))).toEqual([]);
+  });
+
+  it("name every one of them, so the page cannot quietly describe two of three", () => {
+    expect(new Set<string>(DETECTORS.map(([pattern]) => pattern))).toEqual(patterns());
   });
 });

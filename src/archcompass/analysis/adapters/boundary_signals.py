@@ -291,16 +291,113 @@ def broad_input_boundary_preparation_signals(nodes: dict[str, AtlasNode],
             )
     return result
 
+def indistinguishable_abstractions(nodes: dict[str, AtlasNode]) -> dict[str, tuple[str, ...]]:
+    """Abstractions whose public operations are, name for name, the same set.
+
+    Structural conformance asks "does this class carry this surface". Where two
+    abstractions *are* one surface, every answer is yes for both, and the atlas records a
+    class as implementing each of them. That is correct typing and useless architecture:
+    30 ports with one adapter apiece, all declaring `load`/`save`, produced 900 conformance
+    edges, every port reported 30 implementations, and `sole_implementation` — the detector
+    the arrangement exists for — reported nothing at all. Rename the operations and the same
+    repository yields 30 candidates.
+
+    So the surface is not evidence about any one member of the group, and this is what says
+    which groups those are. The reading a suppressed edge deserves is "this cannot be
+    attributed", which is a signal, not silence — see `indistinguishable_surface_signals`.
+
+    Keyed by abstraction id and valued with the whole group including itself, so a caller
+    can both test membership and name the others in one lookup. Measured over the installed
+    corpus: `anyio` has eight such abstractions and 19 of its 25 structural edges are
+    between them; `archcompass` has four and five; the five bundled example repositories
+    have none, so nothing this detector is designed to find is affected.
+    """
+
+    children: defaultdict[str, set[str]] = defaultdict(set)
+    for node in nodes.values():
+        if (
+            node.parent_id is not None
+            and node.node_type == NodeType.METHOD
+            and node.is_public
+        ):
+            children[node.parent_id].add(node.symbol_name)
+    by_surface: defaultdict[frozenset[str], list[str]] = defaultdict(list)
+    for node in nodes.values():
+        if node.node_type == NodeType.INTERFACE and children[node.atlas_id]:
+            by_surface[frozenset(children[node.atlas_id])].append(node.atlas_id)
+    return {
+        member: tuple(sorted(group))
+        for group in by_surface.values()
+        if len(group) > 1
+        for member in group
+    }
+
+
+def indistinguishable_surface_signals(
+    nodes: dict[str, AtlasNode], groups: dict[str, tuple[str, ...]]
+) -> list[ObscuritySignal]:
+    """One signal per abstraction whose surface another abstraction also declares.
+
+    Emitted because the alternative is silence that reads as approval. Nothing downstream
+    can otherwise tell "no class conforms to this port" from "several ports are one shape
+    and no class can be attributed to any of them", and the second was reported as the
+    first for as long as the suppression did not exist.
+    """
+
+    signals: list[ObscuritySignal] = []
+    for abstraction_id, group in sorted(groups.items()):
+        node = nodes.get(abstraction_id)
+        if node is None:  # pragma: no cover - groups are built from `nodes`
+            continue
+        others = ", ".join(
+            sorted(nodes[other].qualified_name for other in group if other != abstraction_id)
+        )
+        signals.append(
+            ObscuritySignal(
+                code="indistinguishable-abstraction-surface",
+                message=(
+                    f"{node.qualified_name} declares the same operations as {others}, so "
+                    f"structural conformance cannot say which of them a class implements."
+                ),
+                node_id=abstraction_id,
+                location=(
+                    SourceLocation(
+                        path=node.path, start_line=node.start_line, end_line=node.end_line
+                    )
+                    if node.start_line is not None and node.end_line is not None
+                    else None
+                ),
+                nature=MetricNature.STRUCTURAL_PROXY,
+                definition=(
+                    "Abstractions declaring an identical set of public operation names. A "
+                    "class carrying that set satisfies all of them, so no conformance edge "
+                    "to any single one of them is recorded."
+                ),
+                limitations=(
+                    "Compared by operation name only. Two abstractions with the same names "
+                    "and incompatible signatures are counted as one surface here, and an "
+                    "inheritance stated in the source is unaffected — a declared "
+                    "implementation is evidence this comparison does not need."
+                ),
+            )
+        )
+    return signals
+
+
 def add_structural_protocol_edges(nodes: dict[str, AtlasNode],
     edges: list[AtlasEdge],
     trees: TreeSource,
-) -> None:
+) -> list[ObscuritySignal]:
     """Add conservative Python Protocol conformance edges.
 
     Python adapters commonly rely on structural typing and therefore do not
     inherit their Protocol. We require the complete operation set, compatible
     arity, and at least two matching annotations across each operation before
     treating a class as a structural implementation.
+
+    An abstraction that shares its surface with another is left out entirely, and the
+    signals returned say so — see `indistinguishable_abstractions` for why a match there is
+    not evidence about either of them.
     """
 
     children_by_parent: defaultdict[str, list[AtlasNode]] = defaultdict(list)
@@ -312,8 +409,11 @@ def add_structural_protocol_edges(nodes: dict[str, AtlasNode],
         for edge in edges
         if edge.edge_type == EdgeType.IMPLEMENTS
     }
+    groups = indistinguishable_abstractions(nodes)
     interfaces = [
-        node for node in nodes.values() if node.node_type == NodeType.INTERFACE
+        node
+        for node in nodes.values()
+        if node.node_type == NodeType.INTERFACE and node.atlas_id not in groups
     ]
     classes = [
         node
@@ -367,6 +467,8 @@ def add_structural_protocol_edges(nodes: dict[str, AtlasNode],
                     line=candidate.start_line,
                 )
             )
+    return indistinguishable_surface_signals(nodes, groups)
+
 
 def _structural_method_match(protocol_method: AtlasNode,
     candidate_method: AtlasNode,

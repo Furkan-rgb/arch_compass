@@ -29,6 +29,7 @@ from archcompass.analysis.adapters.ast_support import (
 from archcompass.analysis.adapters.boundary_signals import (
     add_structural_protocol_edges,
     broad_input_boundary_preparation_signals,
+    indistinguishable_abstractions,
     parallel_boundary_preparation_signals,
 )
 from archcompass.analysis.adapters.concentration_signals import (
@@ -115,7 +116,20 @@ from archcompass.records import canonical_json, stable_id
 # fifty ports in this repository while every one of them was wired. A judge reading "no
 # code currently routes through this boundary" was reading a fact about the walk. Edges are
 # stored, so a v7 atlas is missing them and is stale.
-PARSER_VERSION = "python-ast-3.12-v8"
+# v9 stops recording a type parameter as a constant a module states. `T = TypeVar("T")`
+# passes `isupper()`, so every generic module was reported as repeating the knowledge `T`
+# with every other one. Across nine installed libraries that was 14 of the repetition
+# detector's 47 candidates, and the largest candidate in seven of them. Constants are
+# stored on the atlas, so a v8 atlas keeps them and is stale.
+# v10 refuses to record a structural conformance edge to an abstraction whose public
+# operations another abstraction also declares. A class carrying the surface satisfies every
+# member of the group, so the atlas was asserting a cross product: 30 ports declaring
+# `load`/`save` with one adapter each produced 900 `IMPLEMENTS` edges, every port reported 30
+# implementations, and `sole_implementation` found nothing — while the same repository with
+# the operations renamed yielded 30 candidates. The suppression is stated rather than silent:
+# each such abstraction now carries an `indistinguishable-abstraction-surface` signal. Edges
+# and signals are both stored, so a v9 atlas keeps the cross product and is stale.
+PARSER_VERSION = "python-ast-3.12-v10"
 
 
 @dataclass(frozen=True)
@@ -576,7 +590,7 @@ class PythonAstRepositoryAnalyzer:
         # the whole `sole_implementation` detector, which on this repository is 36 of 54
         # candidates. A review of it came back with four.
         if self._edge_resolver is None:
-            add_structural_protocol_edges(nodes, edges, trees)
+            signals.extend(add_structural_protocol_edges(nodes, edges, trees))
         else:
             unresolved, answered = self._apply_resolution(
                 self._edge_resolver,
@@ -587,7 +601,7 @@ class PythonAstRepositoryAnalyzer:
                 excluded_paths,
             )
             if not answered:
-                add_structural_protocol_edges(nodes, edges, trees)
+                signals.extend(add_structural_protocol_edges(nodes, edges, trees))
         signals.extend(self._unresolved_call_signals(unresolved))
         edges = _deduplicate_edges(edges)
         self._add_duplicate_constant_signals(module_facts, signals)
@@ -1864,8 +1878,19 @@ def _conformance_questions(
         for edge in edges
         if edge.edge_type == EdgeType.IMPLEMENTS
     }
+    # An abstraction that shares its surface with another is left out here for the reason
+    # `indistinguishable_abstractions` gives: a type checker answers yes for every member of
+    # the group, so its verdict cannot be attributed to any one of them. Asking anyway would
+    # let an installed resolver record the cross product the untyped path now refuses, and
+    # the two passes have to answer for the same repository.
+    indistinguishable = indistinguishable_abstractions(nodes)
     abstractions = sorted(
-        (node for node in nodes.values() if node.node_type == NodeType.INTERFACE),
+        (
+            node
+            for node in nodes.values()
+            if node.node_type == NodeType.INTERFACE
+            and node.atlas_id not in indistinguishable
+        ),
         key=lambda item: item.atlas_id,
     )
     classes = sorted(
@@ -2187,12 +2212,43 @@ def _facts_for(module: ParsedModule, owned: set[str]) -> ModuleFacts:
         mentions=_owned_mentions(module, owned),
     )
 
+#: Calls whose result is a type parameter rather than a value. Excluded from the constants
+#: a module states, because `T = TypeVar("T")` is upper-case by convention and is knowledge
+#: about nothing: every module that is generic declares it, the declarations cannot drift,
+#: and giving them one owner is not advice anybody can act on.
+#:
+#: Measured before it was written. Over nine installed libraries the repetition detector
+#: produced 47 candidates and 14 of them were this, and `T` or `_T` was the largest
+#: candidate in seven of the nine — `T` in 15 `langchain_core` modules, `_T` in 14
+#: `anthropic` ones. Each one is a judgement, and a judgement is about 15,000 input tokens,
+#: so the noise was the most expensive thing the detector produced.
+_TYPE_PARAMETER_FACTORIES = frozenset({"TypeVar", "ParamSpec", "TypeVarTuple", "NewType"})
+
+
+def _is_type_parameter(value: ast.expr | None) -> bool:
+    """Whether an assignment declares a type parameter rather than states a value.
+
+    Read from the callee's name and not from the import it came from, so `typing.TypeVar`,
+    `t.TypeVar` and a bare `TypeVar` are all recognised. A module that shadowed the name
+    with something else would be missed, which is the safe direction: the cost of that is
+    one candidate nobody asked for, and the cost of the opposite is a real repetition
+    silently dropped.
+    """
+
+    if not isinstance(value, ast.Call):
+        return False
+    callee = value.func
+    name = callee.attr if isinstance(callee, ast.Attribute) else getattr(callee, "id", None)
+    return name in _TYPE_PARAMETER_FACTORIES
+
+
 def _declared_constants(module: ParsedModule) -> list[DefinedConstant]:
     """Module-level SCREAMING_CASE assignments, with their value fingerprinted.
 
     Upper-case only, because that is the convention that says "this is knowledge, not
     working state", and a detector reading every module-level assignment would report the
-    repository's plumbing at itself.
+    repository's plumbing at itself. Type parameters are left out for the same reason one
+    step further on — see `_TYPE_PARAMETER_FACTORIES`.
     """
 
     constants: list[DefinedConstant] = []
@@ -2205,6 +2261,8 @@ def _declared_constants(module: ParsedModule) -> list[DefinedConstant]:
         elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
             names = [statement.target.id]
             value = statement.value
+        if _is_type_parameter(value):
+            continue
         for name in names:
             if not name.isupper():
                 continue

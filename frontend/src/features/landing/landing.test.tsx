@@ -307,6 +307,28 @@ describe("the landing page", () => {
     expect(screen.getByText("Looked up")).toBeInTheDocument();
   });
 
+  it("names the catalogue by the ids the application owns", () => {
+    renderLanding();
+
+    // Mono, because the id is the machine quoting itself. `corpus.test.ts` is what checks
+    // these three against `FindingPattern`; this only checks the page draws them.
+    expect(screen.getByText("sole_implementation")).toBeInTheDocument();
+    expect(screen.getByText("duplicated_knowledge")).toBeInTheDocument();
+    expect(screen.getByText("scattered_concept")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "An abstraction with one implementation behind it" }),
+    ).toBeInTheDocument();
+  });
+
+  it("says what the catalogue declines to raise, not only what it finds", () => {
+    renderLanding();
+
+    expect(
+      screen.getByRole("heading", { name: "A type parameter is not a constant" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/are not fifteen modules repeating themselves/)).toBeInTheDocument();
+  });
+
   it("says plainly what the product is not", () => {
     renderLanding();
 

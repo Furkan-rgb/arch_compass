@@ -418,3 +418,41 @@ a `Label`", and sometimes "this should not be mono". `ui/design-system.test.ts` 
 matching guard for the label half — *"hunts for the recipe `Label` actually draws"* is live and
 keeps the pattern calibrated, while the `.todo` beside it that would fail on the 30 hand-rolled
 copies stays off until they are decided rather than replaced.
+
+## OPEN — `scattered_concept` cannot tell a proper noun from a category word
+
+The detector asks whether a module's own name has spread beyond the package that owns it.
+`_names_things_after_itself` is the guard that decides whether the name is a *thing* at all:
+it requires the word to lead an identifier the module declares, on the grammar that a proper
+noun modifies — `QwenSpeechProvider` is a speech provider that is Qwen's.
+
+`BaseMessage` leads with `base`, and so does every other `Base*` class in Python. The guard
+passes, `base` is treated as a concept, and the repository is then full of the word for
+reasons that have nothing to do with the module. On `langchain_core` (180 modules) this
+reported `messages.base` named in 97 modules and `tracers.base` in 103.
+
+**Two guards now catch most of it.** A name several modules answer to owns nothing
+(`langchain_core` has thirteen `base.py` files), which removes `base`, `fake`, `image` and
+`string` — 8 of the 15. Type parameters no longer count as constants, which is a different
+detector but the same class of error.
+
+**Five remain, and no test in the parse separates them.** `agents`, `transform`,
+`generation`, `configurable` and `router` are category words owned by exactly one module.
+Four candidate rules were measured against the corpus and the five bundled examples, whose
+`qwen`, `ollama` and `northwind` are the shapes this detector exists to find:
+
+| rule | result |
+| --- | --- |
+| the concept must be reached by the modules naming it | deletes every example's true positive; `boundary-review` has 6 structural edges and 0 references |
+| the concept must not name a callable anywhere | catches `transform` only, and wrongly suppresses `deterministic` here |
+| the concept must appear in few distinct identifiers | does not separate: `qwen` is in 3 or 4, `router` in 2 |
+| an absolute ceiling on naming modules | does not separate: true positives are 2–5, false positives run 1–110 |
+
+So this is left as it is, on the grounds the detector already states in
+`_SCATTERED_CONCEPT_LIMITS`: a mention is not evidence of a dependency, the candidate says so,
+and the judgement is the stage that can see the case. The residue is about five candidates
+per 180-module repository, and a candidate is about 15,000 input tokens.
+
+`tests/unit/test_detector_probes.py::test_a_module_named_for_a_category_word_is_not_a_scattered_concept`
+is the reproduction, marked `xfail(strict=True)` so that a rule which does work turns the
+suite red rather than passing unnoticed.

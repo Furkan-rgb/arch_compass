@@ -72,6 +72,20 @@ structure rather than measuring it.
 detectors cover both directions a boundary can be wrong: an indirection hiding nothing,
 knowledge with no owner, a concept escaped its package.
 
+What a detector *declines* to report is part of the same contract, because a candidate costs
+a judgement and a judgement is about 15,000 input tokens. Three refusals are load-bearing. A
+type parameter is not a constant, so `T = TypeVar("T")` in forty modules is not forty modules
+repeating themselves. A set of modules that shares many constants is one finding about the
+copy rather than one finding per constant. And an abstraction whose public operations another
+abstraction also declares gets no structural conformance edge at all — a class carrying the
+surface satisfies both, so the match is not evidence about either, and the abstraction carries
+an `indistinguishable-abstraction-surface` signal instead of a silence that reads as approval.
+Measured over nine installed libraries, the three together take the catalogue from 133
+candidates to 85 without changing a single candidate on the five bundled examples.
+
+The limit of the third detector is written up in `known-defects.md`: a module named for a
+category word rather than for a thing is indistinguishable from a leaked name by parse alone.
+
 Detection runs over the whole repository every review; *judgement* does not. After the first
 review only the changed and the new reach a model, and a finding for an unchanged candidate
 is carried verbatim out of the previous review. A second review of a repository where

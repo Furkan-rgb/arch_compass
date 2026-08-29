@@ -347,6 +347,10 @@ def duplicated_knowledge_candidates(
     giving those five one owner would couple them. A copy shared with code that is not a
     test is still reported, because a test hard-coding a value production owns is exactly
     the drift this pattern is for.
+
+    One constant is one candidate; a set of modules sharing several is one candidate about
+    the copy. The fact is the copy, and saying it once per constant said it fifteen times
+    for one `pydantic` shim.
     """
 
     by_name: dict[str, list[tuple[ModuleFacts, DefinedConstant]]] = defaultdict(list)
@@ -354,7 +358,18 @@ def duplicated_knowledge_candidates(
         for constant in module.constants:
             by_name[constant.name].append((module, constant))
 
-    candidates: list[FindingCandidate] = []
+    # Names that survive the filters, grouped by the set of modules that state them. Two
+    # modules that share one constant have repeated a fact; two that share fifteen have
+    # been copied, and reporting the copy fifteen times says the same thing fifteen times
+    # at fifteen times the price. `pydantic` ships `v1/mypy.py` beside `mypy.py` and
+    # produced fifteen candidates for the one shim — 26 of its 30, and every one of them
+    # advice nobody can take, because giving `pydantic.v1.VERSION` and `pydantic.VERSION`
+    # a single owner is not a change anybody is going to make.
+    #
+    # A name stated by a set no other name shares is reported exactly as it always was, so
+    # the ordinary finding — one constant, two modules — keeps its wording, its
+    # participants and therefore its identity across this change.
+    shared: dict[frozenset[str], list[str]] = defaultdict(list)
     for name, statements in sorted(by_name.items()):
         # One module stating a constant is a module owning it, which is the thing that is
         # supposed to happen.
@@ -362,6 +377,15 @@ def duplicated_knowledge_candidates(
             continue
         if all(module.node_id in facts.test_owned for module, _ in statements):
             continue
+        shared[frozenset(module.node_id for module, _ in statements)].append(name)
+
+    candidates: list[FindingCandidate] = []
+    for group in sorted(shared.values(), key=lambda names: names[0]):
+        if len(group) > 1:
+            candidates.append(_copied_module_candidate(group, by_name))
+            continue
+        name = group[0]
+        statements = by_name[name]
         ordered = sorted(statements, key=lambda item: item[0].path)
         fingerprints = {constant.value_fingerprint for _, constant in ordered}
         literal = [item for item in fingerprints if item]
@@ -424,6 +448,105 @@ def duplicated_knowledge_candidates(
     return candidates
 
 
+def _copied_module_candidate(
+    names: list[str],
+    by_name: dict[str, list[tuple[ModuleFacts, DefinedConstant]]],
+) -> FindingCandidate:
+    """One set of modules that states the same several constants, as one candidate.
+
+    The fact is the copy, not each constant in it. A reader asked to look at fifteen
+    findings about `v1/mypy.py` learns what one finding about it would have told them, and
+    the fourteen others are the same sentence with a different word in it.
+
+    Located at the first shared name in each module rather than at every one of them: a
+    participant carries one span, and the count in the role is what says how much of the
+    module is repeated. The names are listed in the summary so nothing is hidden behind
+    the count.
+    """
+
+    stated_by = (owner for name in names for owner, _ in by_name[name])
+    modules = sorted(
+        {owner.path: owner for owner in stated_by}.values(),
+        key=lambda module: module.path,
+    )
+    lines = {
+        module.path: min(
+            constant.line
+            for name in names
+            for owner, constant in by_name[name]
+            if owner.path == module.path
+        )
+        for module in modules
+    }
+    drifted = sorted(
+        name
+        for name in names
+        if len({constant.value_fingerprint for _, constant in by_name[name]}) > 1
+    )
+    listed = ", ".join(names[:6]) + (f" and {len(names) - 6} more" if len(names) > 6 else "")
+    return FindingCandidate(
+        pattern=FindingPattern.DUPLICATED_KNOWLEDGE,
+        summary=(
+            f"{len(modules)} modules state the same {len(names)} constants ({listed})"
+            + (
+                f", and {len(drifted)} of the copies do not all hold the same value."
+                if drifted
+                else ", and every copy holds the same value."
+            )
+        ),
+        participants=[
+            FindingParticipant(
+                node_id=module.node_id,
+                qualified_name=module.qualified_name,
+                location=SourceLocation(
+                    path=module.path,
+                    start_line=lines[module.path],
+                    end_line=lines[module.path],
+                ),
+                role=f"States {len(names)} of the same constants as the others.",
+            )
+            for module in modules
+        ],
+        measurements=[
+            FindingMeasurement(
+                name="modules_stating_it",
+                value=float(len(modules)),
+                unit="modules",
+                nature=MetricNature.MEASUREMENT,
+                definition=(
+                    "Modules defining every one of these constants in this snapshot."
+                ),
+                limitations=_DUPLICATED_KNOWLEDGE_LIMITS,
+            ),
+            FindingMeasurement(
+                name="constants_they_share",
+                value=float(len(names)),
+                unit="constants",
+                nature=MetricNature.MEASUREMENT,
+                definition=(
+                    "Module-level constants stated by all of them under the same name. A "
+                    "set this large is usually one module copied rather than one fact "
+                    "repeated, and the advice for a copy is not the advice for a fact."
+                ),
+                limitations=_DUPLICATED_KNOWLEDGE_LIMITS,
+            ),
+            FindingMeasurement(
+                name="constants_whose_copies_disagree",
+                value=float(len(drifted)),
+                unit="constants",
+                nature=MetricNature.MEASUREMENT,
+                definition=(
+                    "Of the constants above, those whose copies do not all hold the same "
+                    "literal value. Zero means the copies agree today."
+                ),
+                limitations=_DUPLICATED_KNOWLEDGE_LIMITS,
+            ),
+        ],
+        relationships=[],
+        limitations=_DUPLICATED_KNOWLEDGE_LIMITS,
+    )
+
+
 def scattered_concept_candidates(
     nodes: dict[str, AtlasNode],
     edges: list[AtlasEdge],
@@ -450,6 +573,19 @@ def scattered_concept_candidates(
     """
 
     module_by_path = {module.path: module for module in module_facts}
+    # How many modules of this repository answer to each file name. A stem several files
+    # share is not a name that identifies any one of them — `messages/base.py` and
+    # `tracers/base.py` and eleven more all own `base`, so no module owns it, and every
+    # `Base*` identifier anywhere becomes a mention of all thirteen.
+    #
+    # Measured before it was written. On `langchain_core` this detector reported `base`
+    # named in 103 modules, `string` in 39 and `image` in 18; on the four repositories
+    # bundled as examples, every concept it is designed to find — `qwen`, `ollama`,
+    # `northwind` — is the only module of its name. The test is the file list and nothing
+    # else, so it needs no threshold and cannot move with what else is in the checkout.
+    owners_of_stem: dict[str, int] = defaultdict(int)
+    for module in module_facts:
+        owners_of_stem[module.path.rsplit("/", maxsplit=1)[-1].removesuffix(".py").casefold()] += 1
     # Which module reaches which, and by what kind of edge. Built once over the whole edge
     # list rather than per candidate, because it is a fact about the repository and every
     # candidate asks the same question of it.
@@ -481,6 +617,9 @@ def scattered_concept_candidates(
             continue
         concept = path.rsplit("/", maxsplit=1)[-1].removesuffix(".py").casefold()
         if not concept or concept.startswith("_"):
+            continue
+        # A name shared with another module names a kind of file, not a thing that leaked.
+        if owners_of_stem[concept] > 1:
             continue
         # A module named after the concept its abstraction is about is not a variant whose
         # name has escaped — it *is* the concept, and the rest of the repository naming it

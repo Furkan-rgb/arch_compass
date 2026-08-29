@@ -227,6 +227,47 @@ and the other two verdict nodes' rings sit at 0.3, and the edges touching the ac
 come forward to `--ink-3` at 1.25 while every other edge stays `--rule-strong` at 1. The
 edges into and out of the candidate are the ones the finding is about.
 
+## `What it looks for` — the catalogue, and what it refuses
+
+`DetectorsSection` sits between *How it works* and *A finding*, which is where the page owes
+it: step 03 of the six calls a candidate "a structural shape that deserves judgement", and
+until this section existed nothing said what shapes those are. A reader went from an
+abstract noun straight to one worked example of it.
+
+It carries two blocks and the second is the point.
+
+**The three detectors are named by their machine ids** — `sole_implementation`,
+`duplicated_knowledge`, `scattered_concept` — set in mono beside a sans title, because the id
+is the literal string `FindingPattern` carries and the workbench prints, and the title is the
+sentence a person reads. That is the page's own three-voices thesis applied to its own copy,
+one line apart.
+
+**The second block is what the catalogue declines to raise**, and it is on this page for a
+commercial reason rather than a modest one. A candidate raised in error is not free: it is a
+retrieval, a judgement, and a paragraph somebody reads before disagreeing with it. Precision
+*is* the feature, and no competitor advertises the half of a detector that stays quiet. The
+three refusals shown are real and each one removed measured noise:
+
+- a type parameter is not a constant (`T = TypeVar("T")` is upper-case by convention);
+- a set of modules sharing many constants is one finding about the copy, not one per constant;
+- two abstractions with one operation surface get no conformance edge, because a class
+  carrying it satisfies both — the atlas records the ambiguity instead.
+
+### It is checked against the enum, not against a copy of it
+
+`corpus.test.ts` reads `FindingPattern` out of `src/archcompass/analysis/atlas.py` and asserts
+both directions: every id the page names is one the catalogue can produce, **and** the page
+names every one of them. The second half is the one that matters — a fourth detector added to
+the application without a fourth entry here fails the test rather than leaving the page
+quietly describing two thirds of the product. This is the same device, and the same argument,
+as the policy check directly above it in that file.
+
+### The second block deliberately does not use the `RefusalsSection` idiom
+
+`RefusalsSection` owns the 17px display row for four peer statements about the whole product.
+These three are a qualification on the block above them, so they sit a size down behind a
+`Label`. Two lists at one rank in one page would read as one list interrupted by a heading.
+
 ## Honesty: everything on this page maps to a real record
 
 **A hero that invents a field is a promise the product cannot keep.** Somebody reads the
@@ -314,7 +355,7 @@ that nobody acts on is the ribbon again in a smaller font.
 | `< sm` (640) | Copy full width. Map at `aspect-[900/700]`, full width, **module labels at 18 user units and only the active node labelled** — fifteen labels at half scale are fifteen illegible labels, and the callout beneath names the candidate in text anyway. The header CTA is gone; the section nav is behind the menu button. The `intent` band's field drops to 34% opacity so it never competes with the three paragraphs over it |
 | `sm` (640) | Node labels appear at 13 units, module labels drop to 12. The header CTA returns. The finding section's three readings go from stacked rows to one row |
 | `md` (768) | The section nav appears inline and the menu button goes. The finding section's attribution gutter becomes a real left column instead of a label strip above each block |
-| `lg` (1024) | The six steps of *How it works* go to one row of six |
+| `lg` (1024) | The six steps of *How it works* go to one row of six, and the three detectors of *What it looks for* go to one row of three |
 | `xl` (1280) | The figure leaves the flow, pins to the right, and the callout attaches to the map with its leader. Below this the figure is one stacked column: caption, map, callout underneath |
 
 The picker wraps rather than scrolls, and each of its buttons is `min-h-11` — the 44px touch

@@ -45,6 +45,7 @@ const CaseFileDocket = lazy(() =>
 const SECTIONS = [
   { id: "intent", label: "Unwritten intent" },
   { id: "how", label: "How it works" },
+  { id: "detectors", label: "What it looks for" },
   { id: "finding", label: "A finding" },
   { id: "refusals", label: "What it isn't" },
 ];
@@ -60,6 +61,58 @@ const STEPS = [
     "Decision",
     "Accept, park or waive — recorded against the branch, and it survives the rerun.",
     "Person",
+  ],
+] as const;
+
+/**
+ * The catalogue, by its real `FindingPattern` ids.
+ *
+ * The ids are the application's own — `FindingPattern` in `analysis/atlas.py` — and
+ * `corpus.test.ts` reads that file to check these three against it, for the reason the
+ * policy ids on this page are checked the same way: a page naming a detector the product
+ * does not run is making its central claim falsely.
+ *
+ * Three and not more, because three is what the corpus supports. Two directions a boundary
+ * can be wrong: structure hiding nothing, and knowledge with nowhere to live.
+ */
+export const DETECTORS = [
+  [
+    "sole_implementation",
+    "An abstraction with one implementation behind it",
+    "The shape an agent produces when it reaches for an interface at a decision point that had no credible variation. Deliberately not a violation — a port with a single adapter is often correct, so the candidate carries the count, who depends on it, and whether the test suite substitutes anything for it.",
+  ],
+  [
+    "duplicated_knowledge",
+    "One constant stated in several modules, with no module owning it",
+    "The direction the first one cannot see. An advisor that only ever reports unnecessary abstractions becomes an advocate for copying, so this is the counterweight: here the recommendation, where the case supports one, is give this one owner.",
+  ],
+  [
+    "scattered_concept",
+    "A concept that has an owner, named in modules that go around it",
+    "Restricted to concepts that already have somewhere to live: the module must sit behind an abstraction, so there was a boundary the rest of the repository could have used instead. A vendor's name written into twenty files is the shape.",
+  ],
+] as const;
+
+/**
+ * What the catalogue declines to raise, and why each refusal is load-bearing.
+ *
+ * On this page because it is the half nobody advertises and the half that decides whether
+ * the product is affordable. A candidate that should not have been raised is not free: it
+ * is a retrieval, a judgement and a paragraph somebody has to read before disagreeing with
+ * it. Precision is the feature.
+ */
+const REFUSED = [
+  [
+    "A type parameter is not a constant",
+    'T = TypeVar("T") is upper-case by convention and states nothing. Fifteen generic modules declaring it are not fifteen modules repeating themselves.',
+  ],
+  [
+    "A copied module is one finding",
+    "Two modules that share one constant have repeated a fact. Two that share fifteen have been copied, and that is one thing to say rather than fifteen.",
+  ],
+  [
+    "One surface cannot be attributed to two abstractions",
+    "A class carrying the operations of two identical protocols satisfies both, so the match is evidence about neither. The atlas records that the two are indistinguishable instead of a conformance it cannot support.",
   ],
 ] as const;
 
@@ -552,6 +605,62 @@ function HowItWorks() {
   );
 }
 
+function DetectorsSection() {
+  return (
+    <section id="detectors" className="scroll-mt-20 py-16 sm:py-[88px]">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <Reveal>
+          <SectionIntro
+            eyebrow="What it looks for"
+            title="Three shapes, and the ones it refuses to raise"
+            body="Detection reads the graph, never a node on its own — a shape you can establish by looking at one thing in isolation is a lint. What a detector declines to report matters as much: a candidate raised in error still costs a retrieval, a judgement, and a paragraph you have to read before disagreeing with it."
+          />
+        </Reveal>
+
+        <Reveal className="mt-11">
+          <ul className="grid gap-x-8 gap-y-9 lg:grid-cols-3">
+            {DETECTORS.map(([pattern, title, body]) => (
+              /* The pattern id is set in mono because it is the machine quoting itself —
+                 the literal string `FindingPattern` carries and the workbench prints. The
+                 title beside it is the sentence a person reads, so it is display sans at
+                 control size. That pairing is the page's own thesis applied to its own
+                 copy, one line apart. */
+              <li key={pattern} className="border-t border-rule-strong pt-4">
+                <Mono className="block text-[11px] tracking-[0.08em] text-ink-3">{pattern}</Mono>
+                <h3 className="mt-2 max-w-[26ch] font-display text-[17px] font-semibold leading-[1.28] tracking-[-0.015em] text-ink">
+                  {title}
+                </h3>
+                <p className="mt-2.5 max-w-[46ch] text-[14px] leading-[1.6] text-ink-2">{body}</p>
+              </li>
+            ))}
+          </ul>
+        </Reveal>
+
+        <Reveal className="mt-14">
+          {/* Not the `RefusalsSection` idiom, deliberately. That one is four peer statements
+              about the whole product and owns the 17px display row; these three are a
+              qualification on the block above them, so they sit a size down and behind a
+              label, and cannot be mistaken for a second list of the same rank. */}
+          <Label>What it declines to raise</Label>
+          <div className="mt-4 border-t border-rule">
+            {REFUSED.map(([title, body]) => (
+              <div
+                key={title}
+                className="grid items-baseline gap-1.5 border-b border-rule py-4 md:grid-cols-[minmax(0,300px)_minmax(0,1fr)] md:gap-8"
+              >
+                <h3 className="text-[14.5px] font-semibold tracking-[-0.01em] text-ink">
+                  {title}
+                </h3>
+                <p className="max-w-[62ch] text-[14px] leading-[1.6] text-ink-2">{body}</p>
+              </div>
+            ))}
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
 /**
  * What stands where the docket is about to be.
  *
@@ -1005,6 +1114,7 @@ export function LandingPage() {
           <IntentBand />
         </div>
         <HowItWorks />
+        <DetectorsSection />
         <FindingSection />
         <RefusalsSection />
         <FaqSection />

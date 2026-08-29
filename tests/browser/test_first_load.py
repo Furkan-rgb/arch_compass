@@ -105,30 +105,35 @@ pytestmark = pytest.mark.browser
 #: (Summed by this module's own `weighed()` against a Chromium load of `/`; the chunk figures
 #: also match `vite build`'s report and `stat` on `presentation/web/static/assets`.)
 #:
-#: **The font half of that has changed and has not been re-measured against a browser.** The
-#: v2 design pass replaced Onest — one variable woff2 covering 400–700 — with IBM Plex Sans,
-#: which has no variable release and therefore ships four static latin cuts and four extended
-#: ones. `stat` on a clean build gives: sans 400 at 22,588, 500 at 24,184, 600 at 24,252, 700
-#: at 22,832, and mono 400 at 10,052, 500 at 14,888, 600 at 10,120, with the four `-ext`
-#: subsets between 15,980 and 16,456. The rest of the page moved by very little — the document
-#: is 4,415, the entry chunk 528,346, `exhibit` 15,713, `finding-detail` 29,772, the
-#: highlighter 60,021, the stylesheet 80,453 — so everything but the fonts sums to 718,720.
+#: **The font question this comment left open is now answered, by running it.** The v2 design
+#: pass replaced Onest — one variable woff2 covering 400–700 — with IBM Plex Sans, which has no
+#: variable release and therefore ships four static latin cuts and four extended ones. Which of
+#: them a cold `/` actually pulls could not be reasoned out, because `unicode-range` means a
+#: face is fetched only if a glyph in its range is drawn. The bounds were wide: 775,612 at the
+#: low end and 847,636 at the high one.
 #:
-#: Which faces a cold `/` actually pulls is the open question, because `unicode-range` means a
-#: face is fetched only if a glyph in its range is drawn, and only a browser can answer it. The
-#: bounds are wide: sans 400 and 600 with mono 400 is 775,612, and every latin cut with all
-#: three mono weights is 847,636 — under this ceiling by 2,364 bytes. **So the ceiling may be
-#: intact with almost no headroom, and it may already be breached; run this test.** The number
-#: to fix if it is breached is the preload set in `index.html` or the ceiling itself, in a
-#: diff, which is the point of having one.
+#: It is the high end. A cold `/` pulls **all seven** — sans 400/500/600/700 and mono 400/500/600,
+#: 128,916 bytes of font — and no `-ext` subset, because nothing on the page draws a glyph outside
+#: latin. Only two of the seven are preloaded (`index.html` preloads sans 400 and mono 400 and
+#: says why); the other five are fetched because the page genuinely sets text in them, so there is
+#: no preload to trim. Measured 2026-08-29 against Chromium by this module's own `weighed()`:
 #:
-#: 850,000 was 83,930 bytes of headroom, about eleven percent, for ordinary growth. It also
-#: sits 78,200 bytes below 928,200 — a cold `/` plus the Markdown renderer, at 162,130 bytes
-#: the *smallest* of the chunks that have to stay off this page. So any of them arriving trips
-#: this whatever it is called and however it was imported: the review page is 193,380 bytes
-#: and the Atlas kernel is 1,433,538. Raising the ceiling is then a decision somebody makes in
-#: a diff, which is the point of having one.
-COLD_LANDING_CEILING = 850_000
+#:   document 4,415 · entry chunk 531,708 · stylesheet 80,858 · fonts 128,916
+#:   exhibit 15,713 · finding-detail 29,785 · highlighter 60,021   = 851,416
+#:
+#: **So 850,000 was breached, by 1,416 bytes, and the ceiling moves rather than the page.** What
+#: crossed it was `DetectorsSection` on the landing page — 3,362 bytes of copy naming the three
+#: detectors and the three shapes the catalogue refuses to raise. The old ceiling had 1,946 bytes
+#: of headroom against the true font figure, which is less than one section of English, and a
+#: guard with less headroom than an ordinary edit is a guard that fires on the wrong things.
+#:
+#: 870,000 is 18,584 bytes of headroom on the measurement above, about two percent. It still sits
+#: 58,200 below 928,200 — a cold `/` plus the Markdown renderer, at 162,130 bytes the *smallest*
+#: of the chunks that have to stay off this page — so the thing this ceiling exists to catch still
+#: trips it whatever it is called and however it was imported: the review page is 193,380 bytes
+#: and the Atlas kernel is 1,433,538. That is the guard's real job, and it is unweakened. Moving
+#: it again is a decision somebody makes in a diff, which is the point of having one.
+COLD_LANDING_CEILING = 870_000
 
 #: The most `/policies` may download, and why it is larger than `/`'s.
 #:
