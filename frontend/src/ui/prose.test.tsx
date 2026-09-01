@@ -919,6 +919,47 @@ describe("a cited finding", () => {
     expect(citing(plain, () => {}).textContent).toBe(plain);
   });
 
+  it("brackets a reference the sentence had already finished without", () => {
+    // The shape that prompted this: a recorded answer ended four paragraphs on a trailing
+    // key, and the net that draws the key as a name turned each one into what reads as a
+    // typo — "…without knowing team intent CaseSnapshotRecorder." The brackets are what say
+    // it is a footnote, and they are the one thing the model's own form got right.
+    const host = citing(
+      `It cannot be resolved without knowing team intent [${HELD}].`,
+      () => {},
+    );
+
+    expect(host.textContent).toBe(
+      "It cannot be resolved without knowing team intent [CaseSnapshotRecorder].",
+    );
+  });
+
+  it("leaves a name the sentence is actually built around alone", () => {
+    // The other side of the same rule. A name after a preposition or a copula is grammar,
+    // and bracketing it would be the defect above arriving from the opposite direction.
+    expect(citing(`It is implemented only by [${HELD}].`, () => {}).textContent).toBe(
+      "It is implemented only by CaseSnapshotRecorder.",
+    );
+    expect(citing(`The protocol is [${HELD}].`, () => {}).textContent).toBe(
+      "The protocol is CaseSnapshotRecorder.",
+    );
+  });
+
+  it("brackets a reference the paragraph itself ends on", () => {
+    // No terminator at all, which is the other half of "the sentence is over". A model that
+    // stops on the key has still appended one.
+    expect(citing(`Static analysis flagged this candidate [${HELD}]`, () => {}).textContent)
+      .toBe("Static analysis flagged this candidate [CaseSnapshotRecorder]");
+  });
+
+  it("still opens the row it points at when it is bracketed", () => {
+    const open = vi.fn();
+    citing(`…without knowing team intent [${HELD}].`, open);
+
+    fireEvent.click(screen.getByRole("button", { name: "[CaseSnapshotRecorder]" }));
+    expect(open).toHaveBeenCalledWith(HELD);
+  });
+
   it("resolves through plainProse the same way, so a title and its paragraph agree", () => {
     const find = (id: string) => (id === HELD ? RECORDER : undefined);
     expect(plainProse(`Finding [${HELD}] is held.`, find)).toBe(
@@ -927,5 +968,10 @@ describe("a cited finding", () => {
     // No lookup, so no name — and the brackets still come off, because they are punctuation
     // written for a renderer, which is the same reason a backtick's do.
     expect(plainProse(`Finding [${HELD}] is held.`)).toBe(`Finding ${HELD} is held.`);
+    // Including on a trailing reference, which the drawn paragraph brackets and this does
+    // not: every caller here is an `aria-label` or a `title`, where a bracket is noise.
+    expect(plainProse(`…without knowing team intent [${HELD}].`, find)).toBe(
+      "…without knowing team intent CaseSnapshotRecorder.",
+    );
   });
 });

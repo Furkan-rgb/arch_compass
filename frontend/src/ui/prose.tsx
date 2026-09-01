@@ -116,6 +116,38 @@ export const INLINE_CODE_BARE = QUOTED_NAME;
  */
 const CANDIDATE_REFERENCE = /\[(candidate_[0-9a-f]{16,})\]|(candidate_[0-9a-f]{16,})/;
 
+/**
+ * A sentence ending on its citation, which is where the net above stops helping.
+ *
+ * Drawing the token as the finding it points at is right in the middle of a sentence and
+ * wrong at the end of one. A model that writes "…which cannot be resolved without knowing
+ * team intent [candidate_9f2…]." has appended a footnote, and the brackets were the only
+ * thing saying so; swap them for the leaf name and the reader gets "…without knowing team
+ * intent ReviewExecutionStore." — which does not read as a machine token any more, it reads
+ * as a typo. That is worse than the identifier it replaced: an identifier is obviously not
+ * prose, and a stray proper noun is obviously bad prose.
+ *
+ * So a reference in that position keeps a pair of brackets. Not the model's brackets, which
+ * delimited a key — these say the name is an annotation on the sentence rather than a part
+ * of its grammar, which is what the sentence means.
+ *
+ * Conservative on purpose: only an explicit terminator or the end of the run counts, never a
+ * comma, because a reference before a comma is usually mid-sentence and the cost of guessing
+ * wrong is a bracketed name in running text.
+ */
+const ENDS_THE_SENTENCE = /^["')\u2019\u201d\]]?(?:[.!?;]|\s*$)/;
+
+/**
+ * What a name may follow and still be grammar rather than an appended token.
+ *
+ * "…is implemented only by `SQLiteReviewExecutionRepository`." ends on a name and is a
+ * sentence; "…without knowing team intent `ReviewExecutionStore`." ends on a name and is
+ * not. The difference a regular expression can see is the word in front: a preposition, an
+ * article or a copula opens a slot the name fills, and nothing else does.
+ */
+const INTRODUCES_A_NAME =
+  /(?:^|[\s([\u201c"'])(?:in|on|of|for|to|from|by|with|the|an?|and|or|see|via|under|about|at|into|onto|than|like|is|are|was|were|namely|call|calls|implement|implements|extend|extends|named|called)\s+$/i;
+
 /** What a surface can say about a cited finding: the words for the sentence, and the rest. */
 export type Citation = {
   /**
@@ -191,13 +223,19 @@ function CandidateRef({
   candidateId,
   source,
   bare,
+  dangling,
 }: {
   candidateId: string;
   source: string;
   bare: boolean;
+  dangling: boolean;
 }) {
   const { find, open } = useContext(CitationContext);
   const cited = find(candidateId);
+  // Bracketed where the sentence has already finished without it. See `ENDS_THE_SENTENCE`:
+  // a name dropped after the last word is an annotation, and unbracketed it reads as a slip
+  // of the pen rather than as a reference.
+  const name = cited && (dangling ? `[${cited.name}]` : cited.name);
 
   // Nothing here can name it: an identifier from another review, or one the model made up.
   // `_cited_candidates` drops those from `candidate_ids` and logs them, so the chips below an
@@ -222,7 +260,7 @@ function CandidateRef({
   if (!open) {
     return (
       <code className={bare ? INLINE_CODE_BARE : INLINE_CODE} title={cited.title}>
-        {cited.name}
+        {name}
       </code>
     );
   }
@@ -237,7 +275,7 @@ function CandidateRef({
         QUOTED_NAME,
       )}
     >
-      {cited.name}
+      {name}
     </button>
   );
 }
@@ -252,7 +290,7 @@ function CandidateRef({
 type Span =
   | { kind: "text"; text: string }
   | { kind: "code"; text: string }
-  | { kind: "ref"; text: string; candidateId: string };
+  | { kind: "ref"; text: string; candidateId: string; dangling: boolean };
 
 /**
  * The index of a closing run of exactly `length` backticks, or -1.
@@ -320,9 +358,15 @@ function references(literal: string): Span[] {
     match = CANDIDATE_REFERENCE.exec(rest)
   ) {
     const before = rest.slice(0, match.index);
+    const after = rest.slice(match.index + match[0].length);
     if (before) spans.push({ kind: "text", text: before });
-    spans.push({ kind: "ref", text: match[0], candidateId: match[1] ?? match[2] ?? "" });
-    rest = rest.slice(match.index + match[0].length);
+    spans.push({
+      kind: "ref",
+      text: match[0],
+      candidateId: match[1] ?? match[2] ?? "",
+      dangling: ENDS_THE_SENTENCE.test(after) && !INTRODUCES_A_NAME.test(before),
+    });
+    rest = after;
   }
 
   if (rest) spans.push({ kind: "text", text: rest });
@@ -753,6 +797,7 @@ export function Prose({ children, bare = false }: { children: string; bare?: boo
           candidateId={span.candidateId}
           source={span.text}
           bare={bare}
+          dangling={span.dangling}
         />
       );
     }
@@ -978,7 +1023,9 @@ export function plainProse(text: string, find?: CitationLookup): string {
       // The same rungs as the drawn reference, flattened: the name where the caller brought a
       // lookup, and the bare identifier where it did not. The brackets come off either way —
       // they are punctuation the model wrote for a renderer, which is the reason a backtick
-      // does.
+      // does. `Prose` puts a pair back around a reference the sentence had already finished
+      // without, and this deliberately does not: every caller here is an `aria-label` or a
+      // `title`, read aloud or in a tooltip, where a bracket is noise rather than a mark.
       if (span.kind === "ref") return find?.(span.candidateId)?.name ?? span.candidateId;
       return span.text.replace(/`/g, "");
     })
