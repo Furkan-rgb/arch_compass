@@ -454,8 +454,16 @@ function IntentBand() {
       {/* The ground, as its own layer rather than as the section's background. A background
           belongs to the section's own box and paints over every negative-z child of it, and
           the field has to sit on top of this ground in light — where the band really is a
-          different colour from the page — while still reaching past the section's edges. */}
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-20 bg-band" />
+          different colour from the page — while still reaching past the section's edges.
+
+          `bg-band-field` and not `bg-band`, which is the rail's ground and has to sit a step
+          above the page in dark so a bar content scrolls under keeps an edge. Painted here that
+          step is what made this section read washed: `#181614` is 1.10:1 over the void, so the
+          band became a pale rectangle and the four ribbons — white films whose cores reach
+          2.35:1 — became a grey haze on it rather than light on black. `--band-field` is the
+          same ground in light and the page itself in dark, which is what the comment above has
+          claimed since this section was written. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-20 bg-band-field" />
       {/* Up into the hero by a third of its height and down past the band, fading to nothing
           at both ends. The mask is what makes the sheet continuous: the canvas still has
           edges, but no ribbon ever reaches one at full strength. */}

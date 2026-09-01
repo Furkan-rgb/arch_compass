@@ -441,6 +441,17 @@
      own `--surface`, 1.10:1 over the void, the same step every panel is separated from its
      ground by. Both are dark; neither inverts; each sits above the page behind it.
 
+     **The ground does need splitting, and that is what `--band-field` below is.** The step is
+     right for the rail and wrong for the other consumer. A rail is a bar content scrolls
+     underneath, and a reader has to be able to find its edge at any scroll position, so it has
+     to sit above the page. The landing page's field band is not a surface at all: it is the one
+     atmospheric moment on that page, and what it draws is *light* — four ribbons of white
+     hairlines on a ground dark enough for white to mean something. Handed a ground a step above
+     the page it stopped being a slab with an aurora on it and became a pale rectangle with a
+     grey haze in it, the ribbons' cores landing at 2.35:1 on a ground already 1.10:1 up. That
+     is the washed-out reading, and it arrived as a side effect of this token moving for the
+     rail's sake rather than as anything decided about the band.
+
      The ink does not need splitting with it. Every `-on-band` value is the dark theme's signal
      set held still, and the whole set clears on both grounds — the worst text tier measures
      6.85:1 on the light band and 6.24:1 on the dark one — so one declaration covers both and a
@@ -451,6 +462,16 @@
      There is no hue here either — the ribbons drawn over the band are white at a few percent,
      because chroma is still spent only on the four signals. */
   --band: #0a0a0a;
+  /* The field band's ground: the rail's in light, and in dark the void the page is already on.
+     Which is not a second dark ground — it is the band declining to have one, so the field is
+     the only thing marking the section and is drawn on the darkest value the theme has, exactly
+     as it is in light. The section's own comment in `landing-page.tsx` has said that all along;
+     for one ramp it was not true.
+
+     Stated as a reference in both directions rather than as two hexes. `#0a0a0a` and `#0b0a08`
+     are 1.00:1 apart today, so a literal would look right and would be the same bomb that went
+     off above: a hex that used to equal the void and quietly stopped. */
+  --band-field: var(--band);
   --band-ink: #f9f6f3;
   --band-ink-2: #b5b2af;
   --band-rule: rgb(255 255 255 / 14%);
@@ -521,8 +542,11 @@
        colour ramp should have to delegate. */
     --canvas: #0b0a08; /*    the void                  */
 
-    /* The band lifts to this theme's own surface: `#0a0a0a` is 1.00:1 on this void. */
+    /* The band lifts to this theme's own surface: `#0a0a0a` is 1.00:1 on this void. The field
+       band does not lift with it — on this ground the section is the page, and the field is
+       what marks it. See `--band-field` in `:root`. */
     --band: #181614;
+    --band-field: var(--canvas);
     --surface: #181614; /*   a panel                    */
     --surface-2: #22201e; /* a strip inside a panel      */
     --sunken: #2d2b29; /*    a quiet inset              */
@@ -629,8 +653,11 @@
      colour ramp should have to delegate. */
   --canvas: #0b0a08; /*    the void                  */
 
-  /* The band lifts to this theme's own surface: `#0a0a0a` is 1.00:1 on this void. */
+  /* The band lifts to this theme's own surface: `#0a0a0a` is 1.00:1 on this void. The field
+     band does not lift with it — on this ground the section is the page, and the field is what
+     marks it. See `--band-field` in `:root`. */
   --band: #181614;
+  --band-field: var(--canvas);
   --surface: #181614; /*   a panel                    */
   --surface-2: #22201e; /* a strip inside a panel      */
   --sunken: #2d2b29; /*    a quiet inset              */
@@ -768,6 +795,7 @@
   --color-accent-strong: var(--accent-strong);
 
   --color-band: var(--band);
+  --color-band-field: var(--band-field);
   --color-band-ink: var(--band-ink);
   --color-band-ink-2: var(--band-ink-2);
   --color-band-rule: var(--band-rule);

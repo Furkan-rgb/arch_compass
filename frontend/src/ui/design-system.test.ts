@@ -584,7 +584,7 @@ describe("the design system", () => {
   it("never mixes a tone out of an alpha of a ramp token", () => {
     expect(
       offenders(
-        /\b(?:bg|text|border|border-[lrtbxyse]|from|to|via|fill|stroke|decoration|ring)-(?:canvas|sunken|surface|surface-2|control|control-2|ink|ink-2|ink-3|band|accent|material|held|cleared|mark)(?:-(?:edge|wash|fill|strong))?\/\d/,
+        /\b(?:bg|text|border|border-[lrtbxyse]|from|to|via|fill|stroke|decoration|ring)-(?:canvas|sunken|surface|surface-2|control|control-2|ink|ink-2|ink-3|band-field|band|accent|material|held|cleared|mark)(?:-(?:edge|wash|fill|strong))?\/\d/,
       ),
       "name the value in styles.css — an alpha composites to a different step in each theme",
     ).toEqual([]);

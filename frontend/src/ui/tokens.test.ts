@@ -700,6 +700,45 @@ describe("the token layer", () => {
   });
 
   /**
+   * The other half of the band, which is the ground rather than what stands on it — and the one
+   * claim here that is about a token's *reference* rather than about a ratio.
+   *
+   * `--band` has two consumers and they want opposite things in dark. The shell's rail is a bar
+   * content scrolls underneath, so it has to keep an edge at every scroll position and lifts to
+   * `#181614`. The landing page's field band is not a surface: it is four ribbons of white
+   * hairlines, and it needs the darkest ground the theme has for white to read as light on it.
+   * Given the rail's lift it became a `1.10:1` rectangle with the ribbons' cores at `2.35:1`
+   * *on that* — a grey haze on a pale slab, which is what "washed out" was describing. Nothing
+   * decided that; the v2 ramp moved one token for the rail's sake and the band followed it.
+   *
+   * So the assertion is that neither ground is written as a hex of its own. In light the field
+   * band *is* the rail's ground; in dark it *is* the page. Written as `#0a0a0a` and `#0b0a08`
+   * the file would look correct today and would break the next time either moves, which is
+   * exactly how it broke the first time.
+   */
+  it("keeps the field band's ground on the rail in light and on the page in dark", () => {
+    const light = new Map(scope("light").map(({ name, value }) => [name, value]));
+    expect(
+      light.get("--band-field"),
+      "in light the field band is the fixed dark ground, said once",
+    ).toBe("var(--band)");
+
+    for (const which of ["darkFallback", "darkAttribute"] as const) {
+      expect(
+        new Map(scope(which).map(({ name, value }) => [name, value])).get("--band-field"),
+        `${which}: in dark the section has no ground of its own — the field is what marks it`,
+      ).toBe("var(--canvas)");
+    }
+
+    // And the half of the claim that is a ratio: in light there really is a slab to draw on.
+    const values = resolved("light");
+    expect(
+      contrast(values.get("--band")!, values.get("--canvas")!),
+      "a field band that does not separate from the page in light is not a band",
+    ).toBeGreaterThan(10);
+  });
+
+  /**
    * The one part of the ramp nothing measured, on the one ground it is ever painted on.
    *
    * `keeps every ink readable on every ground it is painted on` above was written because
