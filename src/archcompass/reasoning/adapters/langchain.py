@@ -36,6 +36,7 @@ from archcompass.ports.capabilities import ReviewedSubject, ReviewSynopsis
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.reasoning.adapters.review_tools import ReviewToolbox
 from archcompass.reasoning.adapters.tool_loop import (
+    MAX_INVESTIGATION_CHARACTERS,
     investigate_with_tools,
     recorded_investigation,
 )
@@ -1007,7 +1008,8 @@ CONVERSATION_LOOKUPS = (
     "what depends on it, what calls it, what tests it, what the code at a named part of it "
     "says, and the files themselves as they stood at the revision under review. Use that "
     "where the review does not settle a question and the code would. A fact still has to "
-    "come from the review or from something you actually looked up; say which."
+    "come from the review or from something you actually looked up; say which, in the "
+    "sentence that states it rather than in a closing line about your sources."
 )
 
 
@@ -1141,6 +1143,54 @@ def _conversation_evidence_text(evidence: Evidence) -> str:
     return f"{evidence.description} ({where}){note}"
 
 
+#: How much of a thread's earlier lookups is carried into the turn about to look again.
+#:
+#: The ceiling one investigation is already clamped to, and for the same reason: a thread is
+#: read as one exchange, so what it has already asked the repository is worth about as much
+#: of the window as what this turn asks it. Older lookups go first, and the drop is said out
+#: loud — a model that cannot see an earlier result must not answer as though nobody checked.
+MAX_CARRIED_LOOKUP_CHARACTERS = MAX_INVESTIGATION_CHARACTERS
+
+
+def _carried_lookups(history: Sequence[ConversationMessage]) -> str:
+    """What this thread already asked the repository, for the turn about to ask again.
+
+    Without it every turn of a thread investigates from nothing. `_exchange_sections` carried
+    the prose of each earlier answer and not the lookups under it, so a thread of four
+    questions about one finding asked the repository the same two things four times — paid
+    for four times, and reported back as four slightly different accounts of one result.
+
+    Deduplicated on what was asked rather than on what came back. The tools read one
+    revision, so two turns that ran the same lookup got the same answer by construction, and
+    a second copy of it is an earlier turn's context spent twice.
+    """
+
+    seen: dict[tuple[str, tuple[tuple[str, str], ...]], str] = {}
+    for message in history:
+        investigation = message.answer.investigation
+        if investigation is None:
+            continue
+        for lookup in investigation.lookups:
+            seen.setdefault((lookup.tool, lookup.arguments), lookup.result)
+    if not seen:
+        return ""
+    # The rendering `investigate_with_tools` returns for this turn's own lookups, so a model
+    # is not reading two formats for one kind of fact.
+    blocks = [
+        f"{tool}({', '.join(f'{key}={value!r}' for key, value in arguments)})\n{result}"
+        for (tool, arguments), result in seen.items()
+    ]
+    dropped = 0
+    while len(blocks) > 1 and sum(map(len, blocks)) > MAX_CARRIED_LOOKUP_CHARACTERS:
+        blocks.pop(0)
+        dropped += 1
+    if dropped:
+        blocks.insert(
+            0, f"{dropped} earlier lookups in this thread are not shown here."
+        )
+    return "\n\n".join(blocks)
+
+
 def _exchange_sections(
     history: Sequence[ConversationMessage],
     transcript: str,
@@ -1157,6 +1207,11 @@ def _exchange_sections(
     `asked` names the last section. A thread about the review calls it the question; a
     thread about a clarification question cannot, because a section further up is already
     called that and the two are not the same question.
+
+    Three things and not two: what was said here, what was *looked up* here, and what is
+    being asked now. The middle one is `_carried_lookups`, and it is part of the thread's
+    history for the same reason the prose is — a turn that cannot see what the thread
+    already found goes and finds it again.
     """
 
     sections: list[str] = []
@@ -1164,6 +1219,12 @@ def _exchange_sections(
         sections.append(
             "WHAT HAS ALREADY BEEN ASKED HERE\n"
             + "\n".join(f"Q: {item.question}\nA: {item.answer.text}" for item in history)
+        )
+    carried = _carried_lookups(history)
+    if carried:
+        sections.append(
+            "WHAT THIS THREAD HAS ALREADY LOOKED UP, which you do not need to ask again\n"
+            + carried
         )
     if transcript:
         sections.append(f"WHAT YOU LOOKED UP\n{transcript}")
@@ -1242,31 +1303,54 @@ def conversation_prompt(
 # and never decide which answer is right. The judgement wrote the question because the code
 # could not settle it — a model reading the same code cannot settle it either, and one that
 # sounds as though it has is the review asking and answering itself.
+#
+# Two paragraphs below were written against a recorded thread rather than in advance, and it
+# is worth saying which. The three things this asks for used to be asked for on every turn,
+# so a reader who asked four questions about one question was given the same three
+# paragraphs four times, the fourth near enough word for word. And the rule against deciding
+# had no exception for a reader asking where the model stood, so "is it really needed, or
+# are you saying it is not" was answered with the two consequences again. Declining to hold
+# a position is not holding one, and a surface built against talking somebody into an intent
+# can fail the other way just as squarely — by telling them nothing they can act on.
 CLARIFICATION_CONTRACT = (
     "An architecture review has stopped to ask somebody a question, and they are asking "
     "you about the question itself. They are not stuck for an opinion. They are stuck on "
     "what is being asked, or why, or what turns on it.\n\n"
-    "Answer those three. What the question is asking, in the plainest words it can be put "
-    "in. Why judging this candidate needed a person — name the finding and what it is "
-    "waiting on. What each answer would change: say what the review would likely conclude "
-    "if the answer were one thing and if it were another, so the reader can see the "
-    "consequence of their own reply before they make it.\n\n"
+    "The first time you are asked, answer those three. What the question is asking, in the "
+    "plainest words it can be put in. Why judging this candidate needed a person — name the "
+    "finding and what it is waiting on. What each answer would change: say what the review "
+    "would likely conclude if the answer were one thing and if it were another, so the "
+    "reader can see the consequence of their own reply before they make it. Once they have "
+    "the three, they have them — a thread is a conversation and not a form, and what it "
+    "wants next is whatever was next asked.\n\n"
     "Do not decide the answer. The question exists because the code cannot settle it, and "
     "you are reading the same code — a preference dressed as a finding is this whole "
     "review asking itself the question it stopped to ask a person. Never say which answer "
     "is likelier, more usual, or better practice, and never argue for one. Where the "
     "repository does settle it, that is different and worth saying plainly: say what you "
     "found, and that the question may be one they can answer from it or skip.\n\n"
+    "Saying that you hold no position is not holding one. A reader who asks where you "
+    "stand — 'is it really needed, or are you saying it is not' — is owed a plain answer to "
+    "that: that you are not arguing for either, that the review is asking them because the "
+    "code does not say, and what would settle it if anything could. Giving them the two "
+    "consequences again answers a question they did not ask.\n\n"
     "Facts about this codebase come from the findings you were shown or from something you "
-    "actually looked up, and you say which. Do not invent a module, a call site or a name. "
-    "Where you cannot tell, say so — a question a reader cannot answer is a fair outcome "
-    "and skipping it explicitly is a first-class reply.\n\n"
+    "actually looked up, and you say which — in the sentence that makes the claim, not in a "
+    "closing line about your sources. What you looked up is recorded and shown to the "
+    "reader under your answer; a sentence listing the files you had open is a second copy "
+    "of that record written from memory, and it is the copy that turns out to be wrong. Do "
+    "not invent a module, a call site or a name. Where you cannot tell, say so — a question "
+    "a reader cannot answer is a fair outcome and skipping it explicitly is a first-class "
+    "reply.\n\n"
     "Cite the findings you used. In `candidate_ids`, copy the bracketed identifier of each "
     "one exactly; an identifier you were not shown is dropped. Keep it to that field and "
     "out of your sentences: `candidate_…` is a key we gave you for citing, not a name — "
-    "name a finding by its backticked participant, the way the listing does. Write prose a "
-    "person reads in one pass: no headings, no bullets, no restating the question before "
-    "answering it."
+    "name a finding by its backticked participant, the way the listing does, and put that "
+    "name where the sentence needs it rather than trailing it after the full stop. Write "
+    "prose a person reads in one pass: no headings, no bullets, and no preamble — do not "
+    "hand the reader their own question back before answering it. Putting the review's "
+    "question into plain words is an answer where they have not had it yet, and padding "
+    "where they have."
 )
 
 #: What the agent may put in the reader's own answer box, and the whole of what it may do
@@ -1288,16 +1372,48 @@ CLARIFICATION_DRAFT_RULE = (
     "discard it, and they submit the round themselves."
 )
 
+#: Appended from the second turn of a thread on, and only there.
+#:
+#: Kept apart from the contract for the reason `CLARIFICATION_LOOKUPS` is kept apart: a rule
+#: that is false on the first turn must not be stated on the first turn. A model told not to
+#: repeat itself before it has said anything is being warned off the answer it was asked for.
+#:
+#: This does not narrow what the thread is for. Any of the three is fair to give again where
+#: the reader asks for it again; what this rules out is giving all three to somebody who
+#: asked for one thing.
+CLARIFICATION_FOLLOW_UP = (
+    "This thread is already under way and everything said in it is below. Answer what was "
+    "just asked, and only that. The opening answer covered what the question is asking, why "
+    "judging it needed a person, and what each answer would change — do not give any of "
+    "those again unless the reader is asking about that part, or something you have since "
+    "looked up changes it.\n\n"
+    "A follow-up is usually narrower than what came before it, and it is usually about the "
+    "code rather than about the question. 'What does it do' asks for the thing itself — its "
+    "methods, what holds it, what calls it — and not for the question about it put in "
+    "simpler words. Answer the narrower question narrowly, and stop."
+)
+
 #: Added only where the reader's repository can actually be asked. Two toolboxes, said
 #: in one sentence apiece: the atlas answers resolved structure, and the filesystem answers
 #: what the code says at the revision the review was judged from.
+#:
+#: The second paragraph is there because "use them where a fact would make the question
+#: clearer" turned out to be satisfied by asking the repository to confirm the finding. A
+#: recorded thread spent its lookups re-establishing that a port had one implementation —
+#: which the finding it had been shown says in its first line — and then reported that back
+#: as what it had checked, four turns running.
 CLARIFICATION_LOOKUPS = (
     "You can ask this repository about itself before you answer. The structural tools "
     "resolve what implements something, what depends on it and what it reaches for; the "
     "filesystem tools read the code as it stood at the revision under review. Use them "
     "where a fact about the code would make the question clearer, and especially to check "
-    "whether the repository already settles what is being asked. Say which of your "
-    "sentences came from a lookup."
+    "whether the repository already settles what is being asked.\n\n"
+    "The lookup worth making is the one the reader cannot make in their head. The finding "
+    "already told you what it found, so asking the repository to confirm it spends a turn "
+    "to learn nothing — and restating the finding's own claim is not a lookup, however it "
+    "is worded. Ask what the finding does not say: what is written against the thing in "
+    "question, what reads it, what would have to change for the answer to go the other way. "
+    "Attribute a looked-up fact in the sentence that states it."
 )
 
 
@@ -1342,6 +1458,10 @@ def clarification_prompt(
             else (
                 CLARIFICATION_CONTRACT
                 + (f"\n\n{CLARIFICATION_LOOKUPS}" if can_look else "")
+                # Only from the second turn, which is the whole of what it says. See
+                # `CLARIFICATION_FOLLOW_UP`: on the first turn it is a rule about a thread
+                # that does not exist yet.
+                + (f"\n\n{CLARIFICATION_FOLLOW_UP}" if history else "")
                 + f"\n\n{CLARIFICATION_DRAFT_RULE}",
             )
         ),
@@ -1469,8 +1589,15 @@ class LangChainReviewAnswerer:
             transcript = investigate_with_tools(
                 self._model,
                 investigator,
+                # The follow-up rule reaches the looking turn too, and has to. What is
+                # worth looking up on turn four is set by what the thread already asked and
+                # already found; a turn told to answer narrowly and then sent to investigate
+                # under the opening contract goes looking for the opening answer again.
                 system=(
-                    CLARIFICATION_CONTRACT + "\n\n" + CLARIFICATION_LOOKUPS
+                    CLARIFICATION_CONTRACT
+                    + "\n\n"
+                    + CLARIFICATION_LOOKUPS
+                    + (f"\n\n{CLARIFICATION_FOLLOW_UP}" if history else "")
                     if about is not None
                     else CONVERSATION_CONTRACT + "\n\n" + CONVERSATION_LOOKUPS
                 ),

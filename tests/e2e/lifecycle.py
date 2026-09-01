@@ -60,6 +60,10 @@ class Lifecycle:
     final: dict[str, Any]
     decision: dict[str, Any]
     conversation: dict[str, Any]
+    #: A thread held about one clarification question, while the review was still waiting on
+    #: it — every turn of it, in order. `()` where the first pass asked nothing, which is the
+    #: same legitimate outcome `resumed` documents.
+    clarification: tuple[dict[str, Any], ...]
     corpus_policy_ids: frozenset[str]
     repository_root: str
     #: The Markdown a reader downloads, the rail they scroll, and the case they can open —
@@ -163,6 +167,33 @@ def run_lifecycle(
         )
         assert first.status_code == 201, first.text
         opened = first.json()
+
+        # Before a single question is answered, because that is the only time this surface
+        # exists: a reader stuck on a question the review is still waiting on. Three turns,
+        # not one — a thread is where this conversation goes wrong, and one message cannot
+        # show it. See `test_a_thread_about_a_question_moves`.
+        clarification: list[dict[str, Any]] = []
+        if opened["questions"]:
+            thread = client.post(
+                "/api/review-conversations",
+                json={
+                    "review_id": opened["id"],
+                    "question_id": opened["questions"][0]["id"],
+                },
+            )
+            assert thread.status_code == 201, thread.text
+            thread_id = thread.json()["id"]
+            for asked in (
+                "What is this question actually asking?",
+                "What does it do? In simple terms",
+                "Is it really needed? Or are you saying it isn't?",
+            ):
+                turn = client.post(
+                    f"/api/review-conversations/{thread_id}/messages",
+                    json={"question": asked},
+                )
+                assert turn.status_code == 200, turn.text
+                clarification.append(turn.json()["messages"][-1])
 
         resumed: dict[str, Any] | None = None
         rounds: list[dict[str, Any]] = []
@@ -307,6 +338,7 @@ def run_lifecycle(
             final=final,
             decision=decision.json(),
             conversation=message.json(),
+            clarification=tuple(clarification),
             corpus_policy_ids=corpus,
             repository_root=repository,
             report=report.text,

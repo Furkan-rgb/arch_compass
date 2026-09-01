@@ -18,6 +18,7 @@ missing — the service, either model — skips with the command that would fix 
 from __future__ import annotations
 
 import re
+from itertools import pairwise
 
 import pytest
 
@@ -388,6 +389,84 @@ def test_a_decision_and_a_grounded_conversation_key_off_archcompass_identities(
     assert message["answer"]["text"].strip(), "the model answered the follow-up with nothing"
     # Whatever it said, the candidates it cited are ones ArchCompass minted.
     assert set(message["answer"]["supporting_candidate_ids"]) <= candidate_ids
+
+
+def _sentences(text: str) -> set[str]:
+    """The claims in an answer, normalised enough that two copies of one collide.
+
+    Long sentences only. A short one — "That is what the review is waiting on." — is a
+    connective, and two answers sharing a few of those is a voice rather than a repetition.
+    """
+
+    return {
+        sentence.strip().casefold()
+        for sentence in re.split(r"(?<=[.!?])\s+", text)
+        if len(sentence.strip()) > 60
+    }
+
+
+def test_a_thread_about_a_question_moves(local_lifecycle: Lifecycle) -> None:
+    """Three questions, three answers, and the third is not the first again.
+
+    This is written against a recorded failure rather than in the abstract. A thread asked
+    four questions about one clarification question — what it is asking, what the thing does,
+    what it does in simple terms, whether the model was claiming it was unnecessary — and got
+    the same three paragraphs every time, the last near enough word for word. Every part of
+    it was true and none of it answered anything after the first turn.
+
+    Half is a lenient bar, deliberately. The failure it has to catch was total repetition,
+    and a model that genuinely needs to restate one claim to answer a follow-up should not
+    be failed for it.
+    """
+
+    if not local_lifecycle.clarification:
+        pytest.skip("this review asked nothing, so no thread could be held about a question")
+
+    answers = [turn["answer"]["text"] for turn in local_lifecycle.clarification]
+    assert all(answer.strip() for answer in answers), "a turn of the thread answered nothing"
+
+    for index, (earlier, later) in enumerate(pairwise(answers)):
+        before, after = _sentences(earlier), _sentences(later)
+        if not after:
+            continue
+        repeated = before & after
+        assert len(repeated) * 2 <= len(after), (
+            f"turn {index + 2} of the thread is mostly turn {index + 1} again — "
+            f"{len(repeated)} of its {len(after)} claims were already said. "
+            f"Repeated: {sorted(repeated)[:2]}"
+        )
+
+
+def test_a_thread_does_not_ask_the_repository_the_same_thing_twice(
+    local_lifecycle: Lifecycle,
+) -> None:
+    """What a turn already looked up is part of the thread, not just what it said about it.
+
+    The prompt used to carry the prose of each earlier answer and none of the lookups under
+    it, so every turn investigated from nothing: the recorded thread ran the same two lookups
+    on all four turns, paid for them four times, and gave four slightly different accounts of
+    one result.
+
+    Conditional on the model looking anything up at all, which is its call — but where two
+    turns both did, the later one may not re-run what the thread already has.
+    """
+
+    if not local_lifecycle.clarification:
+        pytest.skip("this review asked nothing, so no thread could be held about a question")
+
+    asked: set[tuple[str, str]] = set()
+    for index, turn in enumerate(local_lifecycle.clarification):
+        investigation = turn["answer"].get("investigation")
+        lookups = {
+            (item["tool"], repr(sorted(item["arguments"], key=lambda pair: pair[0])))
+            for item in (investigation or {}).get("lookups", ())
+        }
+        repeated = lookups & asked
+        assert not repeated, (
+            f"turn {index + 1} asked the repository something this thread already asked: "
+            f"{sorted(repeated)}"
+        )
+        asked |= lookups
 
 
 def test_the_answered_review_is_readable_through_the_surfaces_that_outlive_it(

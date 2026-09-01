@@ -19,10 +19,12 @@ from archcompass.domain import (
     AnswerStatus,
     ArchitectureCase,
     Candidate,
+    CandidateId,
     CaseFacet,
     ChangeCause,
     Evidence,
     Finding,
+    InvestigationLookup,
     Participant,
     Policy,
     PolicyBearing,
@@ -48,6 +50,8 @@ from archcompass.reasoning.adapters.deep_judge import DeepArchitectureJudge
 from archcompass.reasoning.adapters.factory import build_embeddings
 from archcompass.reasoning.adapters.langchain import (
     CLARIFICATION_CONTRACT,
+    CLARIFICATION_FOLLOW_UP,
+    CLARIFICATION_LOOKUPS,
     CONVERSATION_CONTRACT,
     LangChainArchitectureJudge,
     LangChainQuestionGenerator,
@@ -67,7 +71,7 @@ from archcompass.reasoning.adapters.selected import (
     SelectedLangChainJudge,
 )
 from archcompass.reasoning.cache import CachingArchitectureJudge
-from archcompass.reasoning.ports import OfferedInvestigator
+from archcompass.reasoning.ports import ConversationAnswer, ConversationMessage, OfferedInvestigator
 from archcompass.reasoning.records import (
     DEEP_JUDGE_PROMPT_IDENTITY,
     DETERMINISTIC_JUDGE_PROMPT_IDENTITY,
@@ -1562,6 +1566,169 @@ def test_a_thread_about_a_question_may_not_decide_it(tmp_path: Path) -> None:
 
     assert "Do not decide the answer." in CLARIFICATION_CONTRACT
     assert "never say which answer is likelier" in CLARIFICATION_CONTRACT.casefold()
+
+
+def _said(
+    question: str,
+    answer: str,
+    *,
+    lookups: tuple[InvestigationLookup, ...] = (),
+) -> ConversationMessage:
+    """One turn of a thread, with whatever that turn asked the repository."""
+
+    return ConversationMessage(
+        question,
+        ConversationAnswer(
+            answer,
+            investigation=(
+                None
+                if not lookups
+                else RecordedInvestigation(candidate_id=CandidateId(""), lookups=lookups)
+            ),
+        ),
+        utc_now(),
+    )
+
+
+def test_the_first_turn_is_asked_for_three_things_and_the_next_one_is_not(
+    tmp_path: Path,
+) -> None:
+    """The defect this rule was written against, in the shape it arrived in.
+
+    `CLARIFICATION_CONTRACT` asks for three things — what the question asks, why it needed a
+    person, what each answer changes — and used to ask for them unconditionally. A recorded
+    thread of four questions about one question got those three paragraphs four times, the
+    last near enough word for word, because nothing in the prompt distinguished a reader who
+    already had them from one who did not.
+    """
+
+    review, question = _waiting_review(tmp_path)
+
+    opening = clarification_prompt(review, question, (), "What is this asking?")
+    assert CLARIFICATION_FOLLOW_UP not in opening, (
+        "the first turn was warned off repeating an answer it has not given yet"
+    )
+
+    follow_up = clarification_prompt(
+        review,
+        question,
+        (_said("What is this asking?", "It asks whether a second provider is expected."),),
+        "But what does the port actually do?",
+    )
+    assert CLARIFICATION_FOLLOW_UP in follow_up
+    assert "do not give any of those again" in follow_up
+
+
+def test_a_thread_asked_where_it_stands_may_say_that_it_stands_nowhere(
+    tmp_path: Path,
+) -> None:
+    """The other half of "do not decide the answer", and it had no other half.
+
+    "Is it really needed, or are you saying it is not" is not a request for a decision. It
+    asks what the model is claiming, and the rule against deciding swallowed the whole turn:
+    the reader got the two consequences again. Declining to hold a position is not holding
+    one, and this surface can fail by telling somebody nothing just as squarely as by
+    talking them into something.
+    """
+
+    assert "Saying that you hold no position is not holding one." in CLARIFICATION_CONTRACT
+    assert "you are not arguing for either" in CLARIFICATION_CONTRACT
+
+
+def test_putting_the_question_plainly_and_handing_it_back_are_not_the_same_rule(
+    tmp_path: Path,
+) -> None:
+    """The contract used to contradict itself, and a weak model resolved it the wrong way.
+
+    It asked for the question in the plainest words it can be put in, and then closed with
+    "no restating the question before answering it". Every recorded answer in the thread
+    opened with "The question is asking whether…" — obeying the first and breaking the
+    second, on every turn including the ones where the reader had already had it.
+    """
+
+    assert "no restating the question before answering it" not in CLARIFICATION_CONTRACT
+    assert "do not hand the reader their own question back" in CLARIFICATION_CONTRACT
+    assert "padding where they have" in CLARIFICATION_CONTRACT
+
+
+def test_a_lookup_that_confirms_the_finding_is_not_a_lookup() -> None:
+    """What the recorded thread spent its tool calls on, four turns running.
+
+    Every turn re-established that the port had one implementation — which the finding it
+    was shown says in its first line — and reported that back as what it had checked.
+    """
+
+    assert "restating the finding's own claim is not a lookup" in CLARIFICATION_LOOKUPS
+    assert "Ask what the finding does not say" in CLARIFICATION_LOOKUPS
+
+
+def test_an_answer_attributes_a_looked_up_fact_where_it_claims_it() -> None:
+    """Not in a closing line, which is the form that turned out to be fiction.
+
+    The recorded answers ended on "these sentences were derived from … by inspecting
+    src/…/service.py and src/…/executions.py". One turn named one file, with a leading
+    slash that is not a path in that repository; the others named two. Same lookups, three
+    accounts of them — because the sentence was written from memory over a record the
+    product already keeps and already shows.
+    """
+
+    assert "in the sentence that makes the claim" in CLARIFICATION_CONTRACT
+    assert "not in a closing line about your sources" in CLARIFICATION_CONTRACT
+
+
+def test_a_thread_carries_what_it_already_asked_the_repository(tmp_path: Path) -> None:
+    """The history used to be prose only, so every turn investigated from nothing.
+
+    A thread of four questions about one finding asked the repository the same two things
+    four times — paid for four times, and read back as four slightly different accounts of
+    one result.
+    """
+
+    review, question = _waiting_review(tmp_path)
+    earlier = _said(
+        "What is this asking?",
+        "It asks whether a second provider is expected.",
+        lookups=(
+            InvestigationLookup(
+                tool="implementations_of",
+                arguments=(("symbol", "workflow.service.ReviewExecutionStore"),),
+                result=(
+                    "Implemented only by "
+                    "persistence.executions.SQLiteReviewExecutionRepository."
+                ),
+            ),
+        ),
+    )
+
+    prompt = clarification_prompt(review, question, (earlier,), "What does it do?")
+
+    assert "WHAT THIS THREAD HAS ALREADY LOOKED UP" in prompt
+    assert "you do not need to ask again" in prompt
+    assert "implementations_of(symbol='workflow.service.ReviewExecutionStore')" in prompt
+    assert "SQLiteReviewExecutionRepository" in prompt
+
+
+def test_one_lookup_asked_twice_is_carried_once(tmp_path: Path) -> None:
+    """Deduplicated on what was asked, not on what came back.
+
+    The tools read one revision, so two turns that ran the same lookup got the same answer
+    by construction — and a second copy of it is an earlier turn's context spent twice.
+    """
+
+    review, question = _waiting_review(tmp_path)
+    lookup = InvestigationLookup(
+        tool="implementations_of",
+        arguments=(("symbol", "workflow.service.ReviewExecutionStore"),),
+        result="Implemented only by SQLiteReviewExecutionRepository.",
+    )
+    history = (
+        _said("What is this asking?", "It asks about intent.", lookups=(lookup,)),
+        _said("In simple terms?", "It asks about intent.", lookups=(lookup,)),
+    )
+
+    prompt = clarification_prompt(review, question, history, "What does it do?")
+
+    assert prompt.count("implementations_of(symbol=") == 1
 
 
 def test_the_proposed_answers_are_offered_as_guesses_rather_than_as_the_choices(
